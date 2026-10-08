@@ -6,34 +6,56 @@
 [![Hailo-8L](https://img.shields.io/badge/NPU-Hailo--8L%20AI%20HAT%2B-blueviolet.svg)](https://hailo.ai/)
 [![Raspberry Pi 5](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-C51A4A.svg)](https://www.raspberrypi.com/)
 
-Production-grade YOLO11 edge AI inference and telemetry platform for **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic video source switching, real-time hardware thermals and throttling monitoring, non-blocking SQLite time-series history, an interactive cyber-dark FastAPI dashboard, and least-privilege Podman container deployment.
+Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic video input switching, real-time hardware thermal and throttling monitoring, non-blocking SQLite time-series persistence, an interactive cyber-dark FastAPI dashboard with live WebSockets, and least-privilege Podman container deployment.
 
 ---
 
-## Architecture Overview
+## 1. Role and Operational Scope
 
-`edge-vision-monitor` implements a modular producer-consumer architecture designed to keep inference throughput independent of system telemetry sampling, database persistence, and web client rendering:
+`edge-vision-monitor` is engineered as a continuously operating edge AI monitoring and visual service, rather than a transient benchmarking script.
+
+### 1.1 Core Capabilities
+- **Hailo-8L Accelerated YOLO11**: Executes compiled Hailo Executable Format (`.hef`) models directly on the Hailo-8L neural processing unit using HailoRT.
+- **Selectable Video Inputs**: Raspberry Pi Camera Module (CSI), USB webcams (V4L2), and prerecorded video files with playback controls and loop mode.
+- **Hardware & System Telemetry**: Verifiable metrics collected independently of the inference pipeline via Linux `hwmon`, thermal zones, `/proc/stat` delta calculations, and `vcgencmd get_throttled` bitfield decoding.
+- **Persistent Time-Series Records**: SQLite in Write-Ahead Logging (`WAL`) mode with asynchronous batched commits, query downsampling, automated retention pruning, and CSV export.
+- **FastAPI Dashboard & WebSocket**: Live visualised detection stream (MJPEG), 5 Hz real-time WebSocket state distribution, Chart.js historical trend plots, and hardware diagnostics modal.
+- **Reproducible Podman Deployment**: Least-privilege container configuration with isolated device access (`/dev/hailo0`, `/dev/video*`), read-only sysfs mounts, and health checks distinguishing web liveness from inference readiness.
+
+### 1.2 Explicit Exclusions
+In accordance with system design requirements:
+- No CPU-versus-NPU inference benchmark fallbacks.
+- No artificial experimental lifecycles, fixed five-minute windows, or mandatory 5,000-frame batches.
+- No automated cooldown cycles or synthetic warm-up phases.
+- No fabricated hardware metrics; unsupported sensors are explicitly reported as `UNSUPPORTED` or `UNAVAILABLE` rather than substituted with zero or simulated values.
+- No biometric analysis, identity matching, or facial recognition.
+
+---
+
+## 2. Architecture Overview
+
+The application adopts a decoupled producer-consumer architecture implemented in Python 3 using `asyncio` for API serving and dedicated worker threads for blocking device I/O:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        VIDEO SOURCE MANAGER                            │
 │  [Raspberry Pi Camera Module]    [USB Webcam]    [Prerecorded Video]   │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Bounded Frame Buffer (Drop-Stale)
+                                    │ Bounded Frame Queue (Drop-Stale)
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                      HAILO YOLO11 INFERENCE ENGINE                     │
-│  Preprocessing  ──►  Hailo-8L NPU (PCIe)  ──►  Post-Processing (NMS)   │
+│  Letterbox Resize  ──►  Hailo-8L NPU (PCIe)  ──►  YOLO11 Decode & NMS  │
 └───────────┬────────────────────────────────────────────────┬───────────┘
             │                                                │
-   Annotated Frames (JPEG)                               Detections & Latencies
+   Annotated Preview JPEG                                Detections & Latencies
             │                                                │
             ▼                                                ▼
 ┌───────────────────────┐                        ┌───────────────────────┐
 │   FASTAPI DASHBOARD   │                        │  SQLITE STORAGE WORKER│
 │  • Live MJPEG Stream  │                        │  • Batched WAL writes │
-│  • WebSocket Telemetry│                        │  • Automatic Pruning  │
-│  • Chart.js Historical│                        │  • CSV Dataset Export │
+│  • WebSocket Broadcast│                        │  • Automated Pruning  │
+│  • Chart.js Visualiser│                        │  • CSV Dataset Export │
 └───────────▲───────────┘                        └───────────▲───────────┘
             │                                                │
 ┌───────────┴────────────────────────────────────────────────┴───────────┐
@@ -44,50 +66,73 @@ Production-grade YOLO11 edge AI inference and telemetry platform for **Raspberry
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Key Capabilities
-
-1. **Hardware-Accelerated YOLO11**:
-   - Executes compiled Hailo Executable Format (`.hef`) models directly on the Hailo-8L NPU via HailoRT.
-   - Measures raw accelerator latency (`hailo_exec_ms`) separately from preprocessing and post-processing.
-   - Graceful fallback to mock mode during development on non-Hailo workstations without faking hardware data.
-2. **Dynamic Video Source Switching**:
-   - Raspberry Pi Camera Module (CSI) via `Picamera2` / `libcamera`.
-   - Selectable USB Webcams with V4L2 device discovery and disconnect recovery.
-   - Prerecorded video file playback with native FPS pacing, loop mode, play/pause controls, and path-traversal guards.
-   - Procedural synthetic edge video generator for zero-hardware testing.
-3. **Comprehensive Hardware Telemetry**:
-   - Dynamic `/sys/class/hwmon/` discovery (SoC temperatures, RP1 temperatures, fan RPM, voltages).
-   - Dynamic `/sys/class/thermal/` zones and cooling device state.
-   - True delta-calculated CPU utilization via successive `/proc/stat` counter sampling.
-   - Raspberry Pi `vcgencmd get_throttled` bitfield decoding (current and past undervoltage, frequency capping, thermal throttling).
-   - Optional INA219 current and power sensor integration over I2C.
-4. **Persistent Time-Series & Event Storage**:
-   - Embedded SQLite configured in Write-Ahead Logging (`WAL`) mode.
-   - Bounded in-memory queues and background batch writer workers that never block capture or inference loops.
-   - Time-series queries with downsampling, automated retention purging, and CSV export.
-5. **Interactive Dashboard & REST API**:
-   - Cyber-dark glassmorphic UI built with Vanilla CSS and Google Inter typography.
-   - Real-time WebSocket feed distributing live detections, HUD stats, and hardware metrics at 5 Hz.
-   - Historical time-series plots powered by Chart.js.
-   - Versioned REST API under `/api/v1/`.
+### Architectural Principles
+- **Backpressure & Queue Isolation**: Frame queues between video acquisition and inference are strictly bounded (depth: 2) with a drop-stale policy to eliminate latency build-up.
+- **Latency Separation**: Accelerator execution duration (`hailo_exec_ms`) is tracked with monotonic timers and strictly separated from image preprocessing, post-processing, and end-to-end pipeline latency.
+- **Independent Telemetry Scheduling**: Hardware sensor polling operates on an independent thread, ensuring slow filesystem or driver reads never block frame capture or neural network execution.
 
 ---
 
-## Hardware & Software Prerequisites
+## 3. Hardware & Software Prerequisites
 
-- **Host Machine**: Raspberry Pi 5 (ARM64 / aarch64) or Linux x86_64 development host.
-- **Accelerator**: Hailo-8L AI HAT+ connected via the Raspberry Pi 5 PCIe FPC cable.
-- **Operating System**: Raspberry Pi OS 64-bit (Debian Bookworm) with kernel 6.6+.
+### Target Hardware
+- **Single Board Computer**: Raspberry Pi 5 (4GB or 8GB RAM recommended).
+- **AI Accelerator**: Hailo-8L AI HAT+ connected via the 16-pin PCIe FPC interface.
+- **Camera Input**: Raspberry Pi Camera Module 3 / v2 (CSI ribbon), standard UVC USB webcam, or prerecorded video.
+- **Optional Environmental Sensors**: INA219 voltage/current monitor (I²C bus 1, address `0x40`), compatible PWM cooling fan with tachometer feedback.
+
+### Host Software
+- **Operating System**: Raspberry Pi OS 64-bit (Debian Bookworm) with Linux kernel 6.6 or later.
 - **Hailo Drivers**:
-  - `hailo-all` debian package (`sudo apt install hailo-all`)
-  - PCIe device node `/dev/hailo0` present
-- **Python**: Python 3.10, 3.11, or 3.12.
+  ```bash
+  sudo apt update
+  sudo apt install -y hailo-all
+  ```
+  Verify device detection:
+  ```bash
+  lspci -d 1e60:
+  # Expected: Co-processor: Hailo Technologies Ltd. Hailo-8 AI Processor
+  ls -l /dev/hailo0
+  ```
+- **Python**: Python 3.10, 3.11, or 3.12 with `python3-venv`.
+- **Container Engine**: Podman 4.3+ (`sudo apt install podman`).
 
 ---
 
-## Quickstart: Native Installation
+## 4. Model Provisioning
+
+The application does not fabricate or bundle uncompiled models. Real Hailo-8L acceleration requires compiled **Hailo Executable Format (`.hef`)** binaries.
+
+### 4.1 Supplying the Compiled Model
+1. Place your compiled YOLO11 `.hef` file in the `models/` directory:
+   ```text
+   models/
+   ├── yolo11n.hef         # Compiled Hailo-8L executable
+   ├── labels.txt          # Class names (one per line, COCO-80 default provided)
+   └── README.md           # Model compilation reference guide
+   ```
+2. To compile YOLO11 targeting the Hailo-8L, utilise the companion compilation repository:
+   ```bash
+   yolo export model=yolo11n.pt format=onnx opset=11
+   hailo-yolo11-compiler compile --onnx yolo11n.onnx --target hailo8l --output models/yolo11n.hef
+   ```
+3. Verify model integrity on the Raspberry Pi 5:
+   ```bash
+   hailortcli parse-hef models/yolo11n.hef
+   ```
+
+### 4.2 Startup Model Validation
+Upon application start, the engine verifies:
+1. File accessibility and minimum binary size.
+2. HailoRT Python bindings availability (`hailo_platform`).
+3. Hardware device node presence (`/dev/hailo0`).
+4. Correctness of input stream shapes and detection heads.
+
+If physical hardware or model files are absent, the engine reports an explicit status (`NO_RUNTIME`, `DEVICE_NOT_FOUND`, or `MOCK_ACTIVE`) and enables simulated execution for testing without misrepresenting hardware state.
+
+---
+
+## 5. Native Installation & Quickstart
 
 ```bash
 # 1. Clone repository
@@ -98,55 +143,43 @@ cd edge-vision-monitor
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3. Install dependencies
+# 3. Install dependencies in editable mode
 pip install --upgrade pip
 pip install -e ".[dev]"
 
-# 4. Run hardware diagnostics
+# 4. Execute hardware diagnostics
 python scripts/diagnose.py
 
-# 5. Start Edge Vision Monitor
+# 5. Start the Edge Vision Monitor server
 python -m app.main
 ```
 
-Open your browser to: **`http://localhost:8000`**
+Navigate to **`http://localhost:8000`** in any modern web browser.
 
 ---
 
-## Model Provisioning
+## 6. Podman Container Deployment
 
-Hailo-8L executes compiled `.hef` files. To supply a model:
+Deployment via Podman adheres to **least-privilege host access**, avoiding `--privileged` and unrestricted root mounts.
 
-1. Obtain or compile a YOLO11 model targeting Hailo-8L (e.g. using the companion `hailo-yolo11-compiler`):
-   ```bash
-   yolo export model=yolo11n.pt format=onnx opset=11
-   # Compile with Hailo Dataflow Compiler
-   hailo-yolo11-compiler compile --onnx yolo11n.onnx --target hailo8l --output models/yolo11n.hef
-   ```
-2. Copy `yolo11n.hef` to `models/yolo11n.hef`.
-3. Ensure class labels are defined in `models/labels.txt` (standard COCO-80 provided by default).
-4. See [models/README.md](file:///home/mosud/Documents/dev/edge-vision-monitor/models/README.md) for full instructions.
-
----
-
-## Podman Deployment (Least-Privilege)
-
-The container configuration uses **rootless, least-privilege device mapping** without `--privileged`:
-
+### 6.1 Building the Container
 ```bash
-# 1. Build container image
 podman build -t edge-vision-monitor:latest -f Containerfile .
+```
 
-# 2. Deploy using Podman Compose
+### 6.2 Running with Podman Compose
+```bash
+# Start background service
 podman-compose up -d
 
-# 3. Check health and logs
+# Inspect running container and health status
 podman-compose ps
+
+# View structured operational logs
 podman-compose logs -f
 ```
 
-### Manual Podman Run Command
-
+### 6.3 Direct Podman Command Line
 ```bash
 podman run -d \
   --name edge-vision-monitor \
@@ -163,97 +196,257 @@ podman run -d \
   edge-vision-monitor:latest
 ```
 
+### 6.4 Container Health Monitoring
+The container health check distinguishes HTTP process liveness from accelerator readiness:
+- **Liveness** (`/api/v1/health`): Verifies the Uvicorn ASGI server and background telemetry threads are actively cycling.
+- **Readiness** (`/api/v1/ready`): Queries HailoRT VDevice state and model configuration.
+
 ---
 
-## Configuration Reference
+## 7. Video Input Configuration
 
-Configuration can be specified in `config/config.yaml` or overridden via environment variables formatted as `EVM_SECTION__KEY`:
+The platform supports dynamic, runtime source switching across three modalities:
 
-| Environment Variable | YAML Path | Default | Description |
+### 7.1 Raspberry Pi Camera Module (CSI)
+- Interfaces with the hardware sensor via `Picamera2` and host `libcamera`.
+- Frame dimensions and target capture frame rate are negotiated dynamically.
+- When containerised, requires either host camera socket access or host device pass-through.
+
+### 7.2 USB Webcam (V4L2)
+- Enumerates available devices via `/dev/v4l/by-id/` and `/dev/video*`.
+- Includes automated disconnection detection; if read failures exceed ten consecutive frames, the handle is cleanly recycled with exponential backoff.
+
+### 7.3 Prerecorded Video Files
+- Video files placed in `media/` (`.mp4`, `.avi`, `.mkv`, `.mov`) can be selected via REST API or the dashboard dropdown.
+- Playback pacing respects the native video FPS.
+- Interactive controls: **Play**, **Pause**, **Restart**, and configurable **Looping**.
+- Path-traversal protection prevents access outside the configured `media_dir`.
+- In the absence of physical media, a procedural synthetic edge stream generates moving geometric targets for testing.
+
+---
+
+## 8. Hardware Telemetry & Metric Catalogue
+
+Hardware monitoring is implemented through native Linux interfaces rather than static estimations:
+
+| Metric Identifier | Units | Source Interface | Description |
 |---|---|---|---|
-| `EVM_SERVER__HOST` | `server.host` | `127.0.0.1` | Bind IP (use `0.0.0.0` for LAN access) |
-| `EVM_SERVER__PORT` | `server.port` | `8000` | HTTP listening port |
-| `EVM_MODEL__HEF_PATH` | `model.hef_path` | `models/yolo11n.hef` | Path to compiled Hailo HEF model |
-| `EVM_MODEL__CONFIDENCE_THRESHOLD` | `model.confidence_threshold` | `0.25` | Detection confidence filter [0.0 - 1.0] |
-| `EVM_MODEL__NMS_IOU_THRESHOLD` | `model.nms_iou_threshold` | `0.45` | IoU suppression threshold [0.0 - 1.0] |
-| `EVM_VIDEO__DEFAULT_SOURCE_TYPE` | `video.default_source_type` | `file` | Initial source (`picamera`, `usb`, `file`) |
-| `EVM_VIDEO__USB_DEVICE_PATH` | `video.usb_device_path` | `/dev/video0` | USB camera device path |
-| `EVM_TELEMETRY__SYSTEM_INTERVAL_SECONDS` | `telemetry.system_interval_seconds` | `1.0` | Hardware sampling interval |
-| `EVM_STORAGE__DB_PATH` | `storage.db_path` | `data/telemetry.db` | SQLite database file path |
-| `EVM_STORAGE__RETENTION_DAYS` | `storage.retention_days` | `7` | History retention before auto-purge |
+| `cpu_utilisation` | `%` | `/proc/stat` deltas | True host CPU utilisation calculated from successive counter differences |
+| `cpu_freq_cpu*_mhz` | `MHz` | `/sys/devices/system/cpu/` | Per-core current clock frequencies |
+| `memory_utilisation` | `%` | `/proc/meminfo` | Host RAM utilisation calculated from MemTotal and MemAvailable |
+| `memory_available_mb` | `MB` | `/proc/meminfo` | Available system memory in megabytes |
+| `thermal_*_temp` | `°C` | `/sys/class/thermal/` | Thermal zone temperatures (converted from millidegrees Celsius) |
+| `hwmon_*_temp` | `°C` | `/sys/class/hwmon/` | Hardware monitor chip temperatures (RP1, SoC) |
+| `hwmon_*_rpm` | `RPM` | `/sys/class/hwmon/` | Cooling fan tachometer feedback |
+| `rpi_throttled_raw` | `flags` | `vcgencmd get_throttled` | Raw hexadecimal throttling bitfield |
+| `rpi_undervoltage_now` | `boolean` | `vcgencmd get_throttled` | Active under-voltage flag (Bit 0) |
+| `rpi_is_throttled` | `boolean` | `vcgencmd get_throttled` | Active throttling condition (Bits 0–3) |
+| `hailo_device_present` | `boolean` | `/dev/hailo0` | Hailo PCIe device node detection |
+| `hailo_temperature_c` | `°C` | HailoRT / driver | Accelerator silicon temperature (reported as `UNSUPPORTED` if driver does not expose it) |
+| `hailo_power_watts` | `Watts` | HailoRT / INA219 | Accelerator power consumption |
+| `process_memory_rss_mb` | `MB` | `/proc/self/status` | Resident Set Size memory of the monitoring process |
+| `container_cgroup_memory_mb` | `MB` | `/sys/fs/cgroup/` | Container cgroup v2 memory consumption |
 
-See [config/config.example.yaml](file:///home/mosud/Documents/dev/edge-vision-monitor/config/config.example.yaml) for all parameters.
+### Availability States
+Every metric sample carries an explicit state attribute:
+- `AVAILABLE`: Sensor reading successfully acquired and normalised.
+- `UNAVAILABLE`: Hardware device expected but temporarily unreachable or disconnected.
+- `UNSUPPORTED`: Interface not exposed by target host kernel, driver, or virtualised container.
+- `PERMISSION_DENIED`: File or device node exists but requires elevated user permissions.
+- `STALE`: Reading older than the configured freshness window.
+- `READ_ERROR`: Transient I/O or parsing failure.
 
 ---
 
-## REST API Specification
+## 9. Configuration Reference
 
-All endpoints are versioned under `/api/v1/`:
+Configuration is managed via `config/config.yaml` with environment variable overrides formatted as `EVM_SECTION__KEY`:
+
+```yaml
+# Model and Hailo Accelerator
+model:
+  hef_path: "models/yolo11n.hef"
+  labels_path: "models/labels.txt"
+  metadata_path: null
+  input_width: null            # Auto-discovered from HEF if null
+  input_height: null           # Auto-discovered from HEF if null
+  confidence_threshold: 0.25   # Range: 0.0 to 1.0
+  nms_iou_threshold: 0.45      # Range: 0.0 to 1.0
+  max_detections: 100
+
+# Video Input Sources
+video:
+  default_source_type: "file"  # "picamera", "usb", or "file"
+  picamera_camera_num: 0
+  usb_device_path: "/dev/video0"
+  video_file_path: "media/sample.mp4"
+  media_dir: "media"
+  capture_width: 640
+  capture_height: 480
+  capture_fps: 30
+  loop_playback: true
+
+# Telemetry Sampling & Alarms
+telemetry:
+  system_interval_seconds: 1.0
+  hailo_interval_seconds: 0.5
+  enable_hwmon: true
+  enable_thermal: true
+  enable_raspberry_pi: true
+  enable_hailo: true
+  enable_process: true
+  enable_ina219: false
+  ina219_i2c_bus: 1
+  ina219_i2c_address: 0x40
+  thresholds:
+    warning_cpu_temp_c: 75.0
+    critical_cpu_temp_c: 85.0
+    warning_hailo_temp_c: 80.0
+    critical_hailo_temp_c: 90.0
+
+# SQLite Persistence
+storage:
+  db_path: "data/telemetry.db"
+  retention_days: 7
+  batch_size: 50
+  flush_interval_seconds: 1.0
+
+# HTTP & Web Dashboard
+server:
+  host: "127.0.0.1"            # Bind loopback for least privilege; "0.0.0.0" for LAN
+  port: 8000
+  log_level: "INFO"
+  preview_max_fps: 15
+  preview_quality: 75
+```
+
+---
+
+## 10. REST API Specification
+
+All application endpoints are versioned under `/api/v1/`:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/health` | Process liveness, uptime, collector health |
-| `GET` | `/api/v1/ready` | Hailo device, model validation and inference readiness |
-| `GET` | `/api/v1/status` | Application state, active source, active alarms |
-| `GET` | `/api/v1/metrics/current` | Latest snapshot of all hardware telemetry |
-| `GET` | `/api/v1/metrics/history` | Historical time-series query with downsampling |
-| `GET` | `/api/v1/metrics/catalog` | Discovered sensor catalog and data provenance |
-| `GET` | `/api/v1/inference/stats` | Rolling FPS and latency percentiles (mean, p95, p99) |
-| `GET` | `/api/v1/detections/latest` | Latest structured object detection records |
-| `GET` | `/api/v1/video/sources` | Discovered input sources (CSI, USB, files) |
-| `POST` | `/api/v1/video/source` | Switch video source safely |
-| `POST` | `/api/v1/video/playback` | Play, pause, or restart prerecorded video |
-| `POST` | `/api/v1/inference/start` | Start/resume continuous inference |
-| `POST` | `/api/v1/inference/stop` | Stop continuous inference |
-| `GET` | `/api/v1/video/stream` | Multipart live MJPEG preview stream |
+| `GET` | `/api/v1/health` | Process liveness, uptime, and worker health |
+| `GET` | `/api/v1/ready` | Hailo device, model validation, and accelerator readiness |
+| `GET` | `/api/v1/status` | Current application state, active input source, and alarm counts |
+| `GET` | `/api/v1/metrics/current` | Snapshot of all latest normalised hardware telemetry readings |
+| `GET` | `/api/v1/metrics/history` | Historical time-series query with optional metric filter and downsampling |
+| `GET` | `/api/v1/metrics/catalog` | Discovered sensor catalogue, units, and provenance |
+| `GET` | `/api/v1/inference/stats` | Rolling FPS, total frame counters, and latency percentiles (mean, p95, p99) |
+| `GET` | `/api/v1/detections/latest` | Structured detections for the most recently evaluated frame |
+| `GET` | `/api/v1/video/sources` | Discovered input devices (CSI camera, USB devices, media files) |
+| `POST` | `/api/v1/video/source` | Switch active video input safely |
+| `POST` | `/api/v1/video/playback` | Playback control (`play`, `pause`, `restart`) for prerecorded video |
+| `POST` | `/api/v1/inference/start` | Start or resume continuous inference execution |
+| `POST` | `/api/v1/inference/stop` | Stop continuous inference execution safely |
+| `GET` | `/api/v1/video/stream` | Multipart live MJPEG preview stream with bounding box overlays |
 | `GET` | `/api/v1/video/frame` | Single annotated JPEG frame snapshot |
-| `GET` | `/api/v1/system/info` | Host hardware and OS distribution details |
-| `GET` | `/api/v1/history/export/telemetry` | Export persisted telemetry samples as CSV |
-| `GET` | `/api/v1/history/export/detections` | Export persisted detection records as CSV |
-| `WS` | `/api/v1/ws` | Live telemetry, detections, and FPS WebSocket feed |
+| `GET` | `/api/v1/system/info` | Host hardware, CPU model, kernel, and driver version details |
+| `GET` | `/api/v1/history/export/telemetry` | Export persisted telemetry records as a downloadable CSV dataset |
+| `GET` | `/api/v1/history/export/detections` | Export persisted object detections as a downloadable CSV dataset |
+| `WS` | `/api/v1/ws` | High-frequency WebSocket publishing live telemetry and detections at 5 Hz |
 
 ---
 
-## Testing & Quality Verification
+## 11. Web Dashboard Visualisation
 
-Run the automated test suite with pytest:
+The browser dashboard is served directly from the embedded FastAPI service at `http://localhost:8000`.
 
+- **Live Inference Viewport**: Renders the annotated stream with bounding boxes, class tags, and confidence percentages. Overlaid Heads-Up Display (HUD) shows live FPS, Hailo NPU latency, and object counts.
+- **Source Switching Bar**: Tabbed interface permitting on-the-fly transitions between prerecorded files, USB webcams, and Raspberry Pi CSI cameras with playback controls.
+- **Hardware Thermals & Resources**: Real-time gauge bars for CPU temperature, RP1 temperature, Hailo NPU temperature, RAM utilisation, and storage capacity.
+- **Throttling Alert Banner**: Animates into view whenever Raspberry Pi under-voltage or thermal throttling flags are detected by `vcgencmd`.
+- **Latency Breakdown**: Visualises time spent across Preprocessing, Hailo Accelerator Execution, and Post-processing.
+- **Historical Trend Visualisation**: Interactive Chart.js graphs tracking latencies, inference FPS, thermal profiles, and host load over time.
+- **Diagnostics Modal**: Displays target system specifications, full sensor catalogue, and CSV export shortcuts.
+
+---
+
+## 12. Storage & Retention Behaviour
+
+The persistence service uses embedded SQLite with `WAL` (Write-Ahead Logging) mode enabled:
+- **Non-Blocking Queue**: Telemetry and frame statistics are enqueued to a bounded memory buffer. A dedicated background thread drains the queue in transactions of up to 50 items or every 1.0 second.
+- **Schema**:
+  - `telemetry_samples`: Timestamp, monotonic time, metric name, normalised value, unit, source interface, status, and error message.
+  - `inference_frames`: Sequence number, source ID, latencies (acquisition, preprocessing, Hailo execution, post-processing, total), detection count, dropped flag.
+  - `detections`: Bounding box normalised coordinates (`xmin`, `ymin`, `xmax`, `ymax`), class ID, label, confidence.
+  - `system_events`: Lifecycle events, source transitions, and hardware warning alarms.
+- **Automated Retention**: Historical records exceeding `storage.retention_days` (default: 7 days) are purged during maintenance sweeps.
+
+---
+
+## 13. Testing & Operational Verification
+
+### Automated Test Suite
+Run tests with `pytest`:
 ```bash
-# Run all unit and hardware-independent integration tests
+# Execute all unit and hardware-independent integration tests
 pytest -v
 
-# Run with coverage report
+# Execute with code coverage
 pytest --cov=app tests/
 ```
 
-- **Unit tests** (`tests/unit/`): Configuration validation, preprocessing letterbox maths, post-processing YOLO decoding/NMS, telemetry bitfields, SQLite WAL batching.
-- **Integration tests** (`tests/integration/`): FastAPI endpoints, VideoSourceManager transitions, ApplicationLifecycleManager full lifecycle.
-- **Physical hardware tests** (`tests/hardware/`): Validates physical Hailo-8L accelerator and CSI camera (skips automatically on non-Hailo machines).
+- **Unit Tests** (`tests/unit/`): Configuration validation, letterbox scaling mathematics, vectorised NMS suppression, unletterbox coordinate inversion, `vcgencmd` bitfield decoding, and SQLite WAL batching.
+- **Integration Tests** (`tests/integration/`): FastAPI endpoints via TestClient, VideoSourceManager source transitions, and ApplicationLifecycleManager startup/teardown.
+- **Physical Hardware Tests** (`tests/hardware/`): Verifies live PCIe communication with `/dev/hailo0` and CSI camera hardware on the Raspberry Pi 5. Skips gracefully with informative messages when executed on developer workstations lacking Hailo hardware.
 
 ---
 
-## Diagnostics Tool
+## 14. Hardware Diagnostic Tool
 
-Execute the diagnostic script to audit your edge hardware environment:
+Execute the diagnostic script to audit your edge environment without modifying any system configuration:
 
 ```bash
 python scripts/diagnose.py
 ```
 
-Checks PCIe device nodes, kernel drivers, HailoRT Python bindings, camera interfaces, thermal zones, firmware throttling flags, and user group permissions without altering system configuration.
+Inspects:
+- Raspberry Pi hardware model (`/proc/device-tree/model`).
+- PCIe devices (`lspci -d 1e60:`) and `/dev/hailo0` device node.
+- Kernel driver presence (`hailo_pci`).
+- HailoRT Python bindings (`hailo_platform`).
+- Video devices (`/dev/video*`) and Picamera2 availability.
+- Thermal zones and hwmon sensors.
+- Raspberry Pi throttling bitfields (`vcgencmd get_throttled`).
+- User group membership (`video`, `i2c`).
 
 ---
 
-## Security & Privacy
+## 15. Operational Procedures: Shutdown, Restart & Upgrades
 
-- Bound to loopback interface (`127.0.0.1`) by default.
-- Least-privilege Podman execution with isolated device nodes.
-- Path traversal guards restrict media playback to configured directories.
-- Object detection is strictly general-purpose (COCO-80 classes). No biometric identification or facial recognition routines exist in this codebase.
-- See [SECURITY.md](file:///home/mosud/Documents/dev/edge-vision-monitor/SECURITY.md) for full details.
+### Graceful Teardown
+When terminating the application (via `Ctrl+C`, `SIGTERM`, or container stop):
+1. The inference worker stops pulling frames and releases device queues.
+2. The active video source worker releases camera hardware locks.
+3. The telemetry collector stops background polling.
+4. The Hailo inference engine closes configured VDevice streams.
+5. The storage repository flushes all pending batches to disk and closes the SQLite connection.
+
+### Container Restart & Upgrade
+```bash
+# Pull or rebuild updated image
+podman-compose build
+
+# Recreate container preserving persistent data in ./data
+podman-compose down
+podman-compose up -d
+```
 
 ---
 
-## License
+## 16. Security Policy
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- **Secure by Default**: Binds to loopback `127.0.0.1` unless explicitly instructed otherwise.
+- **Least-Privilege Isolation**: No `--privileged` container mode. Mounts host sysfs read-only (`:ro`).
+- **Path Traversal Guards**: Media selection is strictly validated against the configured `media_dir`.
+- **No Biometric Processing**: The pipeline strictly classifies standard object categories (COCO-80).
+- Detailed reporting guidelines are available in [SECURITY.md](file:///home/mosud/Documents/dev/edge-vision-monitor/SECURITY.md).
+
+---
+
+## 17. Licence
+
+This project is licensed under the MIT Licence. See [LICENSE](LICENSE) for details.
