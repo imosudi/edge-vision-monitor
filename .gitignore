@@ -218,3 +218,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project ignores
+.venv/
+data/
+*.db
+*.db-wal
+*.db-shm
+models/*.hef
+media/*.mp4
+media/*.avi
+media/*.mkv
+media/*.mov
+.env
+
+# Agent, assistant and prompt artifacts
+.agents/
+.gemini/
+.system_generated/
+.antigravity/
+.brain/
+brain/
+scratch/
+*.prompt
+*.prompt.md
+*-prompt.md
+edge-vision-monitor.md

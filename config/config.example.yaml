@@ -1,0 +1,97 @@
+# ==============================================================================
+# Edge Vision Monitor - Example Configuration File
+# Copy to config/config.yaml or specify path via EVM_CONFIG_PATH
+# All options can be overridden using environment variables: EVM_SECTION__KEY
+# ==============================================================================
+
+# Hailo YOLO11 Model & Accelerator Settings
+model:
+  # Path to compiled Hailo Executable Format (HEF) file
+  hef_path: "models/yolo11n.hef"
+  # Path to text file containing class labels (one per line) or YAML
+  labels_path: "models/labels.txt"
+  # Optional model metadata configuration file
+  metadata_path: null
+  # Input tensor width and height (null = auto-discover from HEF metadata)
+  input_width: null
+  input_height: null
+  # Confidence score threshold for object detection filtering [0.0 - 1.0]
+  confidence_threshold: 0.25
+  # Non-Maximum Suppression (NMS) Intersection-over-Union threshold [0.0 - 1.0]
+  nms_iou_threshold: 0.45
+  # Maximum detections to output per frame
+  max_detections: 100
+
+# Video Input Source Settings
+video:
+  # Default source to start on application launch ("picamera", "usb", or "file")
+  default_source_type: "file"
+  # Raspberry Pi Camera Module sensor index (0, 1)
+  picamera_camera_num: 0
+  # USB Camera device path or index
+  usb_device_path: "/dev/video0"
+  # Prerecorded video file path (relative or absolute)
+  video_file_path: "media/sample.mp4"
+  # Restricted directory for prerecorded video files (guards against path traversal)
+  media_dir: "media"
+  # Video capture dimensions
+  capture_width: 640
+  capture_height: 480
+  # Requested capture frame rate
+  capture_fps: 30
+  # Continuously loop prerecorded video playback
+  loop_playback: true
+
+# Hardware & System Telemetry Collection Settings
+telemetry:
+  # General system telemetry sampling interval in seconds
+  system_interval_seconds: 1.0
+  # Hailo accelerator telemetry sampling interval in seconds
+  hailo_interval_seconds: 0.5
+  # Enable Linux hwmon sensor collection (/sys/class/hwmon/)
+  enable_hwmon: true
+  # Enable Linux thermal zone collection (/sys/class/thermal/)
+  enable_thermal: true
+  # Enable Raspberry Pi sysfs, CPU deltas, and vcgencmd metrics
+  enable_raspberry_pi: true
+  # Enable Hailo NPU telemetry (/dev/hailo0 and HailoRT)
+  enable_hailo: true
+  # Enable process and container cgroup resource monitoring
+  enable_process: true
+  # Enable optional INA219 current and power sensor over I2C
+  enable_ina219: false
+  ina219_i2c_bus: 1
+  ina219_i2c_address: 0x40
+
+  # Configurable warning and critical alarm thresholds
+  thresholds:
+    warning_cpu_temp_c: 75.0
+    critical_cpu_temp_c: 85.0
+    warning_hailo_temp_c: 80.0
+    critical_hailo_temp_c: 90.0
+    warning_memory_percent: 85.0
+    critical_memory_percent: 95.0
+
+# SQLite Persistent Time-Series & Event Storage Settings
+storage:
+  # Path to SQLite database file
+  db_path: "data/telemetry.db"
+  # Historical record retention in days (older records automatically pruned)
+  retention_days: 7
+  # Number of samples accumulated in memory before batched SQLite write
+  batch_size: 50
+  # Maximum flush delay in seconds for pending batch
+  flush_interval_seconds: 1.0
+
+# HTTP Server & Live Dashboard Settings
+server:
+  # Network bind address (127.0.0.1 for least privilege; 0.0.0.0 for LAN access)
+  host: "127.0.0.1"
+  # HTTP listening port
+  port: 8000
+  # Logging severity level ("DEBUG", "INFO", "WARNING", "ERROR")
+  log_level: "INFO"
+  # Maximum frame rate for live MJPEG preview stream (reduces network load)
+  preview_max_fps: 15
+  # JPEG compression quality [10 - 100]
+  preview_quality: 75

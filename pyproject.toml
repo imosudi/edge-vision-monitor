@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-vision-monitor"
+version = "1.0.0"
+description = "Production-grade YOLO11 edge AI inference and telemetry platform for Raspberry Pi 5 with Hailo-8L"
+readme = "README.md"
+authors = [{ name = "Mosudi I. O.", email = "imosudi@gmail.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "numpy>=1.26.0",
+    "opencv-python-headless>=4.9.0",
+    "aiofiles>=23.2.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.3.0",
+]
+hardware = [
+    "smbus2>=0.4.3",
+]
+
+[project.scripts]
+edge-vision-monitor = "app.main:run"
+evm-diagnose = "scripts.diagnose:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
