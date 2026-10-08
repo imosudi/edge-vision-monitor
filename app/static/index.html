@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edge Vision Monitor | YOLO11 on Raspberry Pi 5 + Hailo-8L</title>
+  <meta name="description" content="Production-grade YOLO11 edge AI inference, telemetry platform, and live monitoring dashboard for Raspberry Pi 5 and Hailo-8L AI HAT+.">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Chart.js for real-time telemetry plots -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation & Global Hardware State -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <h1 class="brand-title">EDGE VISION MONITOR</h1>
+        <div class="brand-subtitle">Raspberry Pi 5 &bull; Hailo-8L AI HAT+</div>
+      </div>
+    </div>
+
+    <div class="header-badges">
+      <div id="badge-hailo" class="badge">
+        <span class="badge-dot"></span>
+        <span id="label-hailo">Hailo-8L NPU</span>
+      </div>
+      <div id="badge-model" class="badge">
+        <span class="badge-dot"></span>
+        <span id="label-model">YOLO11 Model</span>
+      </div>
+      <div id="badge-source" class="badge">
+        <span class="badge-dot"></span>
+        <span id="label-source">Source: Initialising</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
+        <span id="icon-inference">⏹</span>
+        <span id="text-inference">Stop Inference</span>
+      </button>
+      <button id="btn-open-diagnostics" class="btn btn-ghost" onclick="openDiagnosticsModal()">
+        <span>🔧</span> Diagnostics
+      </button>
+    </div>
+  </header>
+
+  <!-- Throttling & Hardware Alert Banner -->
+  <div id="alert-banner">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <span>⚠️</span>
+      <span id="alert-banner-text">Warning: Hardware undervoltage or thermal throttling detected!</span>
+    </div>
+    <span style="font-size: 0.75rem; opacity: 0.8;">Check power supply and cooling fan</span>
+  </div>
+
+  <!-- Main Dashboard Layout -->
+  <main class="main-container">
+    <div class="grid-dashboard">
+      
+      <!-- Left Column: Video Viewport & Detections Feed -->
+      <section style="display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <!-- Live Video Viewport Card -->
+        <div class="card viewport-card">
+          <div class="card-header">
+            <div class="card-title">
+              <span>📹</span> Live Accelerated Inference Preview
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button id="btn-snapshot" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="captureSnapshot()">
+                📸 Snapshot
+              </button>
+              <button id="btn-fullscreen" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="toggleFullscreen()">
+                ⛶ Fullscreen
+              </button>
+            </div>
+          </div>
+
+          <div id="video-container" class="video-wrapper">
+            <img id="video-stream-img" class="video-stream" src="/api/v1/video/stream" alt="Live YOLO11 Edge Inference Stream">
+            
+            <!-- Overlay HUD -->
+            <div class="video-hud">
+              <div class="hud-pill">FPS: <span id="hud-fps" class="val">--</span></div>
+              <div class="hud-pill">Hailo: <span id="hud-hailo-lat" class="val">--</span> ms</div>
+              <div class="hud-pill">Objects: <span id="hud-objects" class="val">0</span></div>
+            </div>
+          </div>
+
+          <!-- Video Source Selector Bar -->
+          <div class="source-control-bar">
+            <div class="source-tabs">
+              <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file')">Video File</button>
+              <button id="tab-source-usb" class="tab-btn" onclick="selectSourceTab('usb')">USB Camera</button>
+              <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera')">Pi Camera (CSI)</button>
+            </div>
+
+            <!-- Contextual Controls for Selected Tab -->
+            <div id="controls-file" class="source-selectors">
+              <select id="select-video-file" class="input-select" onchange="switchToFileSource()">
+                <option value="">Synthetic Edge Stream</option>
+              </select>
+              <button id="btn-playback-pause" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('pause')">⏸</button>
+              <button id="btn-playback-play" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('play')">▶</button>
+              <button id="btn-playback-restart" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('restart')">↺</button>
+            </div>
+
+            <div id="controls-usb" class="source-selectors" style="display: none;">
+              <select id="select-usb-device" class="input-select" onchange="switchToUsbSource()">
+                <option value="/dev/video0">/dev/video0</option>
+              </select>
+            </div>
+
+            <div id="controls-picam" class="source-selectors" style="display: none;">
+              <button id="btn-activate-picam" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="switchToPiCamSource()">
+                Activate CSI Camera
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Detections Panel -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span>🎯</span> Identified Detections
+              <span id="badge-det-count" class="badge" style="margin-left: 0.5rem;">0 objects</span>
+            </div>
+            <div class="card-subtitle">Updated in real-time via WebSocket</div>
+          </div>
+
+          <div id="detections-feed" class="detections-panel">
+            <div style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">
+              Waiting for incoming detections...
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Hardware Health & Performance KPIs -->
+      <aside class="telemetry-sidebar">
+        
+        <!-- Hardware Thermals Card -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span>🌡️</span> Hardware Thermals</div>
+            <div id="thermal-status-pill" class="status-pill available">Nominal</div>
+          </div>
+          
+          <div class="metric-group">
+            <div class="metric-row">
+              <span class="metric-label">CPU Temperature</span>
+              <span id="val-cpu-temp" class="metric-val cyan">-- °C</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-cpu-temp" class="progress-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label">RP1 I/O Controller</span>
+              <span id="val-rp1-temp" class="metric-val cyan">-- °C</span>
+            </div>
+
+            <div class="metric-row">
+              <span class="metric-label">Hailo-8L NPU Die</span>
+              <span id="val-hailo-temp" class="metric-val green">-- °C</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Resources Card -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span>⚙️</span> System Resources</div>
+          </div>
+
+          <div class="metric-group">
+            <div class="metric-row">
+              <span class="metric-label">CPU Utilisation</span>
+              <span id="val-cpu-util" class="metric-val">-- %</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-cpu-util" class="progress-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label">RAM Usage</span>
+              <span id="val-mem-util" class="metric-val">-- %</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-mem-util" class="progress-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label">Disk Storage</span>
+              <span id="val-disk-util" class="metric-val">-- %</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pipeline Latency Breakdown -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span>⏱️</span> Pipeline Latency (p95)</div>
+            <div id="val-total-latency" class="metric-val cyan">-- ms</div>
+          </div>
+
+          <div class="latency-stacked">
+            <div id="bar-lat-prep" class="lat-prep" style="width: 15%;" title="Preprocessing"></div>
+            <div id="bar-lat-hailo" class="lat-hailo" style="width: 70%;" title="Hailo Accelerator"></div>
+            <div id="bar-lat-post" class="lat-post" style="width: 15%;" title="Postprocessing"></div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">
+            <span>Pre: <strong id="lbl-lat-prep" style="color: var(--accent-blue)">-- ms</strong></span>
+            <span>NPU: <strong id="lbl-lat-hailo" style="color: var(--accent-cyan)">-- ms</strong></span>
+            <span>Post: <strong id="lbl-lat-post" style="color: var(--accent-violet)">-- ms</strong></span>
+          </div>
+        </div>
+
+        <!-- Power & Environmental Telemetry -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span>⚡</span> Electrical & Throttling</div>
+          </div>
+
+          <div class="metric-group">
+            <div class="metric-row">
+              <span class="metric-label">Undervoltage Active</span>
+              <span id="val-undervolt" class="metric-val green">No</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Freq Capped Active</span>
+              <span id="val-freq-capped" class="metric-val green">No</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">INA219 Supply Rail</span>
+              <span id="val-ina-voltage" class="metric-val">-- V</span>
+            </div>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+
+    <!-- Bottom Section: Historical Telemetry Charts -->
+    <section class="charts-section">
+      
+      <!-- Chart 1: Latency Breakdown -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <div class="card-title"><span>📈</span> Latency Breakdown History (ms)</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-latency"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 2: Inference FPS -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <div class="card-title"><span>🚀</span> Inference FPS History</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-fps"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 3: Thermals -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-thermal"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 4: CPU & RAM Utilisation -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-resources"></canvas>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Hardware Inventory & Diagnostics Modal -->
+  <div id="modal-diagnostics" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="card-title"><span>🛠️</span> Hardware Inventory & Diagnostics</div>
+        <button class="btn btn-ghost" onclick="closeDiagnosticsModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div>
+          <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--accent-cyan);">Target System Overview</h3>
+          <table class="table-custom" id="table-sysinfo">
+            <tbody>
+              <tr><td>Hostname</td><td id="diag-host">--</td></tr>
+              <tr><td>OS / Kernel</td><td id="diag-os">--</td></tr>
+              <tr><td>CPU Architecture</td><td id="diag-cpu">--</td></tr>
+              <tr><td>Hailo Device (/dev/hailo0)</td><td id="diag-hailo-dev">--</td></tr>
+              <tr><td>HailoRT Python Bindings</td><td id="diag-hailo-pkg">--</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <h3 style="font-size: 0.9rem; color: var(--accent-cyan);">Sensor Catalogue & Data Provenance</h3>
+            <div style="display: flex; gap: 0.5rem;">
+              <a href="/api/v1/history/export/telemetry" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">
+                📥 Export Telemetry CSV
+              </a>
+              <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">
+                📥 Export Detections CSV
+              </a>
+            </div>
+          </div>
+          <table class="table-custom">
+            <thead>
+              <tr>
+                <th>Metric Identifier</th>
+                <th>Unit</th>
+                <th>Source Interface</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="table-catalog-body">
+              <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading catalogue...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
+  </footer>
+
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
