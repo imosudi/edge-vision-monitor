@@ -1,0 +1,52 @@
+# ==============================================================================
+# Edge Vision Monitor - Podman Compose Deployment
+# Least-privilege host hardware device mapping and persistent volume mounts
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  edge-vision-monitor:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-monitor
+    restart: unless-stopped
+    network_mode: host
+    ports:
+      - "8000:8000"
+
+    # Least-privilege hardware device mapping
+    devices:
+      # Hailo-8L PCIe accelerator node
+      - "/dev/hailo0:/dev/hailo0:rwm"
+      # USB webcam / V4L2 device
+      - "/dev/video0:/dev/video0:rwm"
+
+    # Volume mounts with security labeling (:Z for SELinux / rootless Podman)
+    volumes:
+      # Read-only hardware telemetry sysfs interfaces
+      - "/sys/class/hwmon:/sys/class/hwmon:ro"
+      - "/sys/class/thermal:/sys/class/thermal:ro"
+      # Writable persistent SQLite time-series storage
+      - "./data:/app/data:Z"
+      # Read-only model binaries and labels
+      - "./models:/app/models:ro,Z"
+      # Read-only prerecorded video files
+      - "./media:/app/media:ro,Z"
+      # Application configuration override
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+
+    environment:
+      - EVM_SERVER__HOST=0.0.0.0
+      - EVM_SERVER__PORT=8000
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
