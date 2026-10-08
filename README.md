@@ -28,7 +28,13 @@ In accordance with system design requirements:
 - No artificial experimental lifecycles, fixed five-minute windows, or mandatory 5,000-frame batches.
 - No automated cooldown cycles or synthetic warm-up phases.
 - No fabricated hardware metrics; unsupported sensors are explicitly reported as `UNSUPPORTED` or `UNAVAILABLE` rather than substituted with zero or simulated values.
-- No biometric analysis, identity matching, or facial recognition.
+### 1.3 Documentation Suite
+Detailed user and operational guides are provided in the `docs/` directory:
+- 📖 **[User Guide](docs/user-guide.md)**: Live dashboard interface, video source switching, telemetry gauges, and dataset export.
+- ⚙️ **[Configuration Guide](docs/configuration-guide.md)**: Full YAML schema reference, environment variable overrides, and operational recipes.
+- 🚀 **[Deployment & Operations Guide](docs/deployment-and-operations.md)**: Physical HAT assembly, PCIe Gen 3 setup, Podman containerisation, and systemd units.
+- 🔧 **[Troubleshooting & Diagnostics](docs/troubleshooting-and-diagnostics.md)**: Automated environment audits (`scripts/diagnose.py`), PCIe link training, and error remediation.
+- 🌐 **[REST API & WebSocket Reference](docs/api-reference.md)**: Complete endpoint specifications, request/response JSON schemas, and streaming protocol.
 
 ---
 
