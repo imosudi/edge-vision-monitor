@@ -1,0 +1,160 @@
+"""
+Telemetry background service managing periodic sampling, threshold checks,
+and metrics distribution.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from typing import Any, Dict, List, Optional
+
+from app.core.config import TelemetryConfig
+from app.core.logging_config import get_logger
+from app.services.event_service import EventService
+from app.storage.repository import TelemetryRepository
+from app.telemetry.collector import TelemetryCollector
+
+logger = get_logger("SERVICE.TELEMETRY")
+
+
+class TelemetryService:
+    """Runs periodic telemetry sampling loop in a background thread."""
+
+    def __init__(
+        self,
+        config: TelemetryConfig,
+        repository: TelemetryRepository,
+        event_service: EventService,
+    ):
+        self._config = config
+        self._repository = repository
+        self._event_service = event_service
+        self._collector = TelemetryCollector(config)
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._sample_count = 0
+        self._last_sample_time = 0.0
+        self._active_alarms: Dict[str, str] = {}
+
+    def start(self) -> None:
+        """Start the background telemetry sampling thread."""
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._sampling_loop, name="TelemetryCollectorThread", daemon=True
+        )
+        self._thread.start()
+        logger.info("Telemetry background service started (interval: %.1fs)", self._config.system_interval_seconds)
+
+    def stop(self, timeout: float = 3.0) -> None:
+        """Stop the sampling thread."""
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+        self._thread = None
+        logger.info("Telemetry background service stopped")
+
+    def _sampling_loop(self) -> None:
+        interval = self._config.system_interval_seconds
+
+        while not self._stop_event.is_set():
+            t_start = time.monotonic()
+            try:
+                samples = self._collector.sample_all()
+                self._sample_count += 1
+                self._last_sample_time = t_start
+
+                # Persist asynchronously
+                self._repository.enqueue_telemetry(samples)
+
+                # Check alarms / thresholds
+                self._check_alarms(samples)
+
+            except Exception as e:
+                logger.error("Exception during telemetry sampling: %s", e, exc_info=True)
+
+            elapsed = time.monotonic() - t_start
+            sleep_time = max(0.05, interval - elapsed)
+            time.sleep(sleep_time)
+
+    def _check_alarms(self, samples) -> None:
+        """Evaluate readings against user-configured warning/critical thresholds."""
+        thresholds = self._config.thresholds
+        for s in samples:
+            if s.value is None or s.availability_status != "AVAILABLE":
+                continue
+
+            # CPU Temperature
+            if "cpu" in s.metric_name and s.unit == "celsius":
+                if s.value >= thresholds.critical_cpu_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"CRITICAL: CPU temperature is {s.value}°C (threshold: {thresholds.critical_cpu_temp_c}°C)",
+                        severity="CRITICAL",
+                    )
+                elif s.value >= thresholds.warning_cpu_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"WARNING: CPU temperature is {s.value}°C (threshold: {thresholds.warning_cpu_temp_c}°C)",
+                        severity="WARNING",
+                    )
+                else:
+                    self._clear_alarm(s.metric_name)
+
+            # Hailo NPU Temperature
+            elif "hailo" in s.metric_name and s.unit == "celsius":
+                if s.value >= thresholds.critical_hailo_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"CRITICAL: Hailo NPU temperature is {s.value}°C (threshold: {thresholds.critical_hailo_temp_c}°C)",
+                        severity="CRITICAL",
+                    )
+                elif s.value >= thresholds.warning_hailo_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"WARNING: Hailo NPU temperature is {s.value}°C (threshold: {thresholds.warning_hailo_temp_c}°C)",
+                        severity="WARNING",
+                    )
+                else:
+                    self._clear_alarm(s.metric_name)
+
+            # Raspberry Pi Throttling
+            elif s.metric_name == "rpi_is_throttled" and s.value > 0:
+                self._trigger_alarm(
+                    "rpi_throttling",
+                    "WARNING: Raspberry Pi hardware throttling or undervoltage detected!",
+                    severity="WARNING",
+                )
+            elif s.metric_name == "rpi_is_throttled" and s.value == 0:
+                self._clear_alarm("rpi_throttling")
+
+    def _trigger_alarm(self, key: str, msg: str, severity: str = "WARNING") -> None:
+        if self._active_alarms.get(key) != severity:
+            self._active_alarms[key] = severity
+            self._event_service.emit(
+                event_type="HARDWARE_ALARM",
+                message=msg,
+                severity=severity,
+                component="TELEMETRY",
+            )
+
+    def _clear_alarm(self, key: str) -> None:
+        if key in self._active_alarms:
+            del self._active_alarms[key]
+
+    def get_current_metrics(self) -> Dict[str, Dict[str, Any]]:
+        return self._collector.get_latest_snapshot()
+
+    def get_catalog(self) -> List[Dict[str, Any]]:
+        return self._collector.get_metric_catalog()
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "active": self._thread is not None and self._thread.is_alive(),
+            "sample_count": self._sample_count,
+            "last_sample_monotonic": self._last_sample_time,
+            "sampling_interval_seconds": self._config.system_interval_seconds,
+            "active_alarms_count": len(self._active_alarms),
+        }
