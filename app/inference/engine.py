@@ -381,8 +381,8 @@ class ONNXInferenceEngine(BaseInferenceEngine):
             frame, input_height=self._input_height, input_width=self._input_width, to_rgb=True
         )
         img_f32 = input_tensor.astype(np.float32) / 255.0
-        nchw_tensor = np.transpose(img_f32, (2, 0, 1))
-        nchw_tensor = np.expand_dims(nchw_tensor, axis=0)
+        # input_tensor is [1, H, W, C]; permute to [1, C, H, W]
+        nchw_tensor = np.transpose(img_f32, (0, 3, 1, 2))
         prep_ms = (time.monotonic() - t_prep_start) * 1000.0
 
         # 2. CPU ONNX Execution
