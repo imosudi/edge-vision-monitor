@@ -2,6 +2,11 @@
 
 This directory holds model artifacts for **Edge Vision Monitor**, supporting both **Hailo-8L NPU hardware acceleration** and **CPU fallback/benchmarking via ONNX Runtime**.
 
+> [!TIP]
+> **Dedicated Training & Optimization Suite:**
+> An extensive and dedicated YOLO11 pipeline for dataset calibration, training, post-training quantization (PTQ), and Hailo DFC compilation is available at:
+> 🔗 **[https://github.com/imosudi/hailo-yolo11-compiler](https://github.com/imosudi/hailo-yolo11-compiler)**
+
 ---
 
 ## 1. Directory Structure

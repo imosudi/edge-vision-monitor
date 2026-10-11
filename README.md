@@ -117,7 +117,7 @@ The application does not fabricate or bundle uncompiled models. Real Hailo-8L ac
    ├── labels.txt          # Class names (one per line, COCO-80 default provided)
    └── README.md           # Model compilation reference guide
    ```
-2. To compile YOLO11 targeting the Hailo-8L, utilise the companion compilation repository:
+2. To train, optimize, or compile YOLO11 targeting the Hailo-8L, utilise the companion repository [**hailo-yolo11-compiler**](https://github.com/imosudi/hailo-yolo11-compiler):
    ```bash
    yolo export model=yolo11n.pt format=onnx opset=11
    hailo-yolo11-compiler compile --onnx yolo11n.onnx --target hailo8l --output models/yolo11n.hef
