@@ -15,6 +15,9 @@ from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.schemas import (
+    BackendDetail,
+    BackendSelectionRequest,
+    BackendsResponse,
     HealthResponse,
     LatestDetectionsResponse,
     PlaybackControlRequest,
@@ -55,17 +58,22 @@ def get_readiness() -> ReadinessResponse:
     if not mgr.inference_engine:
         return ReadinessResponse(
             ready=False,
+            active_backend="hailo",
             hailo_ready=False,
             model_status="UNINITIALIZED",
+            model_path="",
             hef_path="",
             error_message="Lifecycle manager not initialized",
         )
 
     st = mgr.inference_engine.get_status()
+    current_backend = st.get("backend", "hailo" if "Hailo" in st.get("type", "") else "cpu")
     return ReadinessResponse(
         ready=bool(st.get("ready", False)),
+        active_backend=current_backend,
         hailo_ready=os.path.exists("/dev/hailo0"),
         model_status=str(st.get("status", "UNKNOWN")),
+        model_path=str(st.get("model_path", st.get("hef_path", ""))),
         hef_path=str(st.get("hef_path", "")),
         error_message=st.get("error_message"),
         is_mock=bool(st.get("is_mock", False)),
@@ -84,6 +92,7 @@ def get_status() -> StatusResponse:
         application_state="RUNNING" if (mgr.inference_service and mgr.inference_service.is_running()) else "IDLE",
         active_source=src_st.get("source_id", "none"),
         active_source_type=src_st.get("active_type", "none"),
+        active_backend=inf_st.get("active_backend", "hailo"),
         inference_running=bool(inf_st.get("is_running", False)),
         current_fps=float(inf_st.get("current_fps", 0.0)),
         alarms_count=int(tel_st.get("active_alarms_count", 0)),
@@ -302,6 +311,33 @@ def stop_inference() -> Dict[str, Any]:
 
     mgr.inference_service.stop()
     return {"status": "stopped", "running": False}
+
+
+@api_router.get("/inference/backends", response_model=BackendsResponse)
+def get_backends() -> BackendsResponse:
+    """Check hardware and model file availability for Hailo, CPU, and Mock backends."""
+    mgr = get_lifecycle_manager()
+    data = mgr.get_available_backends()
+    return BackendsResponse(**data)
+
+
+@api_router.post("/inference/backend")
+def switch_backend(req: BackendSelectionRequest) -> Dict[str, Any]:
+    """Dynamically switch active inference backend (e.g. 'hailo' <-> 'cpu')."""
+    mgr = get_lifecycle_manager()
+    logger.info("Received request to switch inference backend to '%s' (model_path=%s)", req.backend, req.model_path)
+    ok = mgr.switch_inference_backend(req.backend, model_path=req.model_path)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to switch inference backend to '{req.backend}'. Verify model file exists and required runtime is available.",
+        )
+    return {
+        "status": "switched",
+        "backend": req.backend,
+        "inference_running": mgr.inference_service.is_running() if mgr.inference_service else False,
+        "engine_status": mgr.inference_engine.get_status() if mgr.inference_engine else {},
+    }
 
 
 @api_router.get("/video/frame")

@@ -125,6 +125,80 @@ class ApplicationLifecycleManager:
         self._is_started = False
         logger.info("Application shutdown completed cleanly")
 
+    def switch_inference_backend(self, backend: str, model_path: Optional[str] = None) -> bool:
+        """
+        Switch inference backend at runtime (e.g. 'hailo' <-> 'cpu').
+        """
+        backend_lower = backend.lower()
+        if backend_lower in ("cpu", "onnx"):
+            from app.inference.engine import ONNXInferenceEngine
+            new_engine = ONNXInferenceEngine(self.config.model, onnx_path=model_path)
+        elif backend_lower == "hailo":
+            from app.inference.engine import HailoInferenceEngine
+            new_engine = HailoInferenceEngine(self.config.model)
+        elif backend_lower == "mock":
+            from app.inference.engine import MockInferenceEngine
+            new_engine = MockInferenceEngine(self.config.model)
+        else:
+            logger.error("Unknown inference backend requested: '%s'", backend)
+            return False
+
+        if not self.inference_service:
+            logger.error("Inference service is not running")
+            return False
+
+        ok = self.inference_service.switch_engine(new_engine)
+        if ok:
+            self.inference_engine = new_engine
+            self.config.model.active_backend = backend_lower
+        return ok
+
+    def get_available_backends(self) -> dict:
+        """Check hardware and model file availability for Hailo and CPU backends."""
+        from app.inference.model_validation import check_hailo_device_node, check_hailo_runtime_installed
+
+        hailo_rt, _ = check_hailo_runtime_installed()
+        hailo_dev = check_hailo_device_node()
+        hailo_hef_exists = os.path.isfile(self.config.model.hef_path) if self.config.model.hef_path else False
+
+        onnx_candidates = [
+            getattr(self.config.model, "onnx_path", None),
+            "models/onnx/model.onnx",
+            "models/model.onnx",
+            "models/pytorch/best.onnx",
+        ]
+        active_onnx = next((p for p in onnx_candidates if p and os.path.isfile(p)), None)
+
+        try:
+            import onnxruntime  # noqa: F401
+            onnx_rt = True
+        except ImportError:
+            onnx_rt = False
+
+        current = "mock"
+        if self.inference_engine:
+            st = self.inference_engine.get_status()
+            current = st.get("backend", "hailo" if "Hailo" in st.get("type", "") else "cpu" if "CPU" in st.get("type", "") else "mock")
+
+        return {
+            "current_backend": current,
+            "backends": {
+                "hailo": {
+                    "name": "Hailo-8L NPU",
+                    "available": bool(hailo_rt and hailo_dev and hailo_hef_exists),
+                    "model_path": self.config.model.hef_path,
+                    "device_node": "/dev/hailo0",
+                    "runtime_installed": bool(hailo_rt),
+                },
+                "cpu": {
+                    "name": "CPU (ONNX Runtime)",
+                    "available": bool(onnx_rt and active_onnx is not None),
+                    "model_path": active_onnx,
+                    "runtime_installed": bool(onnx_rt),
+                },
+            },
+        }
+
 
 _lifecycle_instance: Optional[ApplicationLifecycleManager] = None
 

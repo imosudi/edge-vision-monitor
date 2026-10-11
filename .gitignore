@@ -226,6 +226,12 @@ data/
 *.db-wal
 *.db-shm
 models/*.hef
+models/**/*.hef
+models/*.onnx
+models/**/*.onnx
+models/*.pt
+models/**/*.pt
+!models/**/.gitkeep
 media/*.mp4
 media/*.avi
 media/*.mkv

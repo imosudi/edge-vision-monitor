@@ -75,8 +75,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     "inference_running": inf_stats.get("is_running", False),
                     "active_source": src_st.get("source_id", "none"),
                     "source_type": src_st.get("active_type", "none"),
+                    "active_backend": inf_stats.get("active_backend", "hailo"),
                 },
                 "inference": {
+                    "active_backend": inf_stats.get("active_backend", "hailo"),
+                    "backend_name": inf_stats.get("engine_status", {}).get("type", "Hailo-8L"),
                     "fps": inf_stats.get("current_fps", 0.0),
                     "latencies": inf_stats.get("latencies", {}),
                     "total_frames": inf_stats.get("total_frames_processed", 0),

@@ -18,9 +18,11 @@ class HealthResponse(BaseModel):
 
 class ReadinessResponse(BaseModel):
     ready: bool
+    active_backend: str = "hailo"
     hailo_ready: bool
     model_status: str
-    hef_path: str
+    model_path: str = ""
+    hef_path: str = ""
     error_message: Optional[str] = None
     is_mock: bool = False
 
@@ -29,10 +31,29 @@ class StatusResponse(BaseModel):
     application_state: str
     active_source: str
     active_source_type: str
+    active_backend: str = "hailo"
     inference_running: bool
     current_fps: float
     alarms_count: int
     queue_depth: int = 0
+
+
+class BackendSelectionRequest(BaseModel):
+    backend: Literal["hailo", "cpu", "mock"]
+    model_path: Optional[str] = None
+
+
+class BackendDetail(BaseModel):
+    name: str
+    available: bool
+    model_path: Optional[str] = None
+    device_node: Optional[str] = None
+    runtime_installed: bool = False
+
+
+class BackendsResponse(BaseModel):
+    current_backend: str
+    backends: Dict[str, BackendDetail]
 
 
 class SourceSelectionRequest(BaseModel):

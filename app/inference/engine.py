@@ -251,9 +251,201 @@ class HailoInferenceEngine(BaseInferenceEngine):
     def get_status(self) -> Dict[str, Any]:
         return {
             "type": "Hailo-8L",
+            "backend": "hailo",
             "ready": self._is_ready,
             "status": self._validation.status if self._validation else "UNINITIALIZED",
             "hef_path": self._config.hef_path,
+            "error_message": self._validation.error_message if self._validation else None,
+            "is_mock": False,
+        }
+
+
+class ONNXInferenceEngine(BaseInferenceEngine):
+    """
+    CPU inference engine using ONNX Runtime for YOLO11.
+    Allows testing and running inference on the host CPU without NPU hardware.
+    """
+
+    def __init__(self, config: ModelConfig, onnx_path: Optional[str] = None):
+        self._config = config
+        self._onnx_path = onnx_path or getattr(config, "onnx_path", None) or "models/onnx/model.onnx"
+        self._session: Any = None
+        self._input_name: str = "images"
+        self._labels: List[str] = []
+        self._is_ready: bool = False
+        self._validation: Optional[ModelValidationResult] = None
+        self._input_width: int = config.input_width or 640
+        self._input_height: int = config.input_height or 640
+
+    def initialize(self) -> ModelValidationResult:
+        import os
+        self._labels = load_class_labels(self._config.labels_path)
+
+        # Candidate paths to locate ONNX model
+        search_paths = [
+            self._onnx_path,
+            "models/onnx/model.onnx",
+            "models/model.onnx",
+            "models/pytorch/best.onnx",
+        ]
+        found_path = None
+        for p in search_paths:
+            if p and os.path.isfile(p):
+                found_path = p
+                break
+
+        if not found_path:
+            self._is_ready = False
+            self._validation = ModelValidationResult(
+                is_valid=False,
+                status="FILE_NOT_FOUND",
+                hef_path=self._onnx_path,
+                labels_count=len(self._labels),
+                labels=self._labels,
+                input_width=self._input_width,
+                input_height=self._input_height,
+                error_message=f"ONNX model file not found at '{self._onnx_path}'",
+                hailo_runtime_available=False,
+                device_available=False,
+            )
+            return self._validation
+
+        self._onnx_path = found_path
+
+        try:
+            import onnxruntime as ort
+
+            sess_options = ort.SessionOptions()
+            sess_options.intra_op_num_threads = max(1, min(4, (os.cpu_count() or 4)))
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+            self._session = ort.InferenceSession(
+                self._onnx_path,
+                sess_options=sess_options,
+                providers=["CPUExecutionProvider"],
+            )
+
+            inputs = self._session.get_inputs()
+            if inputs:
+                self._input_name = inputs[0].name
+                shape = inputs[0].shape
+                if len(shape) == 4 and isinstance(shape[2], int) and isinstance(shape[3], int):
+                    self._input_height = shape[2]
+                    self._input_width = shape[3]
+
+            self._is_ready = True
+            logger.info("CPU (ONNX Runtime) inference engine initialized with model: %s", self._onnx_path)
+
+            self._validation = ModelValidationResult(
+                is_valid=True,
+                status="READY",
+                hef_path=self._onnx_path,
+                labels_count=len(self._labels),
+                labels=self._labels,
+                input_width=self._input_width,
+                input_height=self._input_height,
+                hailo_runtime_available=False,
+                device_available=False,
+            )
+            return self._validation
+
+        except Exception as e:
+            logger.error("Failed to load ONNX model: %s", e, exc_info=True)
+            self._is_ready = False
+            self._validation = ModelValidationResult(
+                is_valid=False,
+                status="CONFIG_ERROR",
+                hef_path=self._onnx_path,
+                labels_count=len(self._labels),
+                labels=self._labels,
+                error_message=str(e),
+                hailo_runtime_available=False,
+                device_available=False,
+            )
+            return self._validation
+
+    def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
+        if not self._is_ready or self._session is None:
+            return DetectionResult(
+                frame_seq=frame_seq,
+                source_id=source_id,
+                error_status="CPU ONNX engine not ready",
+            )
+
+        orig_h, orig_w = frame.shape[:2]
+        t_start = time.monotonic()
+
+        # 1. Preprocess: letterbox + normalize float32 [0.0, 1.0] in NCHW format
+        t_prep_start = time.monotonic()
+        input_tensor, scale, pads, _ = preprocess_frame(
+            frame, input_height=self._input_height, input_width=self._input_width, to_rgb=True
+        )
+        img_f32 = input_tensor.astype(np.float32) / 255.0
+        nchw_tensor = np.transpose(img_f32, (2, 0, 1))
+        nchw_tensor = np.expand_dims(nchw_tensor, axis=0)
+        prep_ms = (time.monotonic() - t_prep_start) * 1000.0
+
+        # 2. CPU ONNX Execution
+        t_exec_start = time.monotonic()
+        try:
+            outputs = self._session.run(None, {self._input_name: nchw_tensor})
+            raw_output = outputs[0]
+            exec_ms = (time.monotonic() - t_exec_start) * 1000.0
+        except Exception as e:
+            exec_ms = (time.monotonic() - t_exec_start) * 1000.0
+            logger.error("ONNX CPU inference execution error: %s", e)
+            return DetectionResult(
+                frame_seq=frame_seq,
+                source_id=source_id,
+                preprocessing_ms=prep_ms,
+                hailo_exec_ms=exec_ms,
+                total_latency_ms=(time.monotonic() - t_start) * 1000.0,
+                error_status=str(e),
+            )
+
+        # 3. Post-process
+        detections, post_ms = decode_yolo11_detections(
+            raw_outputs=raw_output,
+            orig_w=orig_w,
+            orig_h=orig_h,
+            scale=scale,
+            pad_offsets=pads,
+            labels=self._labels,
+            confidence_threshold=self._config.confidence_threshold,
+            nms_iou_threshold=self._config.nms_iou_threshold,
+            max_detections=self._config.max_detections,
+        )
+
+        total_latency_ms = (time.monotonic() - t_start) * 1000.0
+
+        return DetectionResult(
+            frame_seq=frame_seq,
+            source_id=source_id,
+            monotonic_ts=time.monotonic(),
+            detections=detections,
+            image_width=orig_w,
+            image_height=orig_h,
+            preprocessing_ms=prep_ms,
+            hailo_exec_ms=exec_ms,
+            postprocessing_ms=post_ms,
+            total_latency_ms=total_latency_ms,
+        )
+
+    def close(self) -> None:
+        self._is_ready = False
+        self._session = None
+        logger.info("CPU ONNX inference engine released")
+
+    def is_ready(self) -> bool:
+        return self._is_ready
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "type": "CPU (ONNX)",
+            "backend": "cpu",
+            "ready": self._is_ready,
+            "status": self._validation.status if self._validation else "UNINITIALIZED",
+            "model_path": self._onnx_path,
             "error_message": self._validation.error_message if self._validation else None,
             "is_mock": False,
         }
@@ -312,7 +504,6 @@ class MockInferenceEngine(BaseInferenceEngine):
             )
         ]
 
-        # Add second detection occasionally
         if frame_seq % 2 == 0 and len(self._labels) > 2:
             box2 = BoundingBox(xmin=0.1, ymin=0.2, xmax=0.35, ymax=0.6)
             detections.append(
@@ -325,7 +516,7 @@ class MockInferenceEngine(BaseInferenceEngine):
             )
 
         prep_ms = 1.2
-        hailo_ms = 4.8  # Typical Hailo-8L execution latency for YOLO11n
+        hailo_ms = 4.8
         post_ms = 0.8
         total_latency_ms = (time.monotonic() - t_start) * 1000.0 + (prep_ms + hailo_ms + post_ms)
 
@@ -352,6 +543,7 @@ class MockInferenceEngine(BaseInferenceEngine):
     def get_status(self) -> Dict[str, Any]:
         return {
             "type": "MockEngine",
+            "backend": "mock",
             "ready": self._is_ready,
             "status": "MOCK_ACTIVE",
             "hef_path": self._config.hef_path,
@@ -361,19 +553,41 @@ class MockInferenceEngine(BaseInferenceEngine):
 
 
 def create_inference_engine(
-    config: ModelConfig, force_mock: bool = False
+    config: ModelConfig,
+    force_mock: bool = False,
+    backend: Optional[str] = None,
 ) -> BaseInferenceEngine:
     """
-    Factory function: returns HailoInferenceEngine if Hailo runtime & hardware present,
-    or MockInferenceEngine if in mock mode / hardware absent.
+    Factory function: returns requested backend engine:
+      - 'cpu' -> ONNXInferenceEngine
+      - 'hailo' -> HailoInferenceEngine (or fallback to CPU/Mock if Hailo absent)
+      - 'mock' -> MockInferenceEngine
     """
+    import os
+
+    chosen = (backend or getattr(config, "active_backend", "hailo")).lower()
+
+    if force_mock or chosen == "mock":
+        return MockInferenceEngine(config)
+
+    if chosen in ("cpu", "onnx"):
+        logger.info("Instantiating CPU (ONNX Runtime) inference engine")
+        return ONNXInferenceEngine(config)
+
+    # Hailo requested
     rt_ok, _ = check_hailo_runtime_installed()
     dev_ok = check_hailo_device_node()
 
-    if not force_mock and rt_ok and dev_ok:
+    if rt_ok and dev_ok:
         logger.info("Hailo-8L accelerator and runtime detected; using HailoInferenceEngine")
         return HailoInferenceEngine(config)
     else:
+        # Check if ONNX model is available as CPU fallback
+        onnx_file = getattr(config, "onnx_path", "models/onnx/model.onnx")
+        if onnx_file and os.path.isfile(onnx_file):
+            logger.info("Hailo not present; falling back to CPU (ONNX Runtime) engine (%s)", onnx_file)
+            return ONNXInferenceEngine(config)
+
         if not force_mock:
             logger.info(
                 "Hailo hardware or runtime not present (runtime=%s, device=%s); using MockInferenceEngine",

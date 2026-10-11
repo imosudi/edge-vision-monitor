@@ -13,13 +13,15 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ModelConfig(BaseModel):
-    """Configuration for compiled Hailo YOLO11 model and post-processing."""
+    """Configuration for compiled Hailo/CPU YOLO11 model and post-processing."""
 
     hef_path: str = Field(default="models/yolo11n.hef", description="Path to compiled Hailo HEF model")
+    onnx_path: Optional[str] = Field(default="models/onnx/model.onnx", description="Path to CPU ONNX model")
+    active_backend: Literal["hailo", "cpu", "mock"] = Field(default="hailo", description="Initial inference backend ('hailo' or 'cpu')")
     labels_path: Optional[str] = Field(default="models/labels.txt", description="Path to class labels file")
     metadata_path: Optional[str] = Field(default=None, description="Optional path to model metadata YAML")
-    input_width: Optional[int] = Field(default=None, description="Input width (auto-discovered from HEF if None)")
-    input_height: Optional[int] = Field(default=None, description="Input height (auto-discovered from HEF if None)")
+    input_width: Optional[int] = Field(default=None, description="Input width (auto-discovered from HEF/ONNX if None)")
+    input_height: Optional[int] = Field(default=None, description="Input height (auto-discovered from HEF/ONNX if None)")
     confidence_threshold: float = Field(default=0.25, ge=0.0, le=1.0, description="Detection confidence threshold")
     nms_iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0, description="Non-maximum suppression IoU threshold")
     max_detections: int = Field(default=100, ge=1, le=1000, description="Maximum detections per frame")

@@ -6,6 +6,7 @@ let ws = null;
 let reconnectTimer = null;
 let currentSourceType = 'file';
 let isInferenceRunning = true;
+let isSwitchingBackend = false;
 
 // Class colour palette matching backend
 const CLASS_COLORS = [
@@ -66,10 +67,36 @@ function handleLiveUpdate(data) {
   const badgeSource = document.getElementById('badge-source');
   badgeSource.className = 'badge active';
 
+  // Synchronise backend buttons & labels
+  const activeBackend = inference.active_backend || status.active_backend || 'hailo';
+  if (!isSwitchingBackend) {
+    const btnHailo = document.getElementById('btn-backend-hailo');
+    const btnCpu = document.getElementById('btn-backend-cpu');
+    if (btnHailo && btnCpu) {
+      if (activeBackend === 'cpu') {
+        btnHailo.classList.remove('active');
+        btnCpu.classList.add('active');
+      } else {
+        btnHailo.classList.add('active');
+        btnCpu.classList.remove('active');
+      }
+    }
+  }
+
+  // Update HUD Accelerator label
+  const hudExecLbl = document.getElementById('hud-exec-label');
+  if (hudExecLbl) {
+    hudExecLbl.textContent = activeBackend === 'cpu' ? 'CPU' : 'Hailo';
+  }
+  const execTitle = document.getElementById('lbl-backend-exec-title');
+  if (execTitle) {
+    execTitle.textContent = activeBackend === 'cpu' ? 'CPU' : 'NPU';
+  }
+
   // 2. Video HUD
   const fps = inference.fps || 0;
   document.getElementById('hud-fps').textContent = fps.toFixed(1);
-  const npuLat = inference.latencies?.hailo_execution_ms?.mean || 0;
+  const npuLat = inference.latencies?.execution_ms?.mean || inference.latencies?.hailo_execution_ms?.mean || 0;
   document.getElementById('hud-hailo-lat').textContent = npuLat.toFixed(1);
   document.getElementById('hud-objects').textContent = detections ? detections.length : 0;
   document.getElementById('badge-det-count').textContent = `${detections ? detections.length : 0} objects`;
@@ -489,9 +516,98 @@ async function checkInitialReadiness() {
   }
 }
 
+// Backend switching & availability
+async function loadAvailableBackends() {
+  try {
+    const res = await fetch('/api/v1/inference/backends');
+    if (!res.ok) return;
+    const data = await res.json();
+    const btnHailo = document.getElementById('btn-backend-hailo');
+    const btnCpu = document.getElementById('btn-backend-cpu');
+
+    if (btnHailo && data.backends?.hailo) {
+      btnHailo.disabled = !data.backends.hailo.available;
+      if (!data.backends.hailo.available) {
+        btnHailo.title = 'Hailo-8L NPU unavailable (hardware node or HEF model missing)';
+      } else {
+        btnHailo.title = 'Hailo-8L NPU Accelerator';
+      }
+    }
+
+    if (btnCpu && data.backends?.cpu) {
+      btnCpu.disabled = !data.backends.cpu.available;
+      if (!data.backends.cpu.available) {
+        btnCpu.title = 'CPU ONNX model missing';
+      } else {
+        btnCpu.title = 'CPU Inference (ONNX Runtime)';
+      }
+    }
+
+    if (!isSwitchingBackend) {
+      if (data.current_backend === 'cpu') {
+        btnHailo?.classList.remove('active');
+        btnCpu?.classList.add('active');
+      } else {
+        btnHailo?.classList.add('active');
+        btnCpu?.classList.remove('active');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load available backends', e);
+  }
+}
+
+async function switchBackend(backend) {
+  if (isSwitchingBackend) return;
+  const btnHailo = document.getElementById('btn-backend-hailo');
+  const btnCpu = document.getElementById('btn-backend-cpu');
+  const targetBtn = backend === 'cpu' ? btnCpu : btnHailo;
+
+  const originalContent = targetBtn ? targetBtn.innerHTML : '';
+  try {
+    isSwitchingBackend = true;
+    if (btnHailo) btnHailo.disabled = true;
+    if (btnCpu) btnCpu.disabled = true;
+
+    if (targetBtn) {
+      targetBtn.innerHTML = '<span>⏳</span> Switching...';
+    }
+
+    const res = await fetch('/api/v1/inference/backend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Backend switch failed: ${err.detail || 'Unknown error'}`);
+    } else {
+      console.log(`[INFERENCE] Switched backend to ${backend}`);
+      if (backend === 'cpu') {
+        btnHailo?.classList.remove('active');
+        btnCpu?.classList.add('active');
+      } else {
+        btnHailo?.classList.add('active');
+        btnCpu?.classList.remove('active');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to switch backend', e);
+    alert(`Error switching backend: ${e.message}`);
+  } finally {
+    if (targetBtn) {
+      targetBtn.innerHTML = originalContent;
+    }
+    isSwitchingBackend = false;
+    await loadAvailableBackends();
+  }
+}
+
 // Initialise on page load
 window.addEventListener('DOMContentLoaded', () => {
   checkInitialReadiness();
+  loadAvailableBackends();
   loadDiscoveredSources();
   connectWebSocket();
 });

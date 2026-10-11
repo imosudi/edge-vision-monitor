@@ -133,6 +133,52 @@ class InferenceService:
     def is_running(self) -> bool:
         return self._is_running and (self._thread is not None and self._thread.is_alive())
 
+    def switch_engine(self, new_engine: BaseInferenceEngine) -> bool:
+        """
+        Dynamically switch active inference engine backend (e.g. Hailo-8L <-> CPU ONNX)
+        safely stopping and resuming the worker thread.
+        """
+        was_running = self.is_running()
+        if was_running:
+            self.stop()
+
+        old_engine = self._engine
+        try:
+            logger.info("Initializing new engine: %s", type(new_engine).__name__)
+            res = new_engine.initialize()
+            if not res.is_valid:
+                logger.warning("New engine initialization failed: %s (%s)", res.error_message, res.status)
+                if was_running:
+                    self.start()
+                return False
+
+            old_engine.close()
+            self._engine = new_engine
+
+            # Reset latency metrics for clear stats under new backend
+            self._lat_preprocess = RollingLatencyTracker(window_size=100)
+            self._lat_hailo = RollingLatencyTracker(window_size=100)
+            self._lat_postprocess = RollingLatencyTracker(window_size=100)
+            self._lat_total = RollingLatencyTracker(window_size=100)
+            self._recent_fps_timestamps.clear()
+
+            if was_running:
+                self.start()
+
+            st = new_engine.get_status()
+            self._event_service.emit(
+                "BACKEND_SWITCHED",
+                f"Switched inference backend to {st.get('type', 'Unknown')} ({st.get('backend', 'unknown')})",
+                component="INFERENCE",
+            )
+            logger.info("Successfully switched inference backend to %s", st.get("type"))
+            return True
+        except Exception as e:
+            logger.error("Failed to switch inference engine: %s", e, exc_info=True)
+            if was_running:
+                self.start()
+            return False
+
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             t_acq_start = time.monotonic()
@@ -227,14 +273,18 @@ class InferenceService:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return comprehensive rolling inference performance metrics."""
+        eng_st = self._engine.get_status()
+        active_backend = eng_st.get("backend", "hailo" if "Hailo" in eng_st.get("type", "") else "cpu")
         return {
             "is_running": self.is_running(),
-            "engine_status": self._engine.get_status(),
+            "active_backend": active_backend,
+            "engine_status": eng_st,
             "current_fps": self.get_current_fps(),
             "total_frames_processed": self._total_processed,
             "total_errors": self._total_errors,
             "latencies": {
                 "preprocessing_ms": self._lat_preprocess.get_stats(),
+                "execution_ms": self._lat_hailo.get_stats(),
                 "hailo_execution_ms": self._lat_hailo.get_stats(),
                 "postprocessing_ms": self._lat_postprocess.get_stats(),
                 "total_ms": self._lat_total.get_stats(),

@@ -37,6 +37,16 @@
     </div>
 
     <div class="header-actions">
+      <!-- Backend Switcher Segmented Control -->
+      <div class="backend-switch-group">
+        <button id="btn-backend-hailo" class="btn btn-backend active" onclick="switchBackend('hailo')" title="Hailo-8L NPU Accelerator">
+          <span>🚀</span> Hailo-8L
+        </button>
+        <button id="btn-backend-cpu" class="btn btn-backend" onclick="switchBackend('cpu')" title="CPU Inference (ONNX Runtime)">
+          <span>💻</span> CPU (ONNX)
+        </button>
+      </div>
+
       <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
         <span id="icon-inference">⏹</span>
         <span id="text-inference">Stop Inference</span>
@@ -85,7 +95,7 @@
             <!-- Overlay HUD -->
             <div class="video-hud">
               <div class="hud-pill">FPS: <span id="hud-fps" class="val">--</span></div>
-              <div class="hud-pill">Hailo: <span id="hud-hailo-lat" class="val">--</span> ms</div>
+              <div class="hud-pill"><span id="hud-exec-label">Hailo</span>: <span id="hud-hailo-lat" class="val">--</span> ms</div>
               <div class="hud-pill">Objects: <span id="hud-objects" class="val">0</span></div>
             </div>
           </div>
@@ -221,7 +231,7 @@
 
           <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">
             <span>Pre: <strong id="lbl-lat-prep" style="color: var(--accent-blue)">-- ms</strong></span>
-            <span>NPU: <strong id="lbl-lat-hailo" style="color: var(--accent-cyan)">-- ms</strong></span>
+            <span><span id="lbl-backend-exec-title">NPU</span>: <strong id="lbl-lat-hailo" style="color: var(--accent-cyan)">-- ms</strong></span>
             <span>Post: <strong id="lbl-lat-post" style="color: var(--accent-violet)">-- ms</strong></span>
           </div>
         </div>
