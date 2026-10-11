@@ -92,3 +92,21 @@ def test_system_info_endpoint(client):
     data = res.json()
     assert "hostname" in data
     assert "python_version" in data
+
+
+def test_video_upload_endpoint(client):
+    # Test valid video upload
+    fake_content = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100
+    files = {"file": ("test_upload.mp4", fake_content, "video/mp4")}
+    res = client.post("/api/v1/video/upload", files=files)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["filename"] == "test_upload.mp4"
+    assert "test_upload.mp4" in data["media_files"]
+
+    # Test invalid extension
+    invalid_files = {"file": ("malicious.sh", b"echo 1", "text/plain")}
+    res_err = client.post("/api/v1/video/upload", files=invalid_files)
+    assert res_err.status_code == 400
+

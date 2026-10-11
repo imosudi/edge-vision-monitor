@@ -7,10 +7,11 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import re
 import sys
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.schemas import (
@@ -200,6 +201,66 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
         )
 
     return {"status": "ok", "source_info": mgr.source_manager.get_status()}
+
+
+ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm"}
+
+
+@api_router.post("/video/upload")
+async def upload_video_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Upload prerecorded video file to media directory for accelerated playback and testing."""
+    mgr = get_lifecycle_manager()
+    media_dir = "media"
+    if mgr.config and mgr.config.video and mgr.config.video.media_dir:
+        media_dir = mgr.config.video.media_dir
+
+    os.makedirs(media_dir, exist_ok=True)
+
+    # Sanitize filename (remove directory components, restrict characters)
+    original_name = os.path.basename(file.filename or "video.mp4")
+    name_clean = re.sub(r"[^a-zA-Z0-9_.-]", "_", original_name)
+    ext = os.path.splitext(name_clean)[1].lower()
+
+    if ext not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported video file extension '{ext}'. Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
+        )
+
+    target_path = os.path.join(media_dir, name_clean)
+
+    # Stream file to disk in chunks to avoid buffering large video in memory
+    total_bytes = 0
+    try:
+        with open(target_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                buffer.write(chunk)
+                total_bytes += len(chunk)
+    except Exception as e:
+        if os.path.exists(target_path):
+            os.remove(target_path)
+        logger.error("Failed to save uploaded video file: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to save video: {e}")
+
+    logger.info("Uploaded video file '%s' (%d bytes) saved to '%s'", name_clean, total_bytes, target_path)
+
+    # Automatically switch video source to newly uploaded video file
+    if mgr.source_manager:
+        mgr.source_manager.switch_source(
+            "file",
+            file_path=target_path,
+            loop=True,
+            target_fps=mgr.config.video.capture_fps if mgr.config else 30,
+        )
+
+    return {
+        "status": "ok",
+        "filename": name_clean,
+        "file_path": target_path,
+        "size_bytes": total_bytes,
+        "media_files": mgr.source_manager.enumerate_sources().get("media_files", []) if mgr.source_manager else [name_clean],
+        "active_source": mgr.source_manager.get_status() if mgr.source_manager else {},
+    }
 
 
 @api_router.post("/video/playback")

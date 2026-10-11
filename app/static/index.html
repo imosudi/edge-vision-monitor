@@ -103,9 +103,13 @@
               <select id="select-video-file" class="input-select" onchange="switchToFileSource()">
                 <option value="">Synthetic Edge Stream</option>
               </select>
-              <button id="btn-playback-pause" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('pause')">⏸</button>
-              <button id="btn-playback-play" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('play')">▶</button>
-              <button id="btn-playback-restart" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('restart')">↺</button>
+              <input type="file" id="input-upload-video" accept=".mp4,.avi,.mkv,.mov,.m4v,.webm" style="display: none;" onchange="handleVideoUpload(this)">
+              <button id="btn-upload-video" class="btn btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; white-space: nowrap;" onclick="triggerVideoUpload()">
+                📤 Upload Video
+              </button>
+              <button id="btn-playback-pause" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('pause')" title="Pause">⏸</button>
+              <button id="btn-playback-play" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('play')" title="Play">▶</button>
+              <button id="btn-playback-restart" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('restart')" title="Restart">↺</button>
             </div>
 
             <div id="controls-usb" class="source-selectors" style="display: none;">

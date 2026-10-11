@@ -296,6 +296,64 @@ async function switchToFileSource() {
   }
 }
 
+function triggerVideoUpload() {
+  const fileInput = document.getElementById('input-upload-video');
+  if (fileInput) {
+    fileInput.click();
+  }
+}
+
+async function handleVideoUpload(input) {
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  const uploadBtn = document.getElementById('btn-upload-video');
+  const originalText = uploadBtn ? uploadBtn.innerHTML : '📤 Upload Video';
+
+  if (uploadBtn) {
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '⏳ Uploading...';
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/v1/video/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      alert(`Upload failed: ${err.detail || 'Server error'}`);
+      return;
+    }
+
+    const data = await res.json();
+    console.log('Video uploaded successfully:', data);
+
+    // Refresh dropdown options and select newly uploaded file
+    await loadDiscoveredSources();
+
+    const fileSel = document.getElementById('select-video-file');
+    if (fileSel && data.filename) {
+      fileSel.value = data.filename;
+    }
+
+    // Ensure tab is set to file
+    selectSourceTab('file');
+  } catch (err) {
+    console.error('Error during video upload:', err);
+    alert(`Error uploading video: ${err.message}`);
+  } finally {
+    if (uploadBtn) {
+      uploadBtn.disabled = false;
+      uploadBtn.innerHTML = originalText;
+    }
+    input.value = '';
+  }
+}
+
 async function switchToUsbSource() {
   const devVal = document.getElementById('select-usb-device').value;
   try {
