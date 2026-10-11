@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/banner.svg" alt="Edge Vision Monitor — YOLO11 &amp; Hardware Telemetry on Raspberry Pi 5" width="100%">
+</p>
+
 # edge-vision-monitor
 
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
@@ -41,35 +45,15 @@ Detailed user and operational guides are provided in the `docs/` directory:
 
 The application adopts a decoupled producer-consumer architecture implemented in Python 3 using `asyncio` for API serving and dedicated worker threads for blocking device I/O:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        VIDEO SOURCE MANAGER                            │
-│  [Raspberry Pi Camera Module]    [USB Webcam]    [Prerecorded Video]   │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Bounded Frame Queue (Drop-Stale)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      HAILO YOLO11 INFERENCE ENGINE                     │
-│  Letterbox Resize  ──►  Hailo-8L NPU (PCIe)  ──►  YOLO11 Decode & NMS  │
-└───────────┬────────────────────────────────────────────────┬───────────┘
-            │                                                │
-   Annotated Preview JPEG                                Detections & Latencies
-            │                                                │
-            ▼                                                ▼
-┌───────────────────────┐                        ┌───────────────────────┐
-│   FASTAPI DASHBOARD   │                        │  SQLITE STORAGE WORKER│
-│  • Live MJPEG Stream  │                        │  • Batched WAL writes │
-│  • WebSocket Broadcast│                        │  • Automated Pruning  │
-│  • Chart.js Visualiser│                        │  • CSV Dataset Export │
-└───────────▲───────────┘                        └───────────▲───────────┘
-            │                                                │
-┌───────────┴────────────────────────────────────────────────┴───────────┐
-│                      INDEPENDENT TELEMETRY COLLECTOR                   │
-│  • Linux hwmon (RP1 & SoC)              • CPU Utilisation & Deltas     │
-│  • Thermal Zones (/sys/class/thermal)   • vcgencmd Throttling Bitfields│
-│  • Hailo NPU Device & Driver            • Process & cgroup v2 RAM/CPU  │
-└────────────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Edge Vision Monitor Layered System Architecture" width="100%">
+</p>
+
+### 2.1 Inference & Telemetry Pipeline Data Flow
+
+<p align="center">
+  <img src="docs/pipeline.svg" alt="Edge Vision Monitor Inference &amp; Telemetry Data Pipeline" width="100%">
+</p>
 
 ### Architectural Principles
 - **Backpressure & Queue Isolation**: Frame queues between video acquisition and inference are strictly bounded (depth: 2) with a drop-stale policy to eliminate latency build-up.

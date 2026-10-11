@@ -2,6 +2,10 @@
 
 This guide covers physical hardware assembly, host OS configuration, least-privilege Podman containerisation, systemd service management, and operational maintenance for the **Edge Vision Monitor** platform.
 
+<p align="center">
+  <img src="architecture.svg" alt="Edge Vision Monitor Architecture Topology" width="100%">
+</p>
+
 ---
 
 ## 1. Hardware Assembly & Physical Setup

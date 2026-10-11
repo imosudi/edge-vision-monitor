@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" alt="Edge Vision Monitor Logo" width="550">
+</p>
+
 # Edge Vision Monitor — User Guide
 
 Welcome to the **Edge Vision Monitor** user guide. This document provides comprehensive operational instructions for interacting with the live dashboard, monitoring hardware thermals, configuring video inputs, and managing edge AI object detection workflows on the Raspberry Pi 5 equipped with a Hailo-8L AI HAT+.
@@ -7,11 +11,15 @@ Welcome to the **Edge Vision Monitor** user guide. This document provides compre
 ## 1. System Overview
 
 `edge-vision-monitor` is an edge AI monitoring platform designed for continuous computer vision execution. Unlike benchmarking scripts that operate over fixed, artificial windows, this platform provides an always-on operational service that:
-- Executes YOLO11 object detection accelerated by the **Hailo-8L neural processing unit (NPU)**.
+- Executes YOLO11 object detection accelerated by the **Hailo-8L neural processing unit (NPU)** or CPU (ONNX Runtime).
 - Streams live, annotated video previews with low overhead.
 - Samples host thermals, RP1 temperatures, clock frequencies, power metrics, and firmware throttling states.
 - Persists historical telemetry and detection records into an embedded **SQLite** database using Write-Ahead Logging (`WAL`).
 - Exposes an interactive, dark-mode web dashboard with real-time **WebSocket** updates and **Chart.js** historical trends.
+
+<p align="center">
+  <img src="pipeline.svg" alt="Edge Vision Monitor Pipeline Data Flow" width="100%">
+</p>
 
 ---
 
