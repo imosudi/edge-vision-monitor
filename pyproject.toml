@@ -37,6 +37,10 @@ hardware = [
 edge-vision-monitor = "app.main:run"
 evm-diagnose = "scripts.diagnose:main"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "scripts*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
