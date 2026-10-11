@@ -18,10 +18,13 @@ All endpoints accept and return `application/json` unless otherwise specified.
 | `GET` | `/api/v1/metrics/current` | Snapshot of all latest normalised hardware telemetry readings |
 | `GET` | `/api/v1/metrics/history` | Historical time-series query with optional metric filter and downsampling |
 | `GET` | `/api/v1/metrics/catalog` | Discovered sensor catalogue, units, and provenance |
+| `GET` | `/api/v1/inference/backends` | Query available inference engines (Hailo-8L, CPU ONNX) and model paths |
+| `POST` | `/api/v1/inference/backend` | Dynamically switch active inference backend (`hailo` vs `cpu`) at runtime |
 | `GET` | `/api/v1/inference/stats` | Rolling FPS, total frame counters, and latency percentiles (mean, p95, p99) |
 | `GET` | `/api/v1/detections/latest` | Structured detections for the most recently evaluated frame |
 | `GET` | `/api/v1/video/sources` | Discovered input devices (CSI camera, USB devices, media files) |
 | `POST` | `/api/v1/video/source` | Switch active video input safely |
+| `POST` | `/api/v1/video/upload` | Upload prerecorded MP4/AVI/MKV video into media repository |
 | `POST` | `/api/v1/video/playback` | Playback control (`play`, `pause`, `restart`) for prerecorded video |
 | `POST` | `/api/v1/inference/start` | Start or resume continuous inference execution |
 | `POST` | `/api/v1/inference/stop` | Stop continuous inference execution safely |
@@ -132,6 +135,63 @@ curl -s "http://localhost:8000/api/v1/metrics/history?metric_name=cpu_utilisatio
 
 ### 2.3 Inference & Detections
 
+#### `GET /api/v1/inference/backends`
+Inspects installed runtimes, hardware accelerator nodes, and model weights for both Hailo-8L and CPU backends.
+```bash
+curl -s http://localhost:8000/api/v1/inference/backends
+```
+**Response (200 OK)**:
+```json
+{
+  "current_backend": "hailo",
+  "backends": {
+    "hailo": {
+      "name": "Hailo-8L NPU",
+      "available": true,
+      "model_path": "models/yolo11n.hef",
+      "device_node": "/dev/hailo0",
+      "runtime_installed": true
+    },
+    "cpu": {
+      "name": "CPU (ONNX Runtime)",
+      "available": true,
+      "model_path": "models/onnx/model.onnx",
+      "device_node": null,
+      "runtime_installed": true
+    }
+  }
+}
+```
+
+---
+
+#### `POST /api/v1/inference/backend`
+Dynamically transitions the active inference backend between **Hailo-8L** and **CPU (ONNX Runtime)** without stopping or restarting the service.
+```bash
+curl -s -X POST http://localhost:8000/api/v1/inference/backend \
+  -H "Content-Type: application/json" \
+  -d '{ "backend": "cpu" }'
+```
+**Response (200 OK)**:
+```json
+{
+  "status": "switched",
+  "backend": "cpu",
+  "inference_running": true,
+  "engine_status": {
+    "type": "CPU (ONNX)",
+    "backend": "cpu",
+    "ready": true,
+    "status": "READY",
+    "model_path": "models/onnx/model.onnx",
+    "error_message": null,
+    "is_mock": false
+  }
+}
+```
+
+---
+
 #### `GET /api/v1/inference/stats`
 Returns rolling inference FPS and latency statistics over recent frames.
 ```bash
@@ -204,6 +264,24 @@ curl -s -X POST http://localhost:8000/api/v1/video/source \
 
 ---
 
+#### `POST /api/v1/video/upload`
+Uploads a prerecorded video file (`.mp4`, `.avi`, `.mkv`, `.mov`) into the restricted media repository via `multipart/form-data`.
+```bash
+curl -s -X POST http://localhost:8000/api/v1/video/upload \
+  -F "file=@sample_video.mp4"
+```
+**Response (200 OK)**:
+```json
+{
+  "status": "uploaded",
+  "filename": "sample_video.mp4",
+  "path": "media/sample_video.mp4",
+  "size_bytes": 14258900
+}
+```
+
+---
+
 #### `POST /api/v1/video/playback`
 Control prerecorded video playback (`play`, `pause`, `restart`).
 ```bash
@@ -227,15 +305,19 @@ The WebSocket connection delivers low-latency JSON packets broadcast at **5 Hz**
   "status": {
     "inference_running": true,
     "active_source": "usb:/dev/video0",
-    "source_type": "usb"
+    "source_type": "usb",
+    "active_backend": "hailo"
   },
   "inference": {
-    "fps": 28.5,
+    "active_backend": "hailo",
+    "backend_name": "Hailo-8L",
+    "fps": 27.2,
     "latencies": {
-      "hailo_execution_ms": { "mean": 4.8 },
-      "preprocessing_ms": { "mean": 1.4 },
-      "postprocessing_ms": { "mean": 0.9 },
-      "total_ms": { "mean": 7.1 }
+      "execution_ms": { "mean": 14.1, "p95": 14.8 },
+      "hailo_execution_ms": { "mean": 14.1, "p95": 14.8 },
+      "preprocessing_ms": { "mean": 0.7, "p95": 1.0 },
+      "postprocessing_ms": { "mean": 21.2, "p95": 25.2 },
+      "total_ms": { "mean": 36.0, "p95": 40.1 }
     },
     "total_frames": 14200,
     "detections_count": 2

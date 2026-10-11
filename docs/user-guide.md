@@ -52,6 +52,7 @@ Located along the top navigation bar:
   - `Amber ("Hailo-8L: Missing")`: Hardware device is disconnected or driver is uninitialised.
 - **YOLO11 Model Badge**: Displays the compilation state of the active model (e.g. `READY`, `CONFIG_ERROR`, or `MOCK_READY`).
 - **Input Source Badge**: Indicates the active video modality and source identifier (e.g. `usb:/dev/video0`, `picamera:0`, or `file:traffic.mp4`).
+- **Backend Switcher Controls**: Segmented toggles (`[🚀 Hailo-8L]` and `[💻 CPU (ONNX)]`) enabling live dynamic switching between the PCIe NPU accelerator and CPU inference (ONNX Runtime) without restarting the service.
 - **Master Inference Toggle**: Button allowing operators to safely halt or resume the continuous inference worker thread without interrupting web services.
 - **Diagnostics Button**: Opens the hardware inventory and data provenance modal.
 
@@ -66,9 +67,10 @@ When Raspberry Pi firmware throttling is detected via `vcgencmd get_throttled`, 
 
 The dashboard provides dynamic, non-destructive source switching:
 
-### 3.1 Prerecorded Video Files
+### 3.1 Prerecorded Video Files & Direct Upload
 - Click the **Video File** tab.
-- Choose any compatible video (`.mp4`, `.avi`, `.mkv`, `.mov`) located in the `media/` directory from the dropdown.
+- **Select Video**: Choose any compatible video (`.mp4`, `.avi`, `.mkv`, `.mov`) located in the `media/` directory from the dropdown.
+- **Direct Web Upload**: Click **Upload Video** to upload local MP4 or AVI footage directly into the server's `media/` folder via browser without needing SSH or SCP.
 - **Playback Controls**:
   - `⏸` (Pause): Temporarily pauses video playback while maintaining camera engine state.
   - `▶` (Play): Resumes video playback at native video FPS.
@@ -93,7 +95,7 @@ The dashboard provides dynamic, non-destructive source switching:
 ### 4.1 Heads-Up Display (HUD)
 Overlaid directly onto the live stream viewport:
 - **FPS**: Processed frames per second calculated over recent evaluation windows.
-- **Hailo**: Dedicated accelerator execution latency in milliseconds.
+- **Hailo / CPU**: Dedicated neural compute execution latency in milliseconds, dynamically reflecting whether the Hailo-8L NPU (~14 ms) or CPU ONNX Runtime (~173 ms) is active.
 - **Objects**: Current object count in the active frame.
 
 ### 4.2 Snapshot & Fullscreen

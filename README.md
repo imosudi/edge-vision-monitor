@@ -1,12 +1,12 @@
 # edge-vision-monitor
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![Hailo-8L](https://img.shields.io/badge/NPU-Hailo--8L%20AI%20HAT%2B-blueviolet.svg)](https://hailo.ai/)
 [![Raspberry Pi 5](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-C51A4A.svg)](https://www.raspberrypi.com/)
 
-Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic video input switching, real-time hardware thermal and throttling monitoring, non-blocking SQLite time-series persistence, an interactive cyber-dark FastAPI dashboard with live WebSockets, and least-privilege Podman container deployment.
+Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic runtime switching between Hailo-8L NPU and CPU (ONNX Runtime), flexible video input selection and file uploading, real-time hardware thermal and throttling monitoring, non-blocking SQLite time-series persistence, an interactive cyber-dark FastAPI dashboard with live WebSockets, and least-privilege deployment.
 
 ---
 
@@ -15,16 +15,15 @@ Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspb
 `edge-vision-monitor` is engineered as a continuously operating edge AI monitoring and visual service, rather than a transient benchmarking script.
 
 ### 1.1 Core Capabilities
-- **Hailo-8L Accelerated YOLO11**: Executes compiled Hailo Executable Format (`.hef`) models directly on the Hailo-8L neural processing unit using HailoRT.
-- **Selectable Video Inputs**: Raspberry Pi Camera Module (CSI), USB webcams (V4L2), and prerecorded video files with playback controls and loop mode.
+- **Dual-Backend YOLO11 Inference**: Executes compiled Hailo Executable Format (`.hef`) binaries directly on the Hailo-8L NPU (~14 ms, ~27 FPS) or on CPU via ONNX Runtime (~173 ms, ~5.5 FPS), supporting instantaneous dynamic switching at runtime without service restarts.
+- **Selectable Video Inputs & File Upload**: Real-time switching between Raspberry Pi Camera Module (CSI), USB webcams (V4L2), and prerecorded video files, complete with in-dashboard video uploading and playback controls.
 - **Hardware & System Telemetry**: Verifiable metrics collected independently of the inference pipeline via Linux `hwmon`, thermal zones, `/proc/stat` delta calculations, and `vcgencmd get_throttled` bitfield decoding.
 - **Persistent Time-Series Records**: SQLite in Write-Ahead Logging (`WAL`) mode with asynchronous batched commits, query downsampling, automated retention pruning, and CSV export.
 - **FastAPI Dashboard & WebSocket**: Live visualised detection stream (MJPEG), 5 Hz real-time WebSocket state distribution, Chart.js historical trend plots, and hardware diagnostics modal.
-- **Reproducible Podman Deployment**: Least-privilege container configuration with isolated device access (`/dev/hailo0`, `/dev/video*`), read-only sysfs mounts, and health checks distinguishing web liveness from inference readiness.
+- **Reproducible Deployment**: Least-privilege configuration with isolated device access (`/dev/hailo0`, `/dev/video*`), read-only sysfs mounts, and health checks distinguishing web liveness from inference readiness.
 
-### 1.2 Explicit Exclusions
-In accordance with system design requirements:
-- No CPU-versus-NPU inference benchmark fallbacks.
+### 1.2 Design Principles
+In accordance with production deployment requirements:
 - No artificial experimental lifecycles, fixed five-minute windows, or mandatory 5,000-frame batches.
 - No automated cooldown cycles or synthetic warm-up phases.
 - No fabricated hardware metrics; unsupported sensors are explicitly reported as `UNSUPPORTED` or `UNAVAILABLE` rather than substituted with zero or simulated values.
@@ -453,6 +452,31 @@ podman-compose up -d
 
 ---
 
-## 17. Licence
+## 17. Licensing and Academic Provenance
 
-This project is licensed under the MIT Licence. See [LICENSE](LICENSE) for details.
+This research software and associated architectural artefacts are published under the open-source **BSD 3-Clause Licence**. Refer to the [LICENSE](LICENSE) file for comprehensive legal terms.
+
+```text
+Copyright (c) 2026, Isiaka Mosudi, FHTW.
+All rights reserved.
+
+Developed within the academic framework of Master's thesis requirements.
+Department of Electronic Engineering and Entrepreneurship,
+University of Applied Sciences Technikum Wien (FH Technikum Wien), Vienna, Austria.
+```
+
+---
+
+## 18. Citation
+
+If you utilise this software platform, its telemetry architectures, or Hailo/ONNX inference pipelines in academic research, please cite:
+
+```bibtex
+@software{EdgeVisionMonitor2026,
+  author    = {Isiaka, Mosudi},
+  title     = {Edge Vision Monitor: Production-Grade YOLO11 Edge AI Inference, Telemetry, and Monitoring Platform for Raspberry Pi 5 and Hailo-8L},
+  year      = {2026},
+  url       = {https://github.com/imosudi/edge-vision-monitor},
+  license   = {BSD-3-Clause}
+}
+```

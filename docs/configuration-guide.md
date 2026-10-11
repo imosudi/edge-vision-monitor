@@ -25,8 +25,14 @@ Create `config/config.yaml` by copying `config/config.example.yaml`:
 # Model & Hailo Accelerator Settings
 # ==============================================================================
 model:
+  # Initial inference backend ("hailo" or "cpu")
+  active_backend: "hailo"
+
   # Path to compiled Hailo Executable Format (.hef) binary
   hef_path: "models/yolo11n.hef"
+
+  # Path to CPU ONNX model for software fallback and benchmarking
+  onnx_path: "models/onnx/model.onnx"
 
   # Path to class labels file (one label per line or YAML format)
   labels_path: "models/labels.txt"
@@ -171,8 +177,10 @@ export EVM_SERVER__PORT="8080"
 export EVM_VIDEO__DEFAULT_SOURCE_TYPE="usb"
 export EVM_VIDEO__USB_DEVICE_PATH="/dev/video0"
 
-# Use custom compiled model
-export EVM_MODEL__HEF_PATH="/opt/models/custom_yolo11.hef"
+# Configure model and inference backend
+export EVM_MODEL__ACTIVE_BACKEND="hailo"
+export EVM_MODEL__HEF_PATH="/opt/models/yolo11n.hef"
+export EVM_MODEL__ONNX_PATH="/opt/models/model.onnx"
 export EVM_MODEL__CONFIDENCE_THRESHOLD="0.30"
 
 # Adjust telemetry sampling frequency
