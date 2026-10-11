@@ -89,14 +89,40 @@ class HailoInferenceEngine(BaseInferenceEngine):
             return self._validation
 
         try:
-            from hailo_platform import VDevice, InferModel  # type: ignore
+            import hailo_platform  # type: ignore
 
-            # Create virtual device
-            self._vdevice = VDevice()
-            # Create inference model from HEF
-            self._infer_model = self._vdevice.create_infer_model(self._config.hef_path)
-            self._configured_infer_model = self._infer_model.configure()
-            self._bindings = self._configured_infer_model.create_bindings()
+            if hasattr(hailo_platform, "InferVStreams") and hasattr(hailo_platform, "HEF"):
+                # Standard HailoRT PyHailoRT API (Raspberry Pi OS / AI HAT+)
+                self._hef = hailo_platform.HEF(self._config.hef_path)
+                self._vdevice = hailo_platform.VDevice()
+                cfg = hailo_platform.ConfigureParams.create_from_hef(
+                    self._hef, interface=hailo_platform.HailoStreamInterface.PCIe
+                )
+                net_groups = self._vdevice.configure(self._hef, cfg)
+                self._net_group = net_groups[0]
+                in_params = hailo_platform.InputVStreamParams.make(
+                    self._net_group, quantized=False, format_type=hailo_platform.FormatType.UINT8
+                )
+                out_params = hailo_platform.OutputVStreamParams.make(
+                    self._net_group, quantized=False, format_type=hailo_platform.FormatType.FLOAT32
+                )
+                self._input_name = list(in_params.keys())[0]
+                self._activated_network = self._net_group.activate()
+                self._activated_network.__enter__()
+                self._infer_pipeline = hailo_platform.InferVStreams(
+                    self._net_group, in_params, out_params
+                )
+                self._infer_pipeline.__enter__()
+                self._use_vstreams = True
+            elif hasattr(hailo_platform, "InferModel"):
+                # Alternative InferModel API
+                self._vdevice = hailo_platform.VDevice()
+                self._infer_model = self._vdevice.create_infer_model(self._config.hef_path)
+                self._configured_infer_model = self._infer_model.configure()
+                self._bindings = self._configured_infer_model.create_bindings()
+                self._use_vstreams = False
+            else:
+                raise RuntimeError("hailo_platform does not provide InferVStreams or InferModel")
 
             self._is_ready = True
             logger.info("Hailo-8L inference engine initialised successfully with HEF: %s", self._config.hef_path)
@@ -111,7 +137,7 @@ class HailoInferenceEngine(BaseInferenceEngine):
             return self._validation
 
     def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
-        if not self._is_ready or self._configured_infer_model is None:
+        if not self._is_ready:
             return DetectionResult(
                 frame_seq=frame_seq,
                 source_id=source_id,
@@ -131,20 +157,21 @@ class HailoInferenceEngine(BaseInferenceEngine):
         # 2. Hailo Accelerator Execution
         t_hailo_start = time.monotonic()
         try:
-            # Bind input buffer
-            input_names = self._infer_model.input_names
-            if input_names:
-                self._bindings.input(input_names[0]).set_buffer(input_tensor)
+            if getattr(self, "_use_vstreams", False):
+                batch_tensor = input_tensor if input_tensor.ndim == 4 else np.expand_dims(input_tensor, axis=0)
+                raw_outputs = self._infer_pipeline.infer({self._input_name: batch_tensor})
+            else:
+                input_names = self._infer_model.input_names
+                if input_names:
+                    self._bindings.input(input_names[0]).set_buffer(input_tensor)
 
-            # Synchronous or wait-for-completion inference
-            self._configured_infer_model.wait_for_async_ready(timeout_ms=1000)
-            job = self._configured_infer_model.run_async([self._bindings])
-            job.wait(timeout_ms=1000)
+                self._configured_infer_model.wait_for_async_ready(timeout_ms=1000)
+                job = self._configured_infer_model.run_async([self._bindings])
+                job.wait(timeout_ms=1000)
 
-            # Retrieve outputs
-            raw_outputs: Dict[str, Any] = {}
-            for out_name in self._infer_model.output_names:
-                raw_outputs[out_name] = self._bindings.output(out_name).get_buffer()
+                raw_outputs = {}
+                for out_name in self._infer_model.output_names:
+                    raw_outputs[out_name] = self._bindings.output(out_name).get_buffer()
 
         except Exception as e:
             hailo_ms = (time.monotonic() - t_hailo_start) * 1000.0
@@ -191,12 +218,28 @@ class HailoInferenceEngine(BaseInferenceEngine):
     def close(self) -> None:
         self._is_ready = False
         try:
+            if hasattr(self, "_infer_pipeline") and self._infer_pipeline:
+                try:
+                    self._infer_pipeline.__exit__(None, None, None)
+                except Exception:
+                    pass
+                self._infer_pipeline = None
+            if hasattr(self, "_activated_network") and self._activated_network:
+                try:
+                    self._activated_network.__exit__(None, None, None)
+                except Exception:
+                    pass
+                self._activated_network = None
             if self._configured_infer_model:
                 self._configured_infer_model = None
             if self._infer_model:
                 self._infer_model = None
             if self._vdevice:
-                self._vdevice.release()
+                try:
+                    if hasattr(self._vdevice, "release"):
+                        self._vdevice.release()
+                except Exception:
+                    pass
                 self._vdevice = None
             logger.info("Hailo inference engine resources released")
         except Exception as e:
