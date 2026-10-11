@@ -1,66 +1,92 @@
-# YOLO11 Hailo Model Provisioning Guide
+# YOLO11 Model Provisioning & Multi-Backend Guide
 
-This directory holds the compiled **Hailo Executable Format (`.hef`)** models, class labels, and metadata files.
-
-> [!IMPORTANT]
-> Do not place generic PyTorch (`.pt`) or ONNX (`.onnx`) files here. The Hailo-8L AI HAT+ executes hardware-quantized `.hef` binaries compiled with the Hailo Dataflow Compiler (DFC).
+This directory holds model artifacts for **Edge Vision Monitor**, supporting both **Hailo-8L NPU hardware acceleration** and **CPU fallback/benchmarking via ONNX Runtime**.
 
 ---
 
-## 1. Acquiring or Compiling a YOLO11 HEF
+## 1. Directory Structure
 
-You can compile a YOLO11 model (such as `yolo11n.pt` or `yolo11s.pt`) targeting the **Hailo-8L** using the Hailo Model Zoo or companion compilation workspace:
-
-1. **Export to ONNX**:
-   ```bash
-   yolo export model=yolo11n.pt format=onnx opset=11
-   ```
-
-2. **Compile with Hailo DFC**:
-   ```bash
-   hailo-yolo11-compiler compile \
-       --onnx yolo11n.onnx \
-       --target hailo8l \
-       --calib-dataset /path/to/calib_images \
-       --output models/yolo11n.hef
-   ```
-
-3. **Verify HEF Integrity**:
-   Run `hailortcli parse-hef models/yolo11n.hef` on your Raspberry Pi 5 to confirm network stream names and compatible output nodes.
-
----
-
-## 2. Directory Layout
-
-Place your artifacts in this directory as follows:
+Place your model artifacts in the structured subdirectories:
 
 ```text
 models/
-├── labels.txt          # One class name per line (e.g. COCO 80 classes)
-├── model.yaml          # Optional class names or metadata mapping
-├── yolo11n.hef         # Compiled Hailo-8L executable
+├── hailo/
+│   └── model.hef          # Compiled Hailo-8L executable (or symlinked to yolo11n.hef)
+├── onnx/
+│   └── model.onnx         # ONNX format model for CPU inference (float32 NCHW)
+├── pytorch/
+│   ├── best.pt            # PyTorch training checkpoint
+│   └── best.onnx          # Raw PyTorch ONNX export
+├── labels.txt             # Class label names (one per line, e.g. COCO 80 classes)
+├── yolo11n.hef            # (Optional) Direct HEF path / symlink
 └── README.md
 ```
 
 ---
 
-## 3. Configuration Reference
+## 2. Supported Inference Backends
 
-In `config/config.yaml` or via environment variables, reference your model files:
+| Backend | File Format | Engine / Library | Performance on Pi 5 |
+| :--- | :--- | :--- | :--- |
+| **Hailo-8L NPU** | `models/hailo/model.hef` | `hailo_platform` (PyHailoRT) | **~14 ms** (~27+ FPS) |
+| **CPU Fallback** | `models/onnx/model.onnx` | `onnxruntime` (`CPUExecutionProvider`) | **~173 ms** (~5.5 FPS) |
+| **Mock Engine** | Synthetic Data | Built-in test mock | For headless testing |
+
+The active backend can be configured at startup or switched dynamically at runtime via the web UI or REST API (`POST /api/v1/inference/backend`).
+
+---
+
+## 3. Acquiring and Compiling Models
+
+### Step 1: Export YOLO11 to ONNX
+Export your trained model from PyTorch to ONNX format (opset 11 is recommended for Hailo DFC compatibility):
+
+```bash
+yolo export model=yolo11n.pt format=onnx opset=11
+# Move to onnx directory for CPU runtime support
+cp yolo11n.onnx models/onnx/model.onnx
+```
+
+### Step 2: Compile with Hailo Dataflow Compiler (DFC)
+Compile the ONNX model into a quantized Hailo Executable Format (`.hef`) binary targeting the Hailo-8L:
+
+```bash
+hailo-yolo11-compiler compile \
+    --onnx models/onnx/model.onnx \
+    --target hailo8l \
+    --calib-dataset /path/to/calib_images \
+    --output models/hailo/model.hef
+```
+
+### Step 3: Verify HEF on Raspberry Pi 5
+Validate network stream names and output nodes:
+
+```bash
+hailortcli parse-hef models/hailo/model.hef
+```
+
+---
+
+## 4. Configuration Reference
+
+Configure model paths and default backend in `config/config.yaml`:
 
 ```yaml
 model:
-  hef_path: "models/yolo11n.hef"
-  labels_path: "models/labels.txt"
-  metadata_path: null
-  input_width: 640
-  input_height: 640
+  active_backend: "hailo"           # Default backend: "hailo" or "cpu"
+  hef_path: "models/yolo11n.hef"    # Path to Hailo-8L HEF (or models/hailo/model.hef)
+  onnx_path: "models/onnx/model.onnx" # Path to CPU ONNX model
+  labels_path: "models/labels.txt"  # Class labels file
   confidence_threshold: 0.25
   nms_iou_threshold: 0.45
+  max_detections: 100
 ```
 
 Or using environment variables:
+
 ```bash
-export EVM_MODEL__HEF_PATH="/opt/models/yolo11n.hef"
-export EVM_MODEL__LABELS_PATH="/opt/models/labels.txt"
+export EVM_MODEL__ACTIVE_BACKEND="hailo"
+export EVM_MODEL__HEF_PATH="models/hailo/model.hef"
+export EVM_MODEL__ONNX_PATH="models/onnx/model.onnx"
+export EVM_MODEL__LABELS_PATH="models/labels.txt"
 ```
