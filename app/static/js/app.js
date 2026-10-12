@@ -181,9 +181,12 @@ function handleLiveUpdate(data) {
 
     // Electrical & Clock Throttling Card elements
     const baseFreq = metrics.cpu_freq_base_mhz && metrics.cpu_freq_base_mhz.value !== null ? metrics.cpu_freq_base_mhz.value : 2400.0;
-    curFreq = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : (metrics.cpu_freq_cpu0_mhz?.value || baseFreq);
-    isFullBase = (metrics.cpu_is_full_base_freq && metrics.cpu_is_full_base_freq.value > 0) || curFreq >= 2385.0;
-    throttleDrop = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : 0.0;
+    const armActualMhz = metrics.cpu_freq_arm_actual_mhz && metrics.cpu_freq_arm_actual_mhz.value !== null ? metrics.cpu_freq_arm_actual_mhz.value : null;
+    curFreq = armActualMhz !== null && (isFreqCapped || isThermalThrottling || armActualMhz < 2385.0)
+      ? armActualMhz
+      : (metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : (metrics.cpu_freq_cpu0_mhz?.value || baseFreq));
+    isFullBase = (metrics.cpu_is_full_base_freq && metrics.cpu_is_full_base_freq.value > 0) && curFreq >= 2385.0;
+    throttleDrop = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : Math.max(0, baseFreq - curFreq);
 
     const elClock = document.getElementById('val-cpu-clock');
     if (elClock) {
@@ -192,7 +195,7 @@ function handleLiveUpdate(data) {
 
     const elState = document.getElementById('val-clock-state');
     if (elState) {
-      if (isThermalThrottling) {
+      if (isThermalThrottling && throttleDrop > 15) {
         elState.textContent = `THROTTLED: ${Math.round(curFreq)} MHz (-${Math.round(throttleDrop)} MHz)`;
         elState.className = 'metric-val red';
       } else if (isFreqCapped) {
@@ -209,7 +212,7 @@ function handleLiveUpdate(data) {
 
     const elDrop = document.getElementById('val-throttle-drop');
     if (elDrop) {
-      if (isThermalThrottling && throttleDrop > 0) {
+      if ((isThermalThrottling || isFreqCapped) && throttleDrop > 0) {
         elDrop.textContent = `-${Math.round(throttleDrop)} MHz`;
         elDrop.className = 'metric-val red';
       } else {

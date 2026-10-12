@@ -158,6 +158,23 @@ class RaspberryPiTelemetry:
         except Exception:
             return None, None
 
+    def read_actual_arm_freq_mhz(self) -> Optional[float]:
+        """Read actual hardware ARM PLL clock in MHz using vcgencmd measure_clock arm."""
+        try:
+            res = subprocess.run(
+                ["vcgencmd", "measure_clock", "arm"],
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+                check=False,
+            )
+            if res.returncode == 0 and "=" in res.stdout:
+                hz = int(res.stdout.strip().split("=")[1])
+                return round(hz / 1_000_000.0, 1)
+        except Exception:
+            pass
+        return None
+
     def read_throttled(self) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
         """Query vcgencmd get_throttled and decode bitfields."""
         try:
@@ -215,82 +232,10 @@ class RaspberryPiTelemetry:
                 )
             )
 
-        # 3. CPU Frequencies
-        freqs = self.read_cpu_frequencies()
-        for core, mhz in freqs.items():
-            samples.append(
-                TelemetrySample(
-                    metric_name=f"cpu_freq_{core}_mhz",
-                    value=mhz,
-                    unit="megahertz",
-                    source=f"sysfs:{core}",
-                    availability_status="AVAILABLE",
-                )
-            )
-
-        # 3b. Processor Base Frequency & Thermal Throttling Detection
-        base_freq = self.read_cpu_base_freq()
-        samples.append(
-            TelemetrySample(
-                metric_name="cpu_freq_base_mhz",
-                value=base_freq,
-                unit="megahertz",
-                source="sysfs:cpu0/cpuinfo_max_freq",
-                availability_status="AVAILABLE",
-            )
-        )
-
-        cur_freq = freqs.get("cpu0", base_freq) if freqs else base_freq
-        samples.append(
-            TelemetrySample(
-                metric_name="cpu_freq_cur_mhz",
-                value=cur_freq,
-                unit="megahertz",
-                source="sysfs:cpu0/scaling_cur_freq",
-                availability_status="AVAILABLE",
-            )
-        )
-
-        is_full_base = cur_freq >= (base_freq - 15.0)
-        samples.append(
-            TelemetrySample(
-                metric_name="cpu_is_full_base_freq",
-                value=1.0 if is_full_base else 0.0,
-                unit="boolean",
-                source="sysfs:cpufreq",
-                availability_status="AVAILABLE",
-            )
-        )
-
-        # 4. Load Average
-        load1, load5, load15 = self.read_load_average()
-        if load1 is not None:
-            samples.append(
-                TelemetrySample(
-                    metric_name="load_average_1m",
-                    value=load1,
-                    unit="load",
-                    source="proc:loadavg",
-                    availability_status="AVAILABLE",
-                )
-            )
-
-        # 5. Disk Usage
-        disk_pct, disk_free = self.read_disk_usage()
-        if disk_pct is not None:
-            samples.append(
-                TelemetrySample(
-                    metric_name="disk_utilisation",
-                    value=disk_pct,
-                    unit="percent",
-                    source="shutil:disk_usage",
-                    availability_status="AVAILABLE",
-                )
-            )
-
-        # 6. Throttling and Undervoltage
+        # 3. Hardware Throttling State & Actual Hardware ARM Clock
         raw_throttled, decoded_throttled = self.read_throttled()
         cpu_temp = self.read_cpu_thermal_zone_temp()
+        arm_hw_mhz = self.read_actual_arm_freq_mhz()
 
         arm_freq_capped = False
         throttled_now = False
@@ -380,7 +325,99 @@ class RaspberryPiTelemetry:
                 )
             )
 
-        # Thermal Throttling Drop determination:
+        if arm_hw_mhz is not None:
+            samples.append(
+                TelemetrySample(
+                    metric_name="cpu_freq_arm_actual_mhz",
+                    value=arm_hw_mhz,
+                    unit="megahertz",
+                    source="vcgencmd:measure_clock",
+                    availability_status="AVAILABLE",
+                )
+            )
+
+        # 4. CPU Frequencies
+        freqs = self.read_cpu_frequencies()
+        base_freq = self.read_cpu_base_freq()
+
+        # If hardware ARM frequency capping or throttling is active, or actual clock is lower than governor target:
+        if arm_hw_mhz is not None and (arm_freq_capped or throttled_now or soft_temp_limit or arm_hw_mhz < 2380.0):
+            cur_freq = arm_hw_mhz
+            for core in freqs:
+                if freqs[core] > arm_hw_mhz:
+                    freqs[core] = arm_hw_mhz
+        else:
+            cur_freq = freqs.get("cpu0", arm_hw_mhz or base_freq) if freqs else (arm_hw_mhz or base_freq)
+
+        for core, mhz in freqs.items():
+            samples.append(
+                TelemetrySample(
+                    metric_name=f"cpu_freq_{core}_mhz",
+                    value=mhz,
+                    unit="megahertz",
+                    source="vcgencmd:measure_clock" if (arm_hw_mhz is not None and (arm_freq_capped or throttled_now)) else f"sysfs:{core}",
+                    availability_status="AVAILABLE",
+                )
+            )
+
+        samples.append(
+            TelemetrySample(
+                metric_name="cpu_freq_base_mhz",
+                value=base_freq,
+                unit="megahertz",
+                source="sysfs:cpu0/cpuinfo_max_freq",
+                availability_status="AVAILABLE",
+            )
+        )
+
+        samples.append(
+            TelemetrySample(
+                metric_name="cpu_freq_cur_mhz",
+                value=cur_freq,
+                unit="megahertz",
+                source="vcgencmd:measure_clock" if arm_hw_mhz is not None else "sysfs:cpu0/scaling_cur_freq",
+                availability_status="AVAILABLE",
+            )
+        )
+
+        is_full_base = cur_freq >= (base_freq - 15.0)
+        samples.append(
+            TelemetrySample(
+                metric_name="cpu_is_full_base_freq",
+                value=1.0 if is_full_base else 0.0,
+                unit="boolean",
+                source="hardware:cpufreq",
+                availability_status="AVAILABLE",
+            )
+        )
+
+        # 4. Load Average
+        load1, load5, load15 = self.read_load_average()
+        if load1 is not None:
+            samples.append(
+                TelemetrySample(
+                    metric_name="load_average_1m",
+                    value=load1,
+                    unit="load",
+                    source="proc:loadavg",
+                    availability_status="AVAILABLE",
+                )
+            )
+
+        # 5. Disk Usage
+        disk_pct, disk_free = self.read_disk_usage()
+        if disk_pct is not None:
+            samples.append(
+                TelemetrySample(
+                    metric_name="disk_utilisation",
+                    value=disk_pct,
+                    unit="percent",
+                    source="shutil:disk_usage",
+                    availability_status="AVAILABLE",
+                )
+            )
+
+        # 6. Thermal Throttling Drop determination:
         # Detects when operating at/near full base frequency (2.4 GHz) and thermal throttling forces clock down
         is_thermal_throttling = False
         throttle_drop_mhz = 0.0
@@ -390,6 +427,9 @@ class RaspberryPiTelemetry:
             throttle_drop_mhz = round(base_freq - cur_freq, 1)
         elif (cpu_temp is not None and cpu_temp >= 80.0) and (cur_freq < (base_freq - 30.0)):
             # Fallback in case of elevated thermal zone threshold breach
+            is_thermal_throttling = True
+            throttle_drop_mhz = round(base_freq - cur_freq, 1)
+        elif arm_freq_capped and (cur_freq < (base_freq - 5.0)):
             is_thermal_throttling = True
             throttle_drop_mhz = round(base_freq - cur_freq, 1)
 
