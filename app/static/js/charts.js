@@ -3,16 +3,29 @@
  * Theme: Modern Edge-AI Suite (mioemi.com palette)
  */
 
-const MAX_CHART_POINTS = 30;
-const MAX_MODAL_POINTS = 50;
+const DEFAULT_SESSION_MAX_POINTS = 1800; // 30 minutes @ 1 Hz
+const MAX_MODAL_POINTS = 1800;
+
+/**
+ * Retain waveforms for the whole detection session duration.
+ * For configured timers (e.g. 300s, 600s, 1800s), hold the full duration.
+ * For Continuous mode (0), retain a rolling 30-minute window (1800 points @ 1Hz).
+ */
+function getSessionMaxChartPoints() {
+  const dur = (typeof detectionDurationSec !== 'undefined' && detectionDurationSec > 0)
+    ? detectionDurationSec
+    : (parseInt(localStorage.getItem('evm_detection_duration_sec'), 10) || 0);
+  return Math.max(DEFAULT_SESSION_MAX_POINTS, dur);
+}
 
 const chartOptionsBase = {
   responsive: true,
   maintainAspectRatio: false,
-  animation: { duration: 300 },
+  animation: false,
+  normalized: true,
   elements: {
     point: { radius: 0 },
-    line: { tension: 0.25, borderWidth: 2 }
+    line: { tension: 0.2, borderWidth: 1.8 }
   },
   plugins: {
     legend: {
@@ -579,15 +592,16 @@ function initCharts() {
 
 function updateChartSeries(chart, label, values) {
   if (!chart) return;
+  const maxPts = getSessionMaxChartPoints();
   chart.data.labels.push(label);
-  if (chart.data.labels.length > MAX_CHART_POINTS) {
+  if (chart.data.labels.length > maxPts) {
     chart.data.labels.shift();
   }
 
   values.forEach((val, idx) => {
     if (chart.data.datasets[idx]) {
       chart.data.datasets[idx].data.push(val);
-      if (chart.data.datasets[idx].data.length > MAX_CHART_POINTS) {
+      if (chart.data.datasets[idx].data.length > maxPts) {
         chart.data.datasets[idx].data.shift();
       }
     }
@@ -667,12 +681,13 @@ function initOrUpdateModalSensorChart(metricName, unit, initialHistory = []) {
  */
 function appendModalSensorPoint(label, value) {
   if (!modalSensorChart) return;
+  const maxPts = getSessionMaxChartPoints();
   modalSensorChart.data.labels.push(label);
-  if (modalSensorChart.data.labels.length > MAX_MODAL_POINTS) {
+  if (modalSensorChart.data.labels.length > maxPts) {
     modalSensorChart.data.labels.shift();
   }
   modalSensorChart.data.datasets[0].data.push(value);
-  if (modalSensorChart.data.datasets[0].data.length > MAX_MODAL_POINTS) {
+  if (modalSensorChart.data.datasets[0].data.length > maxPts) {
     modalSensorChart.data.datasets[0].data.shift();
   }
   modalSensorChart.update('none');

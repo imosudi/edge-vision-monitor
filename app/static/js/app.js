@@ -14,31 +14,25 @@ const CLASS_COLORS = [
   '#ec4899', '#0891b2', '#6366f1', '#f97316', '#84cc16'
 ];
 
-// Rolling cache for detection confidence distribution histogram
-let recentConfidences = [];
-const MAX_CONF_WINDOW = 500;
+// Cumulative session cache for detection confidence distribution histogram
+let sessionConfBins = new Array(10).fill(0);
+let sessionConfTotal = 0;
+let sessionConfSum = 0;
+let lastChartTickSec = -1;
 
 function updateConfidenceHistogramUI() {
   if (!confHistChart) {
     setTimeout(updateConfidenceHistogramUI, 100);
     return;
   }
-  const bins = new Array(10).fill(0);
-  recentConfidences.forEach(conf => {
-    let idx = Math.floor(conf * 10);
-    if (idx >= 10) idx = 9;
-    if (idx < 0) idx = 0;
-    bins[idx]++;
-  });
-  confHistChart.data.datasets[0].data = bins;
+  confHistChart.data.datasets[0].data = [...sessionConfBins];
   confHistChart.update('none');
 
   const lblConf = document.getElementById('lbl-conf-summary');
   if (lblConf) {
-    if (recentConfidences.length > 0) {
-      const sum = recentConfidences.reduce((a, b) => a + b, 0);
-      const mean = (sum / recentConfidences.length).toFixed(2);
-      lblConf.textContent = `N=${recentConfidences.length} · Mean Conf: ${mean}`;
+    if (sessionConfTotal > 0) {
+      const mean = (sessionConfSum / sessionConfTotal).toFixed(2);
+      lblConf.textContent = `N=${sessionConfTotal} · Mean Conf: ${mean}`;
     } else {
       lblConf.textContent = '0 Detections';
     }
@@ -298,68 +292,134 @@ function handleLiveUpdate(data) {
     document.getElementById('bar-mem-util').style.width = `${memUtil}%`;
   }
 
-  // 5. Update Charts
+  // 5. Update Waveform Charts (1 Hz cadence across the entire detection session duration)
+  const currentSec = Math.floor(Date.now() / 1000);
+  const shouldTickChart = (currentSec !== lastChartTickSec);
   const nowLabel = new Date().toLocaleTimeString();
-  if (typeof updateChartSeries === 'function') {
-    if (latencyChart) updateChartSeries(latencyChart, nowLabel, [npuLat, prepLat, postLat]);
-    if (fpsChart) {
-      updateChartSeries(fpsChart, nowLabel, [fps]);
-      const lblFps = document.getElementById('lbl-fps-stat');
-      if (lblFps) lblFps.textContent = `${fps.toFixed(1)} FPS`;
-    }
 
-    // Inter-Frame Interval (ms)
-    const interFrameMs = inference?.inter_frame_ms !== undefined && inference?.inter_frame_ms !== null
-      ? inference.inter_frame_ms
-      : (fps > 0 ? (1000 / fps) : 0);
+  // Accumulate detections into confidence distribution histogram across the whole session
+  if (data.detections && Array.isArray(data.detections) && data.detections.length > 0) {
+    data.detections.forEach(d => {
+      if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
+        let idx = Math.floor(d.confidence * 10);
+        if (idx >= 10) idx = 9;
+        if (idx < 0) idx = 0;
+        sessionConfBins[idx]++;
+        sessionConfTotal++;
+        sessionConfSum += d.confidence;
+      }
+    });
+    updateConfidenceHistogramUI();
+  }
+
+  // Real-time Text Indicators (Updated on every incoming packet)
+  const lblFps = document.getElementById('lbl-fps-stat');
+  if (lblFps) lblFps.textContent = `${fps.toFixed(1)} FPS`;
+
+  const interFrameMs = inference?.inter_frame_ms !== undefined && inference?.inter_frame_ms !== null
+    ? inference.inter_frame_ms
+    : (fps > 0 ? (1000 / fps) : 0);
+  const lblInter = document.getElementById('lbl-inter-frame');
+  if (lblInter && interFrameMs !== null && interFrameMs >= 0) {
+    lblInter.textContent = `${interFrameMs.toFixed(1)} ms`;
+  }
+
+  const detCount = inference?.detections_count !== undefined
+    ? inference.detections_count
+    : (data.detections ? data.detections.length : 0);
+  const lblDet = document.getElementById('lbl-detections-per-frame');
+  if (lblDet) lblDet.textContent = `${detCount} object${detCount === 1 ? '' : 's'}`;
+
+  const fanRpm = metrics.hwmon_pwmfan_fan1_rpm && metrics.hwmon_pwmfan_fan1_rpm.value !== null ? metrics.hwmon_pwmfan_fan1_rpm.value : null;
+  const fanState = metrics.cooling_pwm_fan_cur_state && metrics.cooling_pwm_fan_cur_state.value !== null ? metrics.cooling_pwm_fan_cur_state.value : null;
+  const fanBadge = document.getElementById('lbl-fan-speed');
+  if (fanBadge && fanRpm !== null) {
+    fanBadge.textContent = `${Math.round(fanRpm)} RPM${fanState !== null ? ' (Lvl ' + fanState + ')' : ''}`;
+  }
+
+  const cpu0Freq = metrics.cpu_freq_cpu0_mhz && metrics.cpu_freq_cpu0_mhz.value !== null ? metrics.cpu_freq_cpu0_mhz.value : null;
+  const cpu1Freq = metrics.cpu_freq_cpu1_mhz && metrics.cpu_freq_cpu1_mhz.value !== null ? metrics.cpu_freq_cpu1_mhz.value : null;
+  const cpu2Freq = metrics.cpu_freq_cpu2_mhz && metrics.cpu_freq_cpu2_mhz.value !== null ? metrics.cpu_freq_cpu2_mhz.value : null;
+  const cpu3Freq = metrics.cpu_freq_cpu3_mhz && metrics.cpu_freq_cpu3_mhz.value !== null ? metrics.cpu_freq_cpu3_mhz.value : null;
+  const baseTag = document.getElementById('lbl-cpu-base-tag');
+  if (baseTag && cpu0Freq !== null) {
+    if (isThermalThrottling) {
+      baseTag.textContent = `⚠️ Throttled: ${Math.round(curFreq)} MHz (-${Math.round(throttleDrop)} MHz)`;
+      baseTag.style.background = '#fee2e2';
+      baseTag.style.color = '#b91c1c';
+      baseTag.style.border = '1px solid #fca5a5';
+    } else if (isFreqCapped) {
+      baseTag.textContent = `⚠️ Freq Capped (${Math.round(curFreq)} MHz)`;
+      baseTag.style.background = '#fef3c7';
+      baseTag.style.color = '#b45309';
+      baseTag.style.border = '1px solid #fcd34d';
+    } else if (isFullBase) {
+      baseTag.textContent = '⚡ 2.4 GHz Full Base Active';
+      baseTag.style.background = '#dcfce7';
+      baseTag.style.color = '#15803d';
+      baseTag.style.border = '1px solid #86efac';
+    } else {
+      baseTag.textContent = `${Math.round(curFreq)} MHz (Governor)`;
+      baseTag.style.background = '#f1f5f9';
+      baseTag.style.color = '#0f172a';
+      baseTag.style.border = '1px solid #cbd5e1';
+    }
+  }
+
+  const vIn1 = metrics.hwmon_rp1_adc_in1_voltage && metrics.hwmon_rp1_adc_in1_voltage.value !== null ? metrics.hwmon_rp1_adc_in1_voltage.value : null;
+  const vIn2 = metrics.hwmon_rp1_adc_in2_voltage && metrics.hwmon_rp1_adc_in2_voltage.value !== null ? metrics.hwmon_rp1_adc_in2_voltage.value : null;
+  const vIn3 = metrics.hwmon_rp1_adc_in3_voltage && metrics.hwmon_rp1_adc_in3_voltage.value !== null ? metrics.hwmon_rp1_adc_in3_voltage.value : null;
+  const vIn4 = metrics.hwmon_rp1_adc_in4_voltage && metrics.hwmon_rp1_adc_in4_voltage.value !== null ? metrics.hwmon_rp1_adc_in4_voltage.value : null;
+
+  const procCpu = metrics?.process_cpu_percent && metrics.process_cpu_percent.value !== null ? metrics.process_cpu_percent.value : null;
+  const procRss = metrics?.process_memory_rss_mb && metrics.process_memory_rss_mb.value !== null ? metrics.process_memory_rss_mb.value : null;
+  const sysLoad = metrics?.load_average_1m && metrics.load_average_1m.value !== null ? metrics.load_average_1m.value : null;
+  const lblProc = document.getElementById('lbl-proc-footprint');
+  if (lblProc && (procCpu !== null || procRss !== null || sysLoad !== null)) {
+    const cpuPart = procCpu !== null ? `${Math.round(procCpu)}% CPU` : '--';
+    const rssPart = procRss !== null ? `${Math.round(procRss)} MB RSS` : '--';
+    const loadPart = sysLoad !== null ? `Load ${sysLoad.toFixed(2)}` : '--';
+    lblProc.textContent = `${cpuPart} | ${rssPart} | ${loadPart}`;
+  }
+
+  const diskUtil = metrics?.disk_utilisation && metrics.disk_utilisation.value !== null ? metrics.disk_utilisation.value : null;
+  const lblDisk = document.getElementById('lbl-disk-utilisation');
+  if (lblDisk && diskUtil !== null) {
+    lblDisk.textContent = `${diskUtil.toFixed(1)}% Used`;
+  }
+
+  // Sample waveform series once per second across the full detection duration session
+  if (shouldTickChart && typeof updateChartSeries === 'function') {
+    lastChartTickSec = currentSec;
+
+    // 1. Latency Breakdown History (ms)
+    if (latencyChart) updateChartSeries(latencyChart, nowLabel, [npuLat, prepLat, postLat]);
+
+    // 2. Processed Frames Per Second (FPS)
+    if (fpsChart) updateChartSeries(fpsChart, nowLabel, [fps]);
+
+    // 3. Inter-Frame Interval (ms)
     if (interFrameChart && interFrameMs !== null && interFrameMs >= 0) {
       updateChartSeries(interFrameChart, nowLabel, [interFrameMs]);
-      const lblInter = document.getElementById('lbl-inter-frame');
-      if (lblInter) lblInter.textContent = `${interFrameMs.toFixed(1)} ms`;
     }
 
-    // Detections Per Frame
-    const detCount = inference?.detections_count !== undefined
-      ? inference.detections_count
-      : (data.detections ? data.detections.length : 0);
+    // 4. Detections Per Frame
     if (detectionsCountChart) {
       updateChartSeries(detectionsCountChart, nowLabel, [detCount]);
-      const lblDet = document.getElementById('lbl-detections-per-frame');
-      if (lblDet) lblDet.textContent = `${detCount} object${detCount === 1 ? '' : 's'}`;
     }
 
-    // Confidence Distribution Histogram from live detections
-    if (data.detections && Array.isArray(data.detections) && data.detections.length > 0) {
-      data.detections.forEach(d => {
-        if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
-          recentConfidences.push(d.confidence);
-          if (recentConfidences.length > MAX_CONF_WINDOW) {
-            recentConfidences.shift();
-          }
-        }
-      });
-      updateConfidenceHistogramUI();
-    }
-
+    // 5. Thermal Profile History (°C)
     if (thermalChart) updateChartSeries(thermalChart, nowLabel, [cpuTemp || 0, rp1Temp || 0, hailoTemp || 0]);
+
+    // 6. System Utilisation History (%)
     if (resourceChart) updateChartSeries(resourceChart, nowLabel, [cpuUtil || 0, memUtil || 0]);
 
-    // Active Cooling & Fan Speed
-    const fanRpm = metrics.hwmon_pwmfan_fan1_rpm && metrics.hwmon_pwmfan_fan1_rpm.value !== null ? metrics.hwmon_pwmfan_fan1_rpm.value : null;
-    const fanState = metrics.cooling_pwm_fan_cur_state && metrics.cooling_pwm_fan_cur_state.value !== null ? metrics.cooling_pwm_fan_cur_state.value : null;
+    // 7. Active Cooling & Fan Speed
     if (fanChart && fanRpm !== null) {
       updateChartSeries(fanChart, nowLabel, [fanRpm]);
-      const fanBadge = document.getElementById('lbl-fan-speed');
-      if (fanBadge) {
-        fanBadge.textContent = `${Math.round(fanRpm)} RPM${fanState !== null ? ' (Lvl ' + fanState + ')' : ''}`;
-      }
     }
 
-    // CPU Quad-Core Clock Frequencies
-    const cpu0Freq = metrics.cpu_freq_cpu0_mhz && metrics.cpu_freq_cpu0_mhz.value !== null ? metrics.cpu_freq_cpu0_mhz.value : null;
-    const cpu1Freq = metrics.cpu_freq_cpu1_mhz && metrics.cpu_freq_cpu1_mhz.value !== null ? metrics.cpu_freq_cpu1_mhz.value : null;
-    const cpu2Freq = metrics.cpu_freq_cpu2_mhz && metrics.cpu_freq_cpu2_mhz.value !== null ? metrics.cpu_freq_cpu2_mhz.value : null;
-    const cpu3Freq = metrics.cpu_freq_cpu3_mhz && metrics.cpu_freq_cpu3_mhz.value !== null ? metrics.cpu_freq_cpu3_mhz.value : null;
+    // 8. CPU Quad-Core Frequencies (MHz)
     if (cpuFreqChart && cpu0Freq !== null) {
       updateChartSeries(cpuFreqChart, nowLabel, [
         cpu0Freq,
@@ -367,38 +427,9 @@ function handleLiveUpdate(data) {
         cpu2Freq !== null ? cpu2Freq : cpu0Freq,
         cpu3Freq !== null ? cpu3Freq : cpu0Freq
       ]);
-
-      const baseTag = document.getElementById('lbl-cpu-base-tag');
-      if (baseTag) {
-        if (isThermalThrottling) {
-          baseTag.textContent = `⚠️ Throttled: ${Math.round(curFreq)} MHz (-${Math.round(throttleDrop)} MHz)`;
-          baseTag.style.background = '#fee2e2';
-          baseTag.style.color = '#b91c1c';
-          baseTag.style.border = '1px solid #fca5a5';
-        } else if (isFreqCapped) {
-          baseTag.textContent = `⚠️ Freq Capped (${Math.round(curFreq)} MHz)`;
-          baseTag.style.background = '#fef3c7';
-          baseTag.style.color = '#b45309';
-          baseTag.style.border = '1px solid #fcd34d';
-        } else if (isFullBase) {
-          baseTag.textContent = '⚡ 2.4 GHz Full Base Active';
-          baseTag.style.background = '#dcfce7';
-          baseTag.style.color = '#15803d';
-          baseTag.style.border = '1px solid #86efac';
-        } else {
-          baseTag.textContent = `${Math.round(curFreq)} MHz (Governor)`;
-          baseTag.style.background = '#f1f5f9';
-          baseTag.style.color = '#0f172a';
-          baseTag.style.border = '1px solid #cbd5e1';
-        }
-      }
     }
 
-    // RP1 Southbridge Rail Voltages
-    const vIn1 = metrics.hwmon_rp1_adc_in1_voltage && metrics.hwmon_rp1_adc_in1_voltage.value !== null ? metrics.hwmon_rp1_adc_in1_voltage.value : null;
-    const vIn2 = metrics.hwmon_rp1_adc_in2_voltage && metrics.hwmon_rp1_adc_in2_voltage.value !== null ? metrics.hwmon_rp1_adc_in2_voltage.value : null;
-    const vIn3 = metrics.hwmon_rp1_adc_in3_voltage && metrics.hwmon_rp1_adc_in3_voltage.value !== null ? metrics.hwmon_rp1_adc_in3_voltage.value : null;
-    const vIn4 = metrics.hwmon_rp1_adc_in4_voltage && metrics.hwmon_rp1_adc_in4_voltage.value !== null ? metrics.hwmon_rp1_adc_in4_voltage.value : null;
+    // 9. RP1 Southbridge Rail Voltages (V)
     if (voltageChart && vIn1 !== null) {
       updateChartSeries(voltageChart, nowLabel, [
         vIn1,
@@ -408,10 +439,7 @@ function handleLiveUpdate(data) {
       ]);
     }
 
-    // Process Footprint & System Load
-    const procCpu = metrics?.process_cpu_percent && metrics.process_cpu_percent.value !== null ? metrics.process_cpu_percent.value : null;
-    const procRss = metrics?.process_memory_rss_mb && metrics.process_memory_rss_mb.value !== null ? metrics.process_memory_rss_mb.value : null;
-    const sysLoad = metrics?.load_average_1m && metrics.load_average_1m.value !== null ? metrics.load_average_1m.value : null;
+    // 10. Process Footprint & System Load
     if (procFootprintChart && (procCpu !== null || procRss !== null || sysLoad !== null)) {
       updateChartSeries(procFootprintChart, nowLabel, [
         procCpu !== null ? procCpu : 0,
@@ -419,25 +447,15 @@ function handleLiveUpdate(data) {
         sysLoad !== null ? sysLoad : 0
       ]);
     }
-    const lblProc = document.getElementById('lbl-proc-footprint');
-    if (lblProc && (procCpu !== null || procRss !== null || sysLoad !== null)) {
-      const cpuPart = procCpu !== null ? `${Math.round(procCpu)}% CPU` : '--';
-      const rssPart = procRss !== null ? `${Math.round(procRss)} MB RSS` : '--';
-      const loadPart = sysLoad !== null ? `Load ${sysLoad.toFixed(2)}` : '--';
-      lblProc.textContent = `${cpuPart} | ${rssPart} | ${loadPart}`;
-    }
 
-    // Disk Utilisation
-    const diskUtil = metrics?.disk_utilisation && metrics.disk_utilisation.value !== null ? metrics.disk_utilisation.value : null;
+    // 11. Disk Utilisation (%)
     if (diskChart && diskUtil !== null) {
       updateChartSeries(diskChart, nowLabel, [diskUtil]);
-      const lblDisk = document.getElementById('lbl-disk-utilisation');
-      if (lblDisk) lblDisk.textContent = `${diskUtil.toFixed(1)}% Used`;
     }
-  }
 
-  // Update live values in Diagnostics modal if open
-  updateModalTelemetryLive(metrics, nowLabel);
+    // Update live values in Diagnostics modal if open
+    updateModalTelemetryLive(metrics, nowLabel);
+  }
 
     // 6. Render Detections List
     renderDetections(detections);
@@ -630,9 +648,11 @@ async function resetTelemetryAndDetectionData() {
   }
 
   // 4. Reset detection HUD pills and lists
-  recentConfidences = [];
-  const lblConf = document.getElementById('lbl-conf-dist');
-  if (lblConf) lblConf.textContent = '0 Detections';
+  sessionConfBins = new Array(10).fill(0);
+  sessionConfTotal = 0;
+  sessionConfSum = 0;
+  lastChartTickSec = -1;
+  updateConfidenceHistogramUI();
 
   const container = document.getElementById('detections-feed');
   if (container) {
@@ -1420,15 +1440,17 @@ async function seedInferenceAndDetectionHistory() {
 
     if (resDets.ok) {
       const dets = await resDets.json();
-      if (dets.length > 0) {
         dets.forEach(d => {
           if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
-            recentConfidences.push(d.confidence);
-            if (recentConfidences.length > MAX_CONF_WINDOW) recentConfidences.shift();
+            let idx = Math.floor(d.confidence * 10);
+            if (idx >= 10) idx = 9;
+            if (idx < 0) idx = 0;
+            sessionConfBins[idx]++;
+            sessionConfTotal++;
+            sessionConfSum += d.confidence;
           }
         });
         updateConfidenceHistogramUI();
-      }
     }
   } catch (err) {
     console.debug('[INFERENCE] Note on seeding inference history:', err);
