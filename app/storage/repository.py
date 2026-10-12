@@ -180,96 +180,96 @@ class TelemetryRepository:
             with self._write_lock:
                 with conn:
                     if telemetry:
-                    conn.executemany(
-                        """
-                        INSERT INTO telemetry_samples (
-                            timestamp_utc, monotonic_ts, metric_name, value, unit,
-                            source, availability_status, error_message
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                s.timestamp_utc,
-                                s.monotonic_ts,
-                                s.metric_name,
-                                s.value,
-                                s.unit,
-                                s.source,
-                                s.availability_status,
-                                s.error_message,
-                            )
-                            for s in telemetry
-                        ],
-                    )
-
-                if inference:
-                    for frame, detections in inference:
-                        cur = conn.execute(
+                        conn.executemany(
                             """
-                            INSERT INTO inference_frames (
-                                frame_seq, source_id, timestamp_utc, acquisition_ms,
-                                preprocessing_ms, hailo_exec_ms, postprocessing_ms,
-                                total_latency_ms, detections_count, dropped, error_status
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO telemetry_samples (
+                                timestamp_utc, monotonic_ts, metric_name, value, unit,
+                                source, availability_status, error_message
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (
-                                frame.frame_seq,
-                                frame.source_id,
-                                frame.timestamp_utc,
-                                frame.acquisition_ms,
-                                frame.preprocessing_ms,
-                                frame.hailo_exec_ms,
-                                frame.postprocessing_ms,
-                                frame.total_latency_ms,
-                                frame.detections_count,
-                                1 if frame.dropped else 0,
-                                frame.error_status,
-                            ),
+                            [
+                                (
+                                    s.timestamp_utc,
+                                    s.monotonic_ts,
+                                    s.metric_name,
+                                    s.value,
+                                    s.unit,
+                                    s.source,
+                                    s.availability_status,
+                                    s.error_message,
+                                )
+                                for s in telemetry
+                            ],
                         )
-                        if detections:
-                            conn.executemany(
-                                """
-                                INSERT INTO detections (
-                                    frame_seq, timestamp_utc, class_id, class_name,
-                                    confidence, box_xmin, box_ymin, box_xmax, box_ymax
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                [
-                                    (
-                                        d.frame_seq,
-                                        d.timestamp_utc,
-                                        d.class_id,
-                                        d.class_name,
-                                        d.confidence,
-                                        d.box_xmin,
-                                        d.box_ymin,
-                                        d.box_xmax,
-                                        d.box_ymax,
-                                    )
-                                    for d in detections
-                                ],
-                            )
 
-                if events:
-                    conn.executemany(
-                        """
-                        INSERT INTO system_events (
-                            timestamp_utc, event_type, severity, component,
-                            message, details_json
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                e.timestamp_utc,
-                                e.event_type,
-                                e.severity,
-                                e.component,
-                                e.message,
-                                e.details_json,
+                    if inference:
+                        for frame, detections in inference:
+                            cur = conn.execute(
+                                """
+                                INSERT INTO inference_frames (
+                                    frame_seq, source_id, timestamp_utc, acquisition_ms,
+                                    preprocessing_ms, hailo_exec_ms, postprocessing_ms,
+                                    total_latency_ms, detections_count, dropped, error_status
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    frame.frame_seq,
+                                    frame.source_id,
+                                    frame.timestamp_utc,
+                                    frame.acquisition_ms,
+                                    frame.preprocessing_ms,
+                                    frame.hailo_exec_ms,
+                                    frame.postprocessing_ms,
+                                    frame.total_latency_ms,
+                                    frame.detections_count,
+                                    1 if frame.dropped else 0,
+                                    frame.error_status,
+                                ),
                             )
-                            for e in events
-                        ],
-                    )
+                            if detections:
+                                conn.executemany(
+                                    """
+                                    INSERT INTO detections (
+                                        frame_seq, timestamp_utc, class_id, class_name,
+                                        confidence, box_xmin, box_ymin, box_xmax, box_ymax
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    [
+                                        (
+                                            d.frame_seq,
+                                            d.timestamp_utc,
+                                            d.class_id,
+                                            d.class_name,
+                                            d.confidence,
+                                            d.box_xmin,
+                                            d.box_ymin,
+                                            d.box_xmax,
+                                            d.box_ymax,
+                                        )
+                                        for d in detections
+                                    ],
+                                )
+
+                    if events:
+                        conn.executemany(
+                            """
+                            INSERT INTO system_events (
+                                timestamp_utc, event_type, severity, component,
+                                message, details_json
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            [
+                                (
+                                    e.timestamp_utc,
+                                    e.event_type,
+                                    e.severity,
+                                    e.component,
+                                    e.message,
+                                    e.details_json,
+                                )
+                                for e in events
+                            ],
+                        )
         except Exception as e:
             logger.error("Failed to commit SQLite batch: %s", e, exc_info=True)
 
