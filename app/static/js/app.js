@@ -1799,6 +1799,10 @@ async function startAutomatedBenchmark() {
   if (isBenchmarkRunning) return;
   const durSec = getBenchmarkTargetDuration();
 
+  // Like "Start Inference", unpause waveforms and perform a full reset before continuation
+  setWaveformsPaused(false, 'Benchmark Started');
+  await resetTelemetryAndDetectionData();
+
   clearBenchmarkData();
   isBenchmarkRunning = true;
   benchmarkPhaseTargetSec = durSec;
@@ -1955,6 +1959,11 @@ async function startAutomatedBenchmark() {
 async function manualRecordBenchmarkPhase(backend) {
   if (isBenchmarkRunning) return;
   const durSec = getBenchmarkTargetDuration();
+
+  if (backend === 'hailo') {
+    setWaveformsPaused(false, 'Benchmark Started');
+    await resetTelemetryAndDetectionData();
+  }
 
   isBenchmarkRunning = true;
   currentBenchmarkPhase = backend;
