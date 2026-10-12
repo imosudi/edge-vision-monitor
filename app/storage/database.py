@@ -110,9 +110,8 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     Get a new configured SQLite connection.
     Enables row factory for dict-like access.
     """
-    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn = sqlite3.connect(db_path, timeout=15.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 10000;")
     conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn

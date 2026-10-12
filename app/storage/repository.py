@@ -46,6 +46,7 @@ class TelemetryRepository:
         self._stop_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
         self._dropped_samples_count = 0
+        self._write_lock = threading.Lock()
 
         # Ensure database is initialised
         init_database(self._db_path)
@@ -176,8 +177,9 @@ class TelemetryRepository:
     ) -> None:
         """Write records to SQLite within a single transaction."""
         try:
-            with conn:
-                if telemetry:
+            with self._write_lock:
+                with conn:
+                    if telemetry:
                     conn.executemany(
                         """
                         INSERT INTO telemetry_samples (
@@ -405,19 +407,20 @@ class TelemetryRepository:
     def purge_older_than(self, retention_days: int) -> int:
         """Purge telemetry and frame records older than the retention threshold."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
-        conn = get_connection(self._db_path)
-        deleted = 0
-        try:
-            with conn:
-                c1 = conn.execute("DELETE FROM telemetry_samples WHERE timestamp_utc < ?", (cutoff,))
-                c2 = conn.execute("DELETE FROM inference_frames WHERE timestamp_utc < ?", (cutoff,))
-                c3 = conn.execute("DELETE FROM detections WHERE timestamp_utc < ?", (cutoff,))
-                c4 = conn.execute("DELETE FROM system_events WHERE timestamp_utc < ?", (cutoff,))
-                deleted = c1.rowcount + c2.rowcount + c3.rowcount + c4.rowcount
-            logger.info("Purged %d records older than %s (%d days)", deleted, cutoff, retention_days)
-            return deleted
-        finally:
-            conn.close()
+        with self._write_lock:
+            conn = get_connection(self._db_path)
+            deleted = 0
+            try:
+                with conn:
+                    c1 = conn.execute("DELETE FROM telemetry_samples WHERE timestamp_utc < ?", (cutoff,))
+                    c2 = conn.execute("DELETE FROM inference_frames WHERE timestamp_utc < ?", (cutoff,))
+                    c3 = conn.execute("DELETE FROM detections WHERE timestamp_utc < ?", (cutoff,))
+                    c4 = conn.execute("DELETE FROM system_events WHERE timestamp_utc < ?", (cutoff,))
+                    deleted = c1.rowcount + c2.rowcount + c3.rowcount + c4.rowcount
+                logger.info("Purged %d records older than %s (%d days)", deleted, cutoff, retention_days)
+                return deleted
+            finally:
+                conn.close()
 
     def reset_history(
         self, clear_telemetry: bool = True, clear_inference: bool = True, clear_detections: bool = True
@@ -426,30 +429,31 @@ class TelemetryRepository:
         Delete persisted telemetry samples, inference frames, and detections from SQLite
         and discard pending items in the ingestion queue.
         """
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except (queue.Empty, ValueError):
-                break
+        with self._write_lock:
+            while not self._queue.empty():
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except (queue.Empty, ValueError):
+                    break
 
-        conn = get_connection(self._db_path)
-        deleted = {"telemetry": 0, "inference_frames": 0, "detections": 0}
-        try:
-            with conn:
-                if clear_telemetry:
-                    c1 = conn.execute("DELETE FROM telemetry_samples")
-                    deleted["telemetry"] = c1.rowcount
-                if clear_inference:
-                    c2 = conn.execute("DELETE FROM inference_frames")
-                    deleted["inference_frames"] = c2.rowcount
-                if clear_detections:
-                    c3 = conn.execute("DELETE FROM detections")
-                    deleted["detections"] = c3.rowcount
-            logger.info("Reset history completed: %s", deleted)
-            return deleted
-        finally:
-            conn.close()
+            conn = get_connection(self._db_path)
+            deleted = {"telemetry": 0, "inference_frames": 0, "detections": 0}
+            try:
+                with conn:
+                    if clear_telemetry:
+                        c1 = conn.execute("DELETE FROM telemetry_samples")
+                        deleted["telemetry"] = c1.rowcount
+                    if clear_inference:
+                        c2 = conn.execute("DELETE FROM inference_frames")
+                        deleted["inference_frames"] = c2.rowcount
+                    if clear_detections:
+                        c3 = conn.execute("DELETE FROM detections")
+                        deleted["detections"] = c3.rowcount
+                logger.info("Reset history completed: %s", deleted)
+                return deleted
+            finally:
+                conn.close()
 
     def export_telemetry_csv(
         self, metric_name: Optional[str] = None, limit: int = 5000
