@@ -162,7 +162,8 @@ function handleLiveUpdate(data) {
         const curMhz = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : 0;
         bannerText.textContent = `CRITICAL: Hardware Thermal Throttling Active! CPU clock dropped down to ${Math.round(curMhz)} MHz (-${Math.round(dropMhz)} MHz from 2.4 GHz base).`;
       } else if (isFreqCapped) {
-        bannerText.textContent = 'WARNING: ARM frequency capping active on Raspberry Pi 5 processor!';
+        const curMhz = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : 0;
+        bannerText.textContent = `WARNING: ARM frequency capping active on Raspberry Pi 5! Processor running at ${Math.round(curMhz)} MHz.`;
       } else if (isUndervolt) {
         bannerText.textContent = 'WARNING: Hardware undervoltage detected on power supply rail!';
       } else {
@@ -186,13 +187,13 @@ function handleLiveUpdate(data) {
     const elState = document.getElementById('val-clock-state');
     if (elState) {
       if (isThermalThrottling) {
-        elState.textContent = `THROTTLED (-${Math.round(throttleDrop)} MHz)`;
+        elState.textContent = `THROTTLED: ${Math.round(curFreq)} MHz (-${Math.round(throttleDrop)} MHz)`;
         elState.className = 'metric-val red';
       } else if (isFreqCapped) {
-        elState.textContent = 'FREQ CAPPED';
+        elState.textContent = `FREQ CAPPED (${Math.round(curFreq)} MHz)`;
         elState.className = 'metric-val amber';
       } else if (isFullBase) {
-        elState.textContent = '2.4 GHz Full Base';
+        elState.textContent = `2.4 GHz Full Base (${Math.round(curFreq)} MHz)`;
         elState.className = 'metric-val green';
       } else {
         elState.textContent = `${Math.round(curFreq)} MHz (Governor)`;
@@ -213,7 +214,7 @@ function handleLiveUpdate(data) {
 
     const elFreqCapped = document.getElementById('val-freq-capped');
     if (elFreqCapped) {
-      elFreqCapped.textContent = isFreqCapped ? 'YES (Capped)' : 'No';
+      elFreqCapped.textContent = isFreqCapped ? `YES (${Math.round(curFreq)} MHz)` : 'No';
       elFreqCapped.className = isFreqCapped ? 'metric-val amber' : 'metric-val green';
     }
 
