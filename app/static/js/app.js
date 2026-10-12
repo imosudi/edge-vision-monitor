@@ -46,7 +46,8 @@ function connectWebSocket() {
 }
 
 function handleLiveUpdate(data) {
-  const { status, inference, detections, metrics } = data;
+  try {
+    const { status, inference, detections, metrics } = data;
 
   // 1. Update Header & Badges
   isInferenceRunning = status.inference_running;
@@ -122,6 +123,11 @@ function handleLiveUpdate(data) {
   let hailoTemp = null;
   let cpuUtil = null;
   let memUtil = null;
+  let isThermalThrottling = false;
+  let isFreqCapped = false;
+  let isFullBase = false;
+  let curFreq = 2400.0;
+  let throttleDrop = 0.0;
 
   if (metrics) {
     // Find CPU Temp
@@ -148,10 +154,10 @@ function handleLiveUpdate(data) {
     }
 
     // Undervoltage / Thermal Throttling / Frequency Drop
-    const isThermalThrottling = metrics.cpu_thermal_throttle_active && metrics.cpu_thermal_throttle_active.value > 0;
-    const isFreqCapped = metrics.rpi_arm_freq_capped_now && metrics.rpi_arm_freq_capped_now.value > 0;
-    const isThrottled = metrics.rpi_is_throttled && metrics.rpi_is_throttled.value > 0;
-    const isUndervolt = metrics.rpi_undervoltage_now && metrics.rpi_undervoltage_now.value > 0;
+    isThermalThrottling = !!(metrics.cpu_thermal_throttle_active && metrics.cpu_thermal_throttle_active.value > 0);
+    isFreqCapped = !!(metrics.rpi_arm_freq_capped_now && metrics.rpi_arm_freq_capped_now.value > 0);
+    const isThrottled = !!(metrics.rpi_is_throttled && metrics.rpi_is_throttled.value > 0);
+    const isUndervolt = !!(metrics.rpi_undervoltage_now && metrics.rpi_undervoltage_now.value > 0);
     const banner = document.getElementById('alert-banner');
     const bannerText = document.getElementById('alert-banner-text');
 
@@ -175,9 +181,9 @@ function handleLiveUpdate(data) {
 
     // Electrical & Clock Throttling Card elements
     const baseFreq = metrics.cpu_freq_base_mhz && metrics.cpu_freq_base_mhz.value !== null ? metrics.cpu_freq_base_mhz.value : 2400.0;
-    const curFreq = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : (metrics.cpu_freq_cpu0_mhz?.value || baseFreq);
-    const isFullBase = (metrics.cpu_is_full_base_freq && metrics.cpu_is_full_base_freq.value > 0) || curFreq >= 2385.0;
-    const throttleDrop = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : 0.0;
+    curFreq = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : (metrics.cpu_freq_cpu0_mhz?.value || baseFreq);
+    isFullBase = (metrics.cpu_is_full_base_freq && metrics.cpu_is_full_base_freq.value > 0) || curFreq >= 2385.0;
+    throttleDrop = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : 0.0;
 
     const elClock = document.getElementById('val-cpu-clock');
     if (elClock) {
@@ -349,8 +355,11 @@ function handleLiveUpdate(data) {
   // Update live values in Diagnostics modal if open
   updateModalTelemetryLive(metrics, nowLabel);
 
-  // 6. Render Detections List
-  renderDetections(detections);
+    // 6. Render Detections List
+    renderDetections(detections);
+  } catch (err) {
+    console.error('[TELEMETRY] Error in handleLiveUpdate:', err);
+  }
 }
 
 function renderDetections(detections) {
@@ -949,11 +958,58 @@ async function seedProcFootprintHistory() {
   }
 }
 
+/**
+ * Pre-populate RP1 rail voltages with recent historical points
+ */
+async function seedVoltageHistory() {
+  try {
+    const [r1, r2, r3, r4] = await Promise.all([
+      fetch('/api/v1/metrics/history?metric_name=hwmon_rp1_adc_in1_voltage&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=hwmon_rp1_adc_in2_voltage&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=hwmon_rp1_adc_in3_voltage&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=hwmon_rp1_adc_in4_voltage&limit=30')
+    ]);
+
+    if (!r1.ok) return;
+
+    const [d1, d2, d3, d4] = await Promise.all([
+      r1.json(),
+      r2.ok ? r2.json() : [],
+      r3.ok ? r3.json() : [],
+      r4.ok ? r4.json() : []
+    ]);
+
+    if (!voltageChart || voltageChart.data.labels.length > 5) return;
+    const count = d1.length;
+    if (count === 0) return;
+
+    const labels = [];
+    const v1 = [], v2 = [], v3 = [], v4 = [];
+    for (let i = 0; i < count; i++) {
+      labels.push(d1[i]?.timestamp_utc ? new Date(d1[i].timestamp_utc).toLocaleTimeString() : '');
+      v1.push(d1[i]?.value !== null && d1[i]?.value !== undefined ? d1[i].value : 0);
+      v2.push(d2[i]?.value !== null && d2[i]?.value !== undefined ? d2[i].value : 0);
+      v3.push(d3[i]?.value !== null && d3[i]?.value !== undefined ? d3[i].value : 0);
+      v4.push(d4[i]?.value !== null && d4[i]?.value !== undefined ? d4[i].value : 0);
+    }
+
+    voltageChart.data.labels = labels;
+    if (voltageChart.data.datasets[0]) voltageChart.data.datasets[0].data = v1;
+    if (voltageChart.data.datasets[1]) voltageChart.data.datasets[1].data = v2;
+    if (voltageChart.data.datasets[2]) voltageChart.data.datasets[2].data = v3;
+    if (voltageChart.data.datasets[3]) voltageChart.data.datasets[3].data = v4;
+    voltageChart.update('none');
+  } catch (err) {
+    console.debug('[TELEMETRY] Note on seeding voltage history:', err);
+  }
+}
+
 // Initialise on page load
 window.addEventListener('DOMContentLoaded', () => {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
   connectWebSocket();
+  seedVoltageHistory();
   seedProcFootprintHistory();
 });
