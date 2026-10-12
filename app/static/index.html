@@ -242,17 +242,29 @@
         <!-- Power & Environmental Telemetry -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title"><span>⚡</span> Electrical & Throttling</div>
+            <div class="card-title"><span>⚡</span> Electrical &amp; Clock Throttling</div>
           </div>
 
           <div class="metric-group">
             <div class="metric-row">
-              <span class="metric-label">Undervoltage Active</span>
-              <span id="val-undervolt" class="metric-val green">No</span>
+              <span class="metric-label">CPU Operating Clock</span>
+              <span id="val-cpu-clock" class="metric-val">-- MHz</span>
             </div>
             <div class="metric-row">
-              <span class="metric-label">Freq Capped Active</span>
+              <span class="metric-label">Clock Performance State</span>
+              <span id="val-clock-state" class="metric-val green">2.4 GHz Full Base</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Thermal Throttle Drop</span>
+              <span id="val-throttle-drop" class="metric-val green">0 MHz (None)</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">ARM Freq Capped (vcgen)</span>
               <span id="val-freq-capped" class="metric-val green">No</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Undervoltage Active</span>
+              <span id="val-undervolt" class="metric-val green">No</span>
             </div>
             <div class="metric-row">
               <span class="metric-label">INA219 Supply Rail</span>
@@ -339,7 +351,10 @@
       <!-- Chart 6: Quad-Core CPU Clock Frequencies -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
-          <div class="card-title"><span>⚡</span> CPU Quad-Core Frequencies (MHz)</div>
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>⚡</span> CPU Quad-Core Frequencies (MHz)</span>
+            <span id="lbl-cpu-base-tag" class="header-stat-pill">2.4 GHz Base Target</span>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-cpufreq"></canvas>
@@ -454,7 +469,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=2.1-sensors"></script>
-  <script src="/static/js/app.js?v=2.1-sensors"></script>
+  <script src="/static/js/charts.js?v=2.2-throttling"></script>
+  <script src="/static/js/app.js?v=2.2-throttling"></script>
 </body>
 </html>

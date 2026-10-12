@@ -147,14 +147,74 @@ function handleLiveUpdate(data) {
       document.getElementById('val-disk-util').textContent = `${metrics.disk_utilisation.value}%`;
     }
 
-    // Undervoltage / Throttling
+    // Undervoltage / Thermal Throttling / Frequency Drop
+    const isThermalThrottling = metrics.cpu_thermal_throttle_active && metrics.cpu_thermal_throttle_active.value > 0;
+    const isFreqCapped = metrics.rpi_arm_freq_capped_now && metrics.rpi_arm_freq_capped_now.value > 0;
     const isThrottled = metrics.rpi_is_throttled && metrics.rpi_is_throttled.value > 0;
     const isUndervolt = metrics.rpi_undervoltage_now && metrics.rpi_undervoltage_now.value > 0;
     const banner = document.getElementById('alert-banner');
-    if (isThrottled || isUndervolt) {
+    const bannerText = document.getElementById('alert-banner-text');
+
+    if (isThermalThrottling || isFreqCapped || isThrottled || isUndervolt) {
       banner.style.display = 'flex';
+      if (isThermalThrottling) {
+        const dropMhz = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : 0;
+        const curMhz = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : 0;
+        bannerText.textContent = `CRITICAL: Hardware Thermal Throttling Active! CPU clock dropped down to ${Math.round(curMhz)} MHz (-${Math.round(dropMhz)} MHz from 2.4 GHz base).`;
+      } else if (isFreqCapped) {
+        bannerText.textContent = 'WARNING: ARM frequency capping active on Raspberry Pi 5 processor!';
+      } else if (isUndervolt) {
+        bannerText.textContent = 'WARNING: Hardware undervoltage detected on power supply rail!';
+      } else {
+        bannerText.textContent = 'WARNING: Hardware throttling flag detected via vcgencmd!';
+      }
     } else {
       banner.style.display = 'none';
+    }
+
+    // Electrical & Clock Throttling Card elements
+    const baseFreq = metrics.cpu_freq_base_mhz && metrics.cpu_freq_base_mhz.value !== null ? metrics.cpu_freq_base_mhz.value : 2400.0;
+    const curFreq = metrics.cpu_freq_cur_mhz && metrics.cpu_freq_cur_mhz.value !== null ? metrics.cpu_freq_cur_mhz.value : (metrics.cpu_freq_cpu0_mhz?.value || baseFreq);
+    const isFullBase = (metrics.cpu_is_full_base_freq && metrics.cpu_is_full_base_freq.value > 0) || curFreq >= 2385.0;
+    const throttleDrop = metrics.cpu_freq_throttle_drop_mhz && metrics.cpu_freq_throttle_drop_mhz.value !== null ? metrics.cpu_freq_throttle_drop_mhz.value : 0.0;
+
+    const elClock = document.getElementById('val-cpu-clock');
+    if (elClock) {
+      elClock.textContent = `${Math.round(curFreq)} MHz (${(curFreq / 1000).toFixed(2)} GHz)`;
+    }
+
+    const elState = document.getElementById('val-clock-state');
+    if (elState) {
+      if (isThermalThrottling) {
+        elState.textContent = `THROTTLED (-${Math.round(throttleDrop)} MHz)`;
+        elState.className = 'metric-val red';
+      } else if (isFreqCapped) {
+        elState.textContent = 'FREQ CAPPED';
+        elState.className = 'metric-val amber';
+      } else if (isFullBase) {
+        elState.textContent = '2.4 GHz Full Base';
+        elState.className = 'metric-val green';
+      } else {
+        elState.textContent = `${Math.round(curFreq)} MHz (Governor)`;
+        elState.className = 'metric-val';
+      }
+    }
+
+    const elDrop = document.getElementById('val-throttle-drop');
+    if (elDrop) {
+      if (isThermalThrottling && throttleDrop > 0) {
+        elDrop.textContent = `-${Math.round(throttleDrop)} MHz`;
+        elDrop.className = 'metric-val red';
+      } else {
+        elDrop.textContent = '0 MHz (None)';
+        elDrop.className = 'metric-val green';
+      }
+    }
+
+    const elFreqCapped = document.getElementById('val-freq-capped');
+    if (elFreqCapped) {
+      elFreqCapped.textContent = isFreqCapped ? 'YES (Capped)' : 'No';
+      elFreqCapped.className = isFreqCapped ? 'metric-val amber' : 'metric-val green';
     }
 
     document.getElementById('val-undervolt').textContent = isUndervolt ? 'YES (Active)' : 'No';
@@ -224,6 +284,31 @@ function handleLiveUpdate(data) {
         cpu2Freq !== null ? cpu2Freq : cpu0Freq,
         cpu3Freq !== null ? cpu3Freq : cpu0Freq
       ]);
+
+      const baseTag = document.getElementById('lbl-cpu-base-tag');
+      if (baseTag) {
+        if (isThermalThrottling) {
+          baseTag.textContent = `⚠️ Throttled: ${Math.round(curFreq)} MHz (-${Math.round(throttleDrop)} MHz)`;
+          baseTag.style.background = '#fee2e2';
+          baseTag.style.color = '#b91c1c';
+          baseTag.style.border = '1px solid #fca5a5';
+        } else if (isFreqCapped) {
+          baseTag.textContent = `⚠️ Freq Capped (${Math.round(curFreq)} MHz)`;
+          baseTag.style.background = '#fef3c7';
+          baseTag.style.color = '#b45309';
+          baseTag.style.border = '1px solid #fcd34d';
+        } else if (isFullBase) {
+          baseTag.textContent = '⚡ 2.4 GHz Full Base Active';
+          baseTag.style.background = '#dcfce7';
+          baseTag.style.color = '#15803d';
+          baseTag.style.border = '1px solid #86efac';
+        } else {
+          baseTag.textContent = `${Math.round(curFreq)} MHz (Governor)`;
+          baseTag.style.background = '#f1f5f9';
+          baseTag.style.color = '#0f172a';
+          baseTag.style.border = '1px solid #cbd5e1';
+        }
+      }
     }
 
     // RP1 Southbridge Rail Voltages

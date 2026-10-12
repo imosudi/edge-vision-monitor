@@ -130,6 +130,26 @@ class TelemetryService:
             elif s.metric_name == "rpi_is_throttled" and s.value == 0:
                 self._clear_alarm("rpi_throttling")
 
+            # CPU Thermal Throttling / Frequency Drop
+            elif s.metric_name == "cpu_thermal_throttle_active" and s.value > 0:
+                self._trigger_alarm(
+                    "cpu_thermal_throttle",
+                    "CRITICAL: CPU thermal throttling active! Processor clock has dropped below 2.4 GHz full base frequency.",
+                    severity="CRITICAL",
+                )
+            elif s.metric_name == "cpu_thermal_throttle_active" and s.value == 0:
+                self._clear_alarm("cpu_thermal_throttle")
+
+            # ARM Frequency Capping
+            elif s.metric_name == "rpi_arm_freq_capped_now" and s.value > 0:
+                self._trigger_alarm(
+                    "rpi_arm_freq_capped",
+                    "WARNING: Raspberry Pi ARM frequency capping currently active!",
+                    severity="WARNING",
+                )
+            elif s.metric_name == "rpi_arm_freq_capped_now" and s.value == 0:
+                self._clear_alarm("rpi_arm_freq_capped")
+
     def _trigger_alarm(self, key: str, msg: str, severity: str = "WARNING") -> None:
         if self._active_alarms.get(key) != severity:
             self._active_alarms[key] = severity
