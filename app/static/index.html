@@ -374,7 +374,10 @@
       <!-- Chart 8: Process Footprint & System Load -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
-          <div class="card-title"><span>⚙️</span> Process Footprint &amp; System Load</div>
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>⚙️</span> Process Footprint &amp; System Load</span>
+            <span id="lbl-proc-footprint" class="header-stat-pill">--</span>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-procfootprint"></canvas>
@@ -469,7 +472,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=2.3-clockstate"></script>
-  <script src="/static/js/app.js?v=2.3-clockstate"></script>
+  <script src="/static/js/charts.js?v=2.4-procfootprint"></script>
+  <script src="/static/js/app.js?v=2.4-procfootprint"></script>
 </body>
 </html>

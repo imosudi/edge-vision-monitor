@@ -168,7 +168,7 @@ function initCharts() {
     });
   }
 
-  // 8. Process Footprint & System Load
+  // 8. Process Footprint & System Load (Dual Y-Axis: Left for MB/%, Right for 1m Load)
   const ctxProcFootprint = document.getElementById('chart-procfootprint');
   if (ctxProcFootprint) {
     procFootprintChart = new Chart(ctxProcFootprint, {
@@ -176,12 +176,110 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'Process CPU (%)', data: [], borderColor: '#ef4444', backgroundColor: 'transparent' },
-          { label: 'Process RAM (MB)', data: [], borderColor: '#2563eb', backgroundColor: 'transparent' },
-          { label: 'System Load (1m)', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent' }
+          {
+            label: 'Process CPU (%)',
+            data: [],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239, 68, 68, 0.05)',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Process RAM (MB)',
+            data: [],
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.05)',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            yAxisID: 'y'
+          },
+          {
+            label: 'System Load (1m)',
+            data: [],
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.08)',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            yAxisID: 'y1'
+          }
         ]
       },
-      options: chartOptionsBase
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 250 },
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            labels: {
+              color: '#475569',
+              font: { family: 'Inter', size: 11, weight: '500' },
+              boxWidth: 10
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.parsed.y !== null && context.parsed.y !== undefined) {
+                  if (context.datasetIndex === 0) label += `${context.parsed.y}%`;
+                  else if (context.datasetIndex === 1) label += `${context.parsed.y} MB`;
+                  else label += `${context.parsed.y}`;
+                }
+                return label;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(0, 0, 0, 0.04)' },
+            ticks: { display: false }
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            min: 0,
+            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+            ticks: {
+              color: '#64748b',
+              font: { family: 'JetBrains Mono', size: 10 }
+            },
+            title: {
+              display: true,
+              text: 'RAM (MB) / CPU (%)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 9, weight: '600' }
+            }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            min: 0,
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: '#f59e0b',
+              font: { family: 'JetBrains Mono', size: 10 }
+            },
+            title: {
+              display: true,
+              text: 'System Load (1m)',
+              color: '#f59e0b',
+              font: { family: 'Inter', size: 9, weight: '600' }
+            }
+          }
+        }
+      }
     });
   }
 }

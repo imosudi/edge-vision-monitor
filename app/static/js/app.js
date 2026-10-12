@@ -327,15 +327,22 @@ function handleLiveUpdate(data) {
     }
 
     // Process Footprint & System Load
-    const procCpu = metrics.process_cpu_percent && metrics.process_cpu_percent.value !== null ? metrics.process_cpu_percent.value : null;
-    const procRss = metrics.process_memory_rss_mb && metrics.process_memory_rss_mb.value !== null ? metrics.process_memory_rss_mb.value : null;
-    const sysLoad = metrics.load_average_1m && metrics.load_average_1m.value !== null ? metrics.load_average_1m.value : null;
+    const procCpu = metrics?.process_cpu_percent && metrics.process_cpu_percent.value !== null ? metrics.process_cpu_percent.value : null;
+    const procRss = metrics?.process_memory_rss_mb && metrics.process_memory_rss_mb.value !== null ? metrics.process_memory_rss_mb.value : null;
+    const sysLoad = metrics?.load_average_1m && metrics.load_average_1m.value !== null ? metrics.load_average_1m.value : null;
     if (procFootprintChart && (procCpu !== null || procRss !== null || sysLoad !== null)) {
       updateChartSeries(procFootprintChart, nowLabel, [
         procCpu !== null ? procCpu : 0,
         procRss !== null ? procRss : 0,
         sysLoad !== null ? sysLoad : 0
       ]);
+    }
+    const lblProc = document.getElementById('lbl-proc-footprint');
+    if (lblProc && (procCpu !== null || procRss !== null || sysLoad !== null)) {
+      const cpuPart = procCpu !== null ? `${Math.round(procCpu)}% CPU` : '--';
+      const rssPart = procRss !== null ? `${Math.round(procRss)} MB RSS` : '--';
+      const loadPart = sysLoad !== null ? `Load ${sysLoad.toFixed(2)}` : '--';
+      lblProc.textContent = `${cpuPart} | ${rssPart} | ${loadPart}`;
     }
   }
 
@@ -882,10 +889,71 @@ async function switchBackend(backend) {
   }
 }
 
+/**
+ * Pre-populate the Process Footprint & System Load chart with recent historical points
+ */
+async function seedProcFootprintHistory() {
+  try {
+    const [resCpu, resRss, resLoad] = await Promise.all([
+      fetch('/api/v1/metrics/history?metric_name=process_cpu_percent&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=process_memory_rss_mb&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=load_average_1m&limit=30')
+    ]);
+
+    if (!resCpu.ok || !resRss.ok || !resLoad.ok) return;
+
+    const [dataCpu, dataRss, dataLoad] = await Promise.all([
+      resCpu.json(),
+      resRss.json(),
+      resLoad.json()
+    ]);
+
+    if (!procFootprintChart) return;
+    if (procFootprintChart.data.labels.length > 5) return;
+
+    const count = Math.max(dataCpu.length, dataRss.length, dataLoad.length);
+    if (count === 0) return;
+
+    const labels = [];
+    const cpuVals = [];
+    const rssVals = [];
+    const loadVals = [];
+
+    for (let i = 0; i < count; i++) {
+      const c = dataCpu[i];
+      const r = dataRss[i];
+      const l = dataLoad[i];
+      const ts = c?.timestamp_utc || r?.timestamp_utc || l?.timestamp_utc;
+      const label = ts ? new Date(ts).toLocaleTimeString() : '';
+      labels.push(label);
+      cpuVals.push(c?.value !== null && c?.value !== undefined ? c.value : 0);
+      rssVals.push(r?.value !== null && r?.value !== undefined ? r.value : 0);
+      loadVals.push(l?.value !== null && l?.value !== undefined ? l.value : 0);
+    }
+
+    procFootprintChart.data.labels = labels;
+    if (procFootprintChart.data.datasets[0]) procFootprintChart.data.datasets[0].data = cpuVals;
+    if (procFootprintChart.data.datasets[1]) procFootprintChart.data.datasets[1].data = rssVals;
+    if (procFootprintChart.data.datasets[2]) procFootprintChart.data.datasets[2].data = loadVals;
+    procFootprintChart.update('none');
+
+    const lastCpu = cpuVals[cpuVals.length - 1];
+    const lastRss = rssVals[rssVals.length - 1];
+    const lastLoad = loadVals[loadVals.length - 1];
+    const lblProc = document.getElementById('lbl-proc-footprint');
+    if (lblProc && count > 0) {
+      lblProc.textContent = `${Math.round(lastCpu)}% CPU | ${Math.round(lastRss)} MB RSS | Load ${lastLoad.toFixed(2)}`;
+    }
+  } catch (err) {
+    console.debug('[TELEMETRY] Note on seeding proc footprint history:', err);
+  }
+}
+
 // Initialise on page load
 window.addEventListener('DOMContentLoaded', () => {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
   connectWebSocket();
+  seedProcFootprintHistory();
 });
