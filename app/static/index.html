@@ -50,10 +50,6 @@
         </button>
       </div>
 
-      <button id="btn-benchmark-modal" class="btn btn-benchmark" onclick="openBenchmarkModal()" title="CPU vs Hailo-8L NPU Benchmark Comparison Suite">
-        <span>⚖️</span> CPU/NPU Benchmark
-      </button>
-
       <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
         <span id="icon-inference">⏹</span>
         <span id="text-inference">Stop Inference</span>
@@ -311,9 +307,6 @@
             <span>⚖️</span> Dual Benchmark Overlay
           </button>
         </div>
-        <button id="btn-benchmark-mode-toggle" class="btn-benchmark-pill" onclick="openBenchmarkModal()" title="View benchmark summary modal dialog">
-          <span>📋</span> Summary Modal
-        </button>
         <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
           ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
         </span>
@@ -1061,7 +1054,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.8-same-waveforms"></script>
-  <script src="/static/js/app.js?v=3.8-same-waveforms"></script>
+  <script src="/static/js/charts.js?v=3.9-cleanbar"></script>
+  <script src="/static/js/app.js?v=3.9-cleanbar"></script>
 </body>
 </html>
