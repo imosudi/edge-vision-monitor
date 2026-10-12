@@ -265,10 +265,26 @@
     </div>
 
     <!-- Bottom Section: Historical Telemetry Charts -->
+    <div class="charts-header-bar">
+      <div class="charts-header-title">
+        <span style="font-size: 1.25rem;">📊</span>
+        <div>
+          <h2 style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0;">Live System &amp; Hardware Telemetry Waveforms</h2>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time multi-channel sensor streaming &amp; historical trend analysis</span>
+        </div>
+      </div>
+      <div class="chart-filter-tabs">
+        <button class="tab-btn active" onclick="filterCharts('all', this)">All Waveforms (8)</button>
+        <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Latency</button>
+        <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals</button>
+        <button class="tab-btn" onclick="filterCharts('system', this)">CPU Cores &amp; Voltages</button>
+      </div>
+    </div>
+
     <section class="charts-section">
       
       <!-- Chart 1: Latency Breakdown -->
-      <div class="card chart-card">
+      <div class="card chart-card" data-cat="inference">
         <div class="card-header">
           <div class="card-title"><span>📈</span> Latency Breakdown History (ms)</div>
         </div>
@@ -278,7 +294,7 @@
       </div>
 
       <!-- Chart 2: Inference FPS -->
-      <div class="card chart-card">
+      <div class="card chart-card" data-cat="inference">
         <div class="card-header">
           <div class="card-title"><span>🚀</span> Inference FPS History</div>
         </div>
@@ -288,7 +304,7 @@
       </div>
 
       <!-- Chart 3: Thermals -->
-      <div class="card chart-card">
+      <div class="card chart-card" data-cat="thermals">
         <div class="card-header">
           <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
         </div>
@@ -298,12 +314,55 @@
       </div>
 
       <!-- Chart 4: CPU & RAM Utilisation -->
-      <div class="card chart-card">
+      <div class="card chart-card" data-cat="system">
         <div class="card-header">
           <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
         </div>
         <div class="chart-container">
           <canvas id="chart-resources"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 5: Active Cooling & Fan Dynamics -->
+      <div class="card chart-card" data-cat="thermals">
+        <div class="card-header">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>🌀</span> Active Cooling &amp; Fan Speed</span>
+            <span id="lbl-fan-speed" class="header-stat-pill">-- RPM</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-fan"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 6: Quad-Core CPU Clock Frequencies -->
+      <div class="card chart-card" data-cat="system">
+        <div class="card-header">
+          <div class="card-title"><span>⚡</span> CPU Quad-Core Frequencies (MHz)</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-cpufreq"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 7: RP1 Southbridge Rail Voltages -->
+      <div class="card chart-card" data-cat="system">
+        <div class="card-header">
+          <div class="card-title"><span>🔋</span> RP1 I/O Controller Rail Voltages (V)</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-voltages"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 8: Process Footprint & System Load -->
+      <div class="card chart-card" data-cat="system">
+        <div class="card-header">
+          <div class="card-title"><span>⚙️</span> Process Footprint &amp; System Load</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-procfootprint"></canvas>
         </div>
       </div>
 
@@ -314,7 +373,7 @@
   <div id="modal-diagnostics" class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
-        <div class="card-title"><span>🛠️</span> Hardware Inventory & Diagnostics</div>
+        <div class="card-title"><span>🛠️</span> Hardware Inventory &amp; Diagnostics</div>
         <button class="btn btn-ghost" onclick="closeDiagnosticsModal()">✕</button>
       </div>
 
@@ -333,30 +392,59 @@
         </div>
 
         <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <h3 style="font-size: 0.9rem; color: var(--accent-indigo);">Sensor Catalogue & Data Provenance</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3 style="font-size: 0.95rem; color: var(--accent-indigo); font-weight: 700; margin: 0;">Sensor Catalogue &amp; Live Data Provenance</h3>
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Discovered hardware buses, sysfs sensors, and real-time streaming telemetry.</p>
+            </div>
             <div style="display: flex; gap: 0.5rem;">
-              <a href="/api/v1/history/export/telemetry" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">
+              <a href="/api/v1/history/export/telemetry" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Telemetry CSV
               </a>
-              <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">
+              <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Detections CSV
               </a>
             </div>
           </div>
-          <table class="table-custom">
-            <thead>
-              <tr>
-                <th>Metric Identifier</th>
-                <th>Unit</th>
-                <th>Source Interface</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="table-catalog-body">
-              <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading catalogue...</td></tr>
-            </tbody>
-          </table>
+
+          <!-- Interactive Sensor Plotter Box in Modal -->
+          <div class="modal-sensor-plotter-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <label for="select-modal-sensor" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Select Sensor to Plot:</label>
+                <select id="select-modal-sensor" class="input-select" onchange="onModalSensorSelected(this.value)" style="min-width: 280px; padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+                  <option value="">Loading discovered sensors...</option>
+                </select>
+              </div>
+              <div class="sensor-stats-pills" style="display: flex; gap: 0.4rem; font-size: 0.75rem; flex-wrap: wrap;">
+                <div class="stat-badge">Current: <strong id="modal-sensor-val">--</strong></div>
+                <div class="stat-badge">Min: <strong id="modal-sensor-min">--</strong></div>
+                <div class="stat-badge">Max: <strong id="modal-sensor-max">--</strong></div>
+                <div class="stat-badge">Avg: <strong id="modal-sensor-avg">--</strong></div>
+              </div>
+            </div>
+            <div style="height: 190px; width: 100%; position: relative;">
+              <canvas id="chart-modal-sensor"></canvas>
+            </div>
+          </div>
+
+          <div style="margin-top: 1rem; overflow-x: auto;">
+            <table class="table-custom">
+              <thead>
+                <tr>
+                  <th>Metric Identifier</th>
+                  <th>Live Value</th>
+                  <th>Unit</th>
+                  <th>Source Interface</th>
+                  <th>Status</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="table-catalog-body">
+                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading catalogue...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -366,7 +454,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=2.0-mioemi"></script>
-  <script src="/static/js/app.js?v=2.0-mioemi"></script>
+  <script src="/static/js/charts.js?v=2.1-sensors"></script>
+  <script src="/static/js/app.js?v=2.1-sensors"></script>
 </body>
 </html>

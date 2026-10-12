@@ -200,7 +200,61 @@ function handleLiveUpdate(data) {
     if (fpsChart) updateChartSeries(fpsChart, nowLabel, [fps]);
     if (thermalChart) updateChartSeries(thermalChart, nowLabel, [cpuTemp || 0, rp1Temp || 0, hailoTemp || 0]);
     if (resourceChart) updateChartSeries(resourceChart, nowLabel, [cpuUtil || 0, memUtil || 0]);
+
+    // Active Cooling & Fan Speed
+    const fanRpm = metrics.hwmon_pwmfan_fan1_rpm && metrics.hwmon_pwmfan_fan1_rpm.value !== null ? metrics.hwmon_pwmfan_fan1_rpm.value : null;
+    const fanState = metrics.cooling_pwm_fan_cur_state && metrics.cooling_pwm_fan_cur_state.value !== null ? metrics.cooling_pwm_fan_cur_state.value : null;
+    if (fanChart && fanRpm !== null) {
+      updateChartSeries(fanChart, nowLabel, [fanRpm]);
+      const fanBadge = document.getElementById('lbl-fan-speed');
+      if (fanBadge) {
+        fanBadge.textContent = `${Math.round(fanRpm)} RPM${fanState !== null ? ' (Lvl ' + fanState + ')' : ''}`;
+      }
+    }
+
+    // CPU Quad-Core Clock Frequencies
+    const cpu0Freq = metrics.cpu_freq_cpu0_mhz && metrics.cpu_freq_cpu0_mhz.value !== null ? metrics.cpu_freq_cpu0_mhz.value : null;
+    const cpu1Freq = metrics.cpu_freq_cpu1_mhz && metrics.cpu_freq_cpu1_mhz.value !== null ? metrics.cpu_freq_cpu1_mhz.value : null;
+    const cpu2Freq = metrics.cpu_freq_cpu2_mhz && metrics.cpu_freq_cpu2_mhz.value !== null ? metrics.cpu_freq_cpu2_mhz.value : null;
+    const cpu3Freq = metrics.cpu_freq_cpu3_mhz && metrics.cpu_freq_cpu3_mhz.value !== null ? metrics.cpu_freq_cpu3_mhz.value : null;
+    if (cpuFreqChart && cpu0Freq !== null) {
+      updateChartSeries(cpuFreqChart, nowLabel, [
+        cpu0Freq,
+        cpu1Freq !== null ? cpu1Freq : cpu0Freq,
+        cpu2Freq !== null ? cpu2Freq : cpu0Freq,
+        cpu3Freq !== null ? cpu3Freq : cpu0Freq
+      ]);
+    }
+
+    // RP1 Southbridge Rail Voltages
+    const vIn1 = metrics.hwmon_rp1_adc_in1_voltage && metrics.hwmon_rp1_adc_in1_voltage.value !== null ? metrics.hwmon_rp1_adc_in1_voltage.value : null;
+    const vIn2 = metrics.hwmon_rp1_adc_in2_voltage && metrics.hwmon_rp1_adc_in2_voltage.value !== null ? metrics.hwmon_rp1_adc_in2_voltage.value : null;
+    const vIn3 = metrics.hwmon_rp1_adc_in3_voltage && metrics.hwmon_rp1_adc_in3_voltage.value !== null ? metrics.hwmon_rp1_adc_in3_voltage.value : null;
+    const vIn4 = metrics.hwmon_rp1_adc_in4_voltage && metrics.hwmon_rp1_adc_in4_voltage.value !== null ? metrics.hwmon_rp1_adc_in4_voltage.value : null;
+    if (voltageChart && vIn1 !== null) {
+      updateChartSeries(voltageChart, nowLabel, [
+        vIn1,
+        vIn2 !== null ? vIn2 : 0,
+        vIn3 !== null ? vIn3 : 0,
+        vIn4 !== null ? vIn4 : 0
+      ]);
+    }
+
+    // Process Footprint & System Load
+    const procCpu = metrics.process_cpu_percent && metrics.process_cpu_percent.value !== null ? metrics.process_cpu_percent.value : null;
+    const procRss = metrics.process_memory_rss_mb && metrics.process_memory_rss_mb.value !== null ? metrics.process_memory_rss_mb.value : null;
+    const sysLoad = metrics.load_average_1m && metrics.load_average_1m.value !== null ? metrics.load_average_1m.value : null;
+    if (procFootprintChart && (procCpu !== null || procRss !== null || sysLoad !== null)) {
+      updateChartSeries(procFootprintChart, nowLabel, [
+        procCpu !== null ? procCpu : 0,
+        procRss !== null ? procRss : 0,
+        sysLoad !== null ? sysLoad : 0
+      ]);
+    }
   }
+
+  // Update live values in Diagnostics modal if open
+  updateModalTelemetryLive(metrics, nowLabel);
 
   // 6. Render Detections List
   renderDetections(detections);
@@ -447,7 +501,12 @@ function toggleFullscreen() {
   }
 }
 
-// Diagnostics Modal
+// Diagnostics Modal & Interactive Sensor Plotter
+let activeModalMetric = 'hwmon_pwmfan_fan1_rpm';
+let activeModalUnit = 'rpm';
+let modalMetricStats = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+let cachedMetricsCatalog = [];
+
 async function openDiagnosticsModal() {
   const modal = document.getElementById('modal-diagnostics');
   modal.style.display = 'flex';
@@ -464,20 +523,153 @@ async function openDiagnosticsModal() {
 
     // 2. Metrics Catalog
     const catRes = await fetch('/api/v1/metrics/catalog');
-    const catalog = await catRes.json();
+    cachedMetricsCatalog = await catRes.json();
     const tbody = document.getElementById('table-catalog-body');
-    if (catalog && catalog.length > 0) {
-      tbody.innerHTML = catalog.map(c => `
-        <tr>
-          <td><code>${c.metric_name}</code></td>
+    const select = document.getElementById('select-modal-sensor');
+
+    if (cachedMetricsCatalog && cachedMetricsCatalog.length > 0) {
+      // Populate select dropdown
+      select.innerHTML = cachedMetricsCatalog.map(c => `
+        <option value="${c.metric_name}" ${c.metric_name === activeModalMetric ? 'selected' : ''}>
+          ${c.metric_name} (${c.unit}) &bull; [${c.source}]
+        </option>
+      `).join('');
+
+      // Populate table with Live Value and Plot button
+      tbody.innerHTML = cachedMetricsCatalog.map(c => `
+        <tr id="row-cat-${c.metric_name}">
+          <td>
+            <a href="javascript:void(0)" onclick="plotMetricFromCatalogue('${c.metric_name}')" style="color: var(--accent-blue); text-decoration: none; font-weight: 600;">
+              <code>${c.metric_name}</code>
+            </a>
+          </td>
+          <td><span id="cat-val-${c.metric_name}" class="metric-live-pill">--</span></td>
           <td>${c.unit}</td>
-          <td>${c.source}</td>
+          <td><span style="color: var(--text-muted); font-size: 0.75rem;">${c.source}</span></td>
           <td><span class="status-pill ${c.current_status.toLowerCase()}">${c.current_status}</span></td>
+          <td style="text-align: right;">
+            <button class="btn btn-ghost" onclick="plotMetricFromCatalogue('${c.metric_name}')" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-radius: 4px;">
+              📈 Plot
+            </button>
+          </td>
         </tr>
       `).join('');
+
+      // Initialize selected metric plot
+      await onModalSensorSelected(activeModalMetric || cachedMetricsCatalog[0].metric_name);
     }
   } catch (e) {
     console.error('Failed to load diagnostics', e);
+  }
+}
+
+async function onModalSensorSelected(metricName) {
+  if (!metricName) return;
+  activeModalMetric = metricName;
+  const select = document.getElementById('select-modal-sensor');
+  if (select && select.value !== metricName) {
+    select.value = metricName;
+  }
+
+  const metricInfo = cachedMetricsCatalog.find(c => c.metric_name === metricName);
+  activeModalUnit = metricInfo ? metricInfo.unit : '';
+
+  // Reset stats
+  modalMetricStats = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+  const valEl = document.getElementById('modal-sensor-val');
+  const minEl = document.getElementById('modal-sensor-min');
+  const maxEl = document.getElementById('modal-sensor-max');
+  const avgEl = document.getElementById('modal-sensor-avg');
+  if (valEl) valEl.textContent = '--';
+  if (minEl) minEl.textContent = '--';
+  if (maxEl) maxEl.textContent = '--';
+  if (avgEl) avgEl.textContent = '--';
+
+  // Fetch recent history
+  try {
+    const res = await fetch(`/api/v1/metrics/history?metric_name=${encodeURIComponent(metricName)}&limit=35`);
+    const history = await res.json();
+    if (Array.isArray(history) && history.length > 0) {
+      history.forEach(h => {
+        if (h.value !== null && typeof h.value === 'number') {
+          modalMetricStats.min = Math.min(modalMetricStats.min, h.value);
+          modalMetricStats.max = Math.max(modalMetricStats.max, h.value);
+          modalMetricStats.sum += h.value;
+          modalMetricStats.count += 1;
+        }
+      });
+      const lastVal = history[history.length - 1].value;
+      const fmt = (n) => Number.isInteger(n) ? n : n.toFixed(2);
+      if (lastVal !== null && typeof lastVal === 'number') {
+        if (valEl) valEl.textContent = `${fmt(lastVal)} ${activeModalUnit}`;
+      }
+      if (modalMetricStats.count > 0) {
+        if (minEl) minEl.textContent = `${fmt(modalMetricStats.min)} ${activeModalUnit}`;
+        if (maxEl) maxEl.textContent = `${fmt(modalMetricStats.max)} ${activeModalUnit}`;
+        if (avgEl) avgEl.textContent = `${fmt(modalMetricStats.sum / modalMetricStats.count)} ${activeModalUnit}`;
+      }
+    }
+
+    if (typeof initOrUpdateModalSensorChart === 'function') {
+      initOrUpdateModalSensorChart(metricName, activeModalUnit, history);
+    }
+  } catch (err) {
+    console.error('Failed to fetch sensor history', err);
+  }
+}
+
+function plotMetricFromCatalogue(metricName) {
+  const select = document.getElementById('select-modal-sensor');
+  if (select) select.value = metricName;
+  onModalSensorSelected(metricName);
+  const plotter = document.querySelector('.modal-sensor-plotter-card');
+  if (plotter) plotter.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateModalTelemetryLive(metrics, nowLabel) {
+  const modal = document.getElementById('modal-diagnostics');
+  if (!modal || modal.style.display !== 'flex') return;
+
+  // 1. Update live cells in table
+  for (const [name, entry] of Object.entries(metrics)) {
+    const el = document.getElementById(`cat-val-${name}`);
+    if (el) {
+      if (entry.value !== null && entry.value !== undefined) {
+        const valFormatted = typeof entry.value === 'number'
+          ? (Number.isInteger(entry.value) ? entry.value : entry.value.toFixed(2))
+          : entry.value;
+        el.textContent = `${valFormatted} ${entry.unit || ''}`;
+      } else {
+        el.textContent = 'N/A';
+      }
+    }
+  }
+
+  // 2. Stream to active modal sensor chart
+  if (activeModalMetric && metrics[activeModalMetric]) {
+    const entry = metrics[activeModalMetric];
+    if (entry.value !== null && entry.value !== undefined && typeof entry.value === 'number') {
+      const val = entry.value;
+      if (typeof appendModalSensorPoint === 'function') {
+        appendModalSensorPoint(nowLabel, val);
+      }
+      modalMetricStats.min = Math.min(modalMetricStats.min, val);
+      modalMetricStats.max = Math.max(modalMetricStats.max, val);
+      modalMetricStats.sum += val;
+      modalMetricStats.count += 1;
+      const avg = modalMetricStats.sum / modalMetricStats.count;
+
+      const unitStr = entry.unit || '';
+      const fmt = (n) => Number.isInteger(n) ? n : n.toFixed(2);
+      const valEl = document.getElementById('modal-sensor-val');
+      const minEl = document.getElementById('modal-sensor-min');
+      const maxEl = document.getElementById('modal-sensor-max');
+      const avgEl = document.getElementById('modal-sensor-avg');
+      if (valEl) valEl.textContent = `${fmt(val)} ${unitStr}`;
+      if (minEl) minEl.textContent = `${fmt(modalMetricStats.min)} ${unitStr}`;
+      if (maxEl) maxEl.textContent = `${fmt(modalMetricStats.max)} ${unitStr}`;
+      if (avgEl) avgEl.textContent = `${fmt(avg)} ${unitStr}`;
+    }
   }
 }
 
