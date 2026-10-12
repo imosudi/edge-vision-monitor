@@ -297,11 +297,16 @@
           <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time multi-channel sensor streaming &amp; historical trend analysis</span>
         </div>
       </div>
-      <div class="chart-filter-tabs">
-        <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (12)</button>
-        <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
-        <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (2)</button>
-        <button class="tab-btn" onclick="filterCharts('system', this)">CPU &amp; System (5)</button>
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
+          ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
+        </span>
+        <div class="chart-filter-tabs">
+          <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (12)</button>
+          <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
+          <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (2)</button>
+          <button class="tab-btn" onclick="filterCharts('system', this)">CPU &amp; System (5)</button>
+        </div>
       </div>
     </div>
 
@@ -542,7 +547,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.3-sessionwaveforms"></script>
-  <script src="/static/js/app.js?v=3.3-sessionwaveforms"></script>
+  <script src="/static/js/charts.js?v=3.4-pausewaveforms"></script>
+  <script src="/static/js/app.js?v=3.4-pausewaveforms"></script>
 </body>
 </html>

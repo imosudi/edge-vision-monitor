@@ -20,6 +20,32 @@ let sessionConfTotal = 0;
 let sessionConfSum = 0;
 let lastChartTickSec = -1;
 
+// Waveform streaming pause state (e.g. frozen when detection time elapses)
+let isWaveformsPaused = false;
+window.isWaveformsPaused = false;
+
+function setWaveformsPaused(paused, reason = '') {
+  isWaveformsPaused = !!paused;
+  window.isWaveformsPaused = isWaveformsPaused;
+  const badge = document.getElementById('badge-waveforms-status');
+  if (badge) {
+    if (isWaveformsPaused) {
+      badge.style.display = 'inline-flex';
+      const label = reason ? `⏸️ Waveforms Paused (${reason})` : '⏸️ Waveforms Paused';
+      badge.innerHTML = `${label} &bull; <span style="text-decoration: underline; font-size: 0.72rem; cursor: pointer;">Resume</span>`;
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  console.log(`[WAVEFORMS] Paused: ${isWaveformsPaused} (${reason})`);
+}
+
+function toggleWaveformsPause() {
+  setWaveformsPaused(!isWaveformsPaused, isWaveformsPaused ? 'User Resumed' : 'User Paused');
+}
+window.toggleWaveformsPause = toggleWaveformsPause;
+window.setWaveformsPaused = setWaveformsPaused;
+
 function updateConfidenceHistogramUI() {
   if (!confHistChart) {
     setTimeout(updateConfidenceHistogramUI, 100);
@@ -298,7 +324,7 @@ function handleLiveUpdate(data) {
   const nowLabel = new Date().toLocaleTimeString();
 
   // Accumulate detections into confidence distribution histogram across the whole session
-  if (data.detections && Array.isArray(data.detections) && data.detections.length > 0) {
+  if (!isWaveformsPaused && data.detections && Array.isArray(data.detections) && data.detections.length > 0) {
     data.detections.forEach(d => {
       if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
         let idx = Math.floor(d.confidence * 10);
@@ -389,7 +415,7 @@ function handleLiveUpdate(data) {
   }
 
   // Sample waveform series once per second across the full detection duration session
-  if (shouldTickChart && typeof updateChartSeries === 'function') {
+  if (!isWaveformsPaused && shouldTickChart && typeof updateChartSeries === 'function') {
     lastChartTickSec = currentSec;
 
     // 1. Latency Breakdown History (ms)
@@ -567,6 +593,9 @@ function startDetectionCountdown(totalSeconds) {
       clearDetectionCountdown();
       console.log(`[TIMER] Configured detection duration (${totalSeconds}s) elapsed. Stopping inference...`);
 
+      // Freeze / Pause Live System & Hardware Telemetry Waveforms so session data is preserved
+      setWaveformsPaused(true, 'Detection Time Elapsed');
+
       if (isInferenceRunning) {
         try {
           await fetch('/api/v1/inference/stop', { method: 'POST' });
@@ -622,6 +651,7 @@ function initDetectionDurationSlider() {
  */
 async function resetTelemetryAndDetectionData() {
   console.log('[INFERENCE] Resetting Sensor Catalogue & Live Data Provenance telemetry and detection data...');
+  setWaveformsPaused(false, 'Session Reset');
 
   // 1. Reset frontend charts
   if (typeof resetAllCharts === 'function') {
@@ -690,7 +720,8 @@ async function toggleInference() {
   const endpoint = isInferenceRunning ? '/api/v1/inference/stop' : '/api/v1/inference/start';
 
   if (willStart) {
-    // Reset Sensor Catalogue & Live Data Provenance telemetry and detection data
+    // Unpause waveforms and reset Sensor Catalogue & Live Data Provenance telemetry and detection data
+    setWaveformsPaused(false, 'Inference Started');
     await resetTelemetryAndDetectionData();
   }
 

@@ -681,6 +681,7 @@ function initOrUpdateModalSensorChart(metricName, unit, initialHistory = []) {
  */
 function appendModalSensorPoint(label, value) {
   if (!modalSensorChart) return;
+  if (typeof isWaveformsPaused !== 'undefined' && isWaveformsPaused) return;
   const maxPts = getSessionMaxChartPoints();
   modalSensorChart.data.labels.push(label);
   if (modalSensorChart.data.labels.length > maxPts) {
