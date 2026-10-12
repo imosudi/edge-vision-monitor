@@ -81,7 +81,11 @@ function handleLiveUpdate(data) {
     const { status, inference, detections, metrics } = data;
 
   // 1. Update Header & Badges
+  const wasRunning = isInferenceRunning;
   isInferenceRunning = status.inference_running;
+  if (!isInferenceRunning && wasRunning) {
+    clearDetectionCountdown();
+  }
   const btnInf = document.getElementById('btn-inference-toggle');
   const txtInf = document.getElementById('text-inference');
   const icoInf = document.getElementById('icon-inference');
@@ -477,15 +481,124 @@ function renderDetections(detections) {
 }
 
 // -----------------------------------------------------------------------------
-// Interactive UI Handlers
+// -----------------------------------------------------------------------------
+// Configurable Detection Duration / Session Timer Management
 // -----------------------------------------------------------------------------
 
+let detectionDurationSec = 0; // 0 = Continuous (∞)
+let detectionTimerHandle = null;
+let detectionEndTime = null;
+
+function formatDurationText(sec) {
+  if (sec <= 0) return 'Continuous (∞)';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m} min`;
+}
+
+function onDetectionDurationChange(val) {
+  const sec = parseInt(val, 10) || 0;
+  detectionDurationSec = sec;
+  localStorage.setItem('evm_detection_duration_sec', sec);
+
+  const badge = document.getElementById('badge-detection-duration');
+  if (badge) {
+    badge.textContent = formatDurationText(sec);
+    badge.style.color = sec > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)';
+  }
+
+  // If currently running, sync countdown
+  if (isInferenceRunning) {
+    if (sec > 0) {
+      startDetectionCountdown(sec);
+    } else {
+      clearDetectionCountdown();
+    }
+  } else {
+    clearDetectionCountdown();
+  }
+}
+
+function startDetectionCountdown(totalSeconds) {
+  clearDetectionCountdown();
+  if (totalSeconds <= 0) return;
+
+  const now = Date.now();
+  detectionEndTime = now + (totalSeconds * 1000);
+
+  const badgeCountdown = document.getElementById('badge-detection-countdown');
+  if (badgeCountdown) {
+    badgeCountdown.style.display = 'inline-block';
+    badgeCountdown.textContent = `${totalSeconds}s left`;
+  }
+
+  detectionTimerHandle = setInterval(async () => {
+    const remainingMs = detectionEndTime - Date.now();
+    const remainingSec = Math.ceil(remainingMs / 1000);
+
+    if (remainingSec <= 0) {
+      clearDetectionCountdown();
+      console.log(`[TIMER] Configured detection duration (${totalSeconds}s) elapsed. Stopping inference...`);
+
+      if (isInferenceRunning) {
+        try {
+          await fetch('/api/v1/inference/stop', { method: 'POST' });
+        } catch (e) {
+          console.error('Failed to auto-stop inference after timer expiry', e);
+        }
+      }
+
+      const badgeDuration = document.getElementById('badge-detection-duration');
+      if (badgeDuration) {
+        badgeDuration.textContent = '⏱️ Session Finished';
+        badgeDuration.style.color = '#ef4444';
+        setTimeout(() => {
+          badgeDuration.textContent = formatDurationText(detectionDurationSec);
+          badgeDuration.style.color = detectionDurationSec > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)';
+        }, 3500);
+      }
+    } else {
+      if (badgeCountdown) {
+        badgeCountdown.textContent = `${remainingSec}s left`;
+      }
+    }
+  }, 500);
+}
+
+function clearDetectionCountdown() {
+  if (detectionTimerHandle) {
+    clearInterval(detectionTimerHandle);
+    detectionTimerHandle = null;
+  }
+  detectionEndTime = null;
+  const badgeCountdown = document.getElementById('badge-detection-countdown');
+  if (badgeCountdown) {
+    badgeCountdown.style.display = 'none';
+  }
+}
+
+function initDetectionDurationSlider() {
+  const saved = localStorage.getItem('evm_detection_duration_sec');
+  const slider = document.getElementById('slider-detection-duration');
+  if (saved !== null && slider) {
+    slider.value = saved;
+    onDetectionDurationChange(saved);
+  }
+}
+
 async function toggleInference() {
+  const willStart = !isInferenceRunning;
   const endpoint = isInferenceRunning ? '/api/v1/inference/stop' : '/api/v1/inference/start';
   try {
     const res = await fetch(endpoint, { method: 'POST' });
     const data = await res.json();
     console.log('Inference toggle response:', data);
+    if (willStart && detectionDurationSec > 0) {
+      startDetectionCountdown(detectionDurationSec);
+    } else if (!willStart) {
+      clearDetectionCountdown();
+    }
   } catch (e) {
     console.error('Failed to toggle inference', e);
   }
@@ -1243,6 +1356,7 @@ function onAppInit() {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
+  initDetectionDurationSlider();
   connectWebSocket();
   seedCpuFreqHistory();
   seedVoltageHistory();
