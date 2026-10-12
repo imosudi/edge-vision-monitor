@@ -328,15 +328,9 @@
           <span style="font-size: 0.72rem; color: var(--text-muted);">(Plots overlaid directly on the 12 Live Telemetry Waveforms below with x-axis t = 0s...Ts)</span>
         </div>
         <div class="benchmark-panel-actions">
-          <div class="benchmark-control-group">
-            <label for="select-waveforms-bench-duration" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Duration:</label>
-            <select id="select-waveforms-bench-duration" class="input-select" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; width: 110px;">
-              <option value="10">10 Seconds</option>
-              <option value="30" selected>30 Seconds</option>
-              <option value="60">1 Minute</option>
-              <option value="120">2 Minutes</option>
-              <option value="300">5 Minutes</option>
-            </select>
+          <div class="benchmark-control-group" title="Benchmark run duration is synchronized with the Detection Time slider close to Video File / USB Camera buttons">
+            <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">⏱️ Detection Time:</span>
+            <span id="lbl-bench-target-val" class="header-stat-pill" style="font-size: 0.72rem; padding: 0.18rem 0.5rem; color: var(--accent-blue);">Continuous (30s)</span>
           </div>
           <button type="button" id="btn-run-auto-waveform-bench" class="btn btn-benchmark" onclick="startAutomatedWaveformBenchmark()">
             <span>▶</span> Run Automated Dual Benchmark
@@ -724,15 +718,9 @@
       <div class="benchmark-toolbar">
         <div class="benchmark-config-row">
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            <label for="select-benchmark-duration" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">
-              Run Duration per Phase:
-            </label>
-            <select id="select-benchmark-duration" class="input-select" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; width: 130px;">
-              <option value="15">15 seconds</option>
-              <option value="30" selected>30 seconds</option>
-              <option value="60">60 seconds</option>
-              <option value="120">2 minutes</option>
-            </select>
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);" title="Benchmark run duration is synchronized with the Detection Time slider close to Video File / USB Camera buttons">
+              ⏱️ Duration: Linked to Detection Time Slider
+            </span>
             <button type="button" id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" style="padding: 0.38rem 0.9rem; font-size: 0.8rem;">
               <span>▶</span> Run Automated Dual-Phase Benchmark
             </button>
@@ -1054,7 +1042,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.9-cleanbar"></script>
-  <script src="/static/js/app.js?v=3.9-cleanbar"></script>
+  <script src="/static/js/charts.js?v=3.10-unifiedslider"></script>
+  <script src="/static/js/app.js?v=3.10-unifiedslider"></script>
 </body>
 </html>

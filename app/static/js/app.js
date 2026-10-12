@@ -609,6 +609,12 @@ function onDetectionDurationChange(val) {
     badge.style.color = sec > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)';
   }
 
+  const elBenchVal = document.getElementById('lbl-bench-target-val');
+  if (elBenchVal) {
+    elBenchVal.textContent = sec > 0 ? formatDurationText(sec) : 'Continuous (30s)';
+    elBenchVal.style.color = sec > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)';
+  }
+
   // If currently running, sync countdown
   if (isInferenceRunning) {
     if (sec > 0) {
@@ -688,6 +694,8 @@ function initDetectionDurationSlider() {
   if (saved !== null && slider) {
     slider.value = saved;
     onDetectionDurationChange(saved);
+  } else {
+    onDetectionDurationChange(0);
   }
 }
 
@@ -1774,15 +1782,22 @@ function manualWaveformBenchmarkPhase(phase) {
   manualRecordBenchmarkPhase(phase);
 }
 
+function getBenchmarkTargetDuration() {
+  if (typeof detectionDurationSec === 'number' && detectionDurationSec > 0) {
+    return detectionDurationSec;
+  }
+  const saved = parseInt(localStorage.getItem('evm_detection_duration_sec'), 10);
+  if (saved > 0) return saved;
+  return 30; // Fallback duration if detection timer is set to Continuous (0)
+}
+
 function startAutomatedWaveformBenchmark() {
   startAutomatedBenchmark();
 }
 
 async function startAutomatedBenchmark() {
   if (isBenchmarkRunning) return;
-  const durationWb = document.getElementById('select-waveforms-bench-duration');
-  const durationModal = document.getElementById('select-benchmark-duration');
-  const durSec = parseInt(durationWb?.value || durationModal?.value, 10) || 30;
+  const durSec = getBenchmarkTargetDuration();
 
   clearBenchmarkData();
   isBenchmarkRunning = true;
@@ -1933,9 +1948,7 @@ async function startAutomatedBenchmark() {
 
 async function manualRecordBenchmarkPhase(backend) {
   if (isBenchmarkRunning) return;
-  const durationWb = document.getElementById('select-waveforms-bench-duration');
-  const durationModal = document.getElementById('select-benchmark-duration');
-  const durSec = parseInt(durationWb?.value || durationModal?.value, 10) || 30;
+  const durSec = getBenchmarkTargetDuration();
 
   isBenchmarkRunning = true;
   currentBenchmarkPhase = backend;
