@@ -37,8 +37,12 @@ const chartOptionsBase = {
 
 let latencyChart = null;
 let fpsChart = null;
+let interFrameChart = null;
+let detectionsCountChart = null;
+let confHistChart = null;
 let thermalChart = null;
 let resourceChart = null;
+let diskChart = null;
 let fanChart = null;
 let cpuFreqChart = null;
 let voltageChart = null;
@@ -63,7 +67,7 @@ function initCharts() {
     });
   }
 
-  // 2. Inference FPS History
+  // 2. Processed Frames Per Second History (Matches screenshot: sky blue with prominent point markers)
   const ctxFps = document.getElementById('chart-fps');
   if (ctxFps) {
     fpsChart = new Chart(ctxFps, {
@@ -71,10 +75,185 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'Inference FPS', data: [], borderColor: '#16a34a', backgroundColor: 'rgba(22, 163, 74, 0.12)', fill: true }
+          {
+            label: 'Processed FPS',
+            data: [],
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.08)',
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#38bdf8',
+            pointBorderColor: '#38bdf8',
+            borderWidth: 2,
+            tension: 0.2
+          }
         ]
       },
-      options: chartOptionsBase
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            suggestedMax: 30,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val}`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 3. Inter-Frame Interval (ms) (Matches screenshot: pure scatter points around 35-40ms with jitter spikes)
+  const ctxInterframe = document.getElementById('chart-interframe');
+  if (ctxInterframe) {
+    interFrameChart = new Chart(ctxInterframe, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Interval (ms)',
+            data: [],
+            showLine: false,
+            pointRadius: 3.5,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#a78bfa',
+            pointBorderColor: '#a78bfa',
+            backgroundColor: '#a78bfa'
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            suggestedMax: 80,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val} ms`
+            }
+          }
+        },
+        plugins: {
+          ...chartOptionsBase.plugins,
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` Inter-frame: ${ctx.parsed.y} ms`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 4. Detections Per Frame (Matches screenshot: stepped teal curve)
+  const ctxDetectionsCount = document.getElementById('chart-detections-count');
+  if (ctxDetectionsCount) {
+    detectionsCountChart = new Chart(ctxDetectionsCount, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Detections / Frame',
+            data: [],
+            borderColor: '#2dd4bf',
+            backgroundColor: 'rgba(45, 212, 191, 0.08)',
+            fill: false,
+            borderWidth: 1.8,
+            stepped: 'middle',
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            suggestedMax: 3,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              precision: 0,
+              callback: (val) => `${val}`
+            }
+          }
+        },
+        plugins: {
+          ...chartOptionsBase.plugins,
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` Detected: ${ctx.parsed.y} object${ctx.parsed.y === 1 ? '' : 's'}`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 5. Confidence Distribution Histogram (Matches screenshot: sky blue binned bars)
+  const ctxConfHist = document.getElementById('chart-conf-hist');
+  if (ctxConfHist) {
+    confHistChart = new Chart(ctxConfHist, {
+      type: 'bar',
+      data: {
+        labels: ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '0.9-1.0'],
+        datasets: [
+          {
+            label: 'Bounding Boxes',
+            data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            backgroundColor: '#38bdf8',
+            borderRadius: 3,
+            borderWidth: 0,
+            barPercentage: 0.95,
+            categoryPercentage: 0.95
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 250 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => `Confidence Range: ${items[0]?.label || ''}`,
+              label: (ctx) => ` Count: ${ctx.parsed.y} boxes`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: '#64748b',
+              font: { family: 'JetBrains Mono', size: 9 },
+              maxRotation: 45,
+              minRotation: 0
+            }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+            ticks: {
+              color: '#64748b',
+              font: { family: 'JetBrains Mono', size: 10 },
+              precision: 0
+            }
+          }
+        }
+      }
     });
   }
 
@@ -112,6 +291,51 @@ function initCharts() {
         scales: {
           ...chartOptionsBase.scales,
           y: { ...chartOptionsBase.scales.y, min: 0, max: 100 }
+        }
+      }
+    });
+  }
+
+  // 4b. Disk Utilisation History (Matches screenshot: amber line for disk usage %)
+  const ctxDisk = document.getElementById('chart-disk');
+  if (ctxDisk) {
+    diskChart = new Chart(ctxDisk, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Disk Utilisation (%)',
+            data: [],
+            borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251, 191, 36, 0.08)',
+            fill: false,
+            borderWidth: 2,
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            max: 100,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val}%`
+            }
+          }
+        },
+        plugins: {
+          ...chartOptionsBase.plugins,
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` Disk: ${ctx.parsed.y.toFixed(1)}%`
+            }
+          }
         }
       }
     });

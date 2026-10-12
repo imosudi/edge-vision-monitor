@@ -138,6 +138,42 @@ def get_metrics_catalog() -> List[Dict[str, Any]]:
     return mgr.telemetry_service.get_catalog()
 
 
+@api_router.get("/inference/history")
+def get_inference_history(
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    limit: int = Query(50, ge=1, le=1000),
+) -> List[Dict[str, Any]]:
+    """Query recent historical frame inference records."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        return []
+    return mgr.repository.query_inference_history(
+        start_time=start_time,
+        end_time=end_time,
+        limit=limit,
+    )
+
+
+@api_router.get("/detections/history")
+def get_detections_history(
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    class_name: Optional[str] = Query(None, description="Optional class filter"),
+    limit: int = Query(500, ge=1, le=2000),
+) -> List[Dict[str, Any]]:
+    """Query recent historical object detections."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        return []
+    return mgr.repository.query_detections_history(
+        start_time=start_time,
+        end_time=end_time,
+        class_name=class_name,
+        limit=limit,
+    )
+
+
 @api_router.get("/inference/stats")
 def get_inference_stats() -> Dict[str, Any]:
     """Rolling inference latencies (mean, p95, p99), frame counts, and FPS."""

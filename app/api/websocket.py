@@ -81,6 +81,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "active_backend": inf_stats.get("active_backend", "hailo"),
                     "backend_name": inf_stats.get("engine_status", {}).get("type", "Hailo-8L"),
                     "fps": inf_stats.get("current_fps", 0.0),
+                    "inter_frame_ms": inf_stats.get("inter_frame_ms", 0.0),
                     "latencies": inf_stats.get("latencies", {}),
                     "total_frames": inf_stats.get("total_frames_processed", 0),
                     "detections_count": len(detections),

@@ -286,10 +286,10 @@
         </div>
       </div>
       <div class="chart-filter-tabs">
-        <button class="tab-btn active" onclick="filterCharts('all', this)">All Waveforms (8)</button>
-        <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Latency</button>
-        <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals</button>
-        <button class="tab-btn" onclick="filterCharts('system', this)">CPU Cores &amp; Voltages</button>
+        <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (12)</button>
+        <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
+        <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (2)</button>
+        <button class="tab-btn" onclick="filterCharts('system', this)">CPU &amp; System (5)</button>
       </div>
     </div>
 
@@ -305,17 +305,59 @@
         </div>
       </div>
 
-      <!-- Chart 2: Inference FPS -->
+      <!-- Chart 2: Processed Frames Per Second -->
       <div class="card chart-card" data-cat="inference">
         <div class="card-header">
-          <div class="card-title"><span>🚀</span> Inference FPS History</div>
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>🚀</span> Processed Frames Per Second (FPS)</span>
+            <span id="lbl-fps-stat" class="header-stat-pill">-- FPS</span>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-fps"></canvas>
         </div>
       </div>
 
-      <!-- Chart 3: Thermals -->
+      <!-- Chart 3: Inter-Frame Interval -->
+      <div class="card chart-card" data-cat="inference">
+        <div class="card-header">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>⏱️</span> Inter-Frame Interval (ms)</span>
+            <span id="lbl-inter-frame" class="header-stat-pill">-- ms</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-interframe"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 4: Detections Per Frame -->
+      <div class="card chart-card" data-cat="inference">
+        <div class="card-header">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>🎯</span> Detections Per Frame</span>
+            <span id="lbl-detections-per-frame" class="header-stat-pill">-- Objects</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-detections-count"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 5: Confidence Histogram -->
+      <div class="card chart-card" data-cat="inference">
+        <div class="card-header">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>📊</span> Confidence Histogram</span>
+            <span id="lbl-conf-summary" class="header-stat-pill">--</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-conf-hist"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 6: Thermals -->
       <div class="card chart-card" data-cat="thermals">
         <div class="card-header">
           <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
@@ -325,7 +367,7 @@
         </div>
       </div>
 
-      <!-- Chart 4: CPU & RAM Utilisation -->
+      <!-- Chart 7: System CPU & RAM Utilisation -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
           <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
@@ -335,7 +377,20 @@
         </div>
       </div>
 
-      <!-- Chart 5: Active Cooling & Fan Dynamics -->
+      <!-- Chart 8: Disk Utilisation -->
+      <div class="card chart-card" data-cat="system">
+        <div class="card-header">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span><span>💾</span> Disk Utilisation (%)</span>
+            <span id="lbl-disk-utilisation" class="header-stat-pill">--%</span>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-disk"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 9: Active Cooling & Fan Dynamics -->
       <div class="card chart-card" data-cat="thermals">
         <div class="card-header">
           <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -348,7 +403,7 @@
         </div>
       </div>
 
-      <!-- Chart 6: Quad-Core CPU Clock Frequencies -->
+      <!-- Chart 10: Quad-Core CPU Clock Frequencies -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
           <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -361,7 +416,7 @@
         </div>
       </div>
 
-      <!-- Chart 7: RP1 Southbridge Rail Voltages -->
+      <!-- Chart 11: RP1 Southbridge Rail Voltages -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
           <div class="card-title"><span>🔋</span> RP1 I/O Controller Rail Voltages (V)</div>
@@ -371,7 +426,7 @@
         </div>
       </div>
 
-      <!-- Chart 8: Process Footprint & System Load -->
+      <!-- Chart 12: Process Footprint & System Load -->
       <div class="card chart-card" data-cat="system">
         <div class="card-header">
           <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">

@@ -89,6 +89,8 @@ class InferenceService:
         self._total_dropped = 0
         self._total_errors = 0
         self._recent_fps_timestamps: Deque[float] = collections.deque(maxlen=50)
+        self._last_frame_ts = 0.0
+        self._last_inter_frame_ms = 0.0
 
         self._lat_preprocess = RollingLatencyTracker(window_size=100)
         self._lat_hailo = RollingLatencyTracker(window_size=100)
@@ -200,8 +202,14 @@ class InferenceService:
                 )
                 result.acquisition_ms = acq_ms
 
-                self._total_processed += 1
                 now = time.monotonic()
+                if self._last_frame_ts > 0.0:
+                    self._last_inter_frame_ms = round((now - self._last_frame_ts) * 1000.0, 1)
+                else:
+                    self._last_inter_frame_ms = 0.0
+                self._last_frame_ts = now
+
+                self._total_processed += 1
                 self._recent_fps_timestamps.append(now)
 
                 # 2. Update Rolling Latencies
@@ -280,6 +288,7 @@ class InferenceService:
             "active_backend": active_backend,
             "engine_status": eng_st,
             "current_fps": self.get_current_fps(),
+            "inter_frame_ms": self._last_inter_frame_ms,
             "total_frames_processed": self._total_processed,
             "total_errors": self._total_errors,
             "latencies": {

@@ -14,6 +14,34 @@ const CLASS_COLORS = [
   '#ec4899', '#0891b2', '#6366f1', '#f97316', '#84cc16'
 ];
 
+// Rolling cache for detection confidence distribution histogram
+let recentConfidences = [];
+const MAX_CONF_WINDOW = 500;
+
+function updateConfidenceHistogramUI() {
+  if (!confHistChart) return;
+  const bins = new Array(10).fill(0);
+  recentConfidences.forEach(conf => {
+    let idx = Math.floor(conf * 10);
+    if (idx >= 10) idx = 9;
+    if (idx < 0) idx = 0;
+    bins[idx]++;
+  });
+  confHistChart.data.datasets[0].data = bins;
+  confHistChart.update('none');
+
+  const lblConf = document.getElementById('lbl-conf-summary');
+  if (lblConf) {
+    if (recentConfidences.length > 0) {
+      const sum = recentConfidences.reduce((a, b) => a + b, 0);
+      const mean = (sum / recentConfidences.length).toFixed(2);
+      lblConf.textContent = `N=${recentConfidences.length} · Mean Conf: ${mean}`;
+    } else {
+      lblConf.textContent = 'No Detections';
+    }
+  }
+}
+
 function connectWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/ws`;
@@ -267,7 +295,41 @@ function handleLiveUpdate(data) {
   const nowLabel = new Date().toLocaleTimeString();
   if (typeof updateChartSeries === 'function') {
     if (latencyChart) updateChartSeries(latencyChart, nowLabel, [npuLat, prepLat, postLat]);
-    if (fpsChart) updateChartSeries(fpsChart, nowLabel, [fps]);
+    if (fpsChart) {
+      updateChartSeries(fpsChart, nowLabel, [fps]);
+      const lblFps = document.getElementById('lbl-fps-stat');
+      if (lblFps) lblFps.textContent = `${fps.toFixed(1)} FPS`;
+    }
+
+    // Inter-Frame Interval (ms)
+    const interFrameMs = inf.inter_frame_ms !== undefined ? inf.inter_frame_ms : null;
+    if (interFrameChart && interFrameMs !== null && interFrameMs > 0) {
+      updateChartSeries(interFrameChart, nowLabel, [interFrameMs]);
+      const lblInter = document.getElementById('lbl-inter-frame');
+      if (lblInter) lblInter.textContent = `${interFrameMs.toFixed(1)} ms`;
+    }
+
+    // Detections Per Frame
+    const detCount = inf.detections_count !== undefined ? inf.detections_count : (data.detections ? data.detections.length : 0);
+    if (detectionsCountChart) {
+      updateChartSeries(detectionsCountChart, nowLabel, [detCount]);
+      const lblDet = document.getElementById('lbl-detections-per-frame');
+      if (lblDet) lblDet.textContent = `${detCount} object${detCount === 1 ? '' : 's'}`;
+    }
+
+    // Confidence Distribution Histogram from live detections
+    if (data.detections && Array.isArray(data.detections) && data.detections.length > 0) {
+      data.detections.forEach(d => {
+        if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
+          recentConfidences.push(d.confidence);
+          if (recentConfidences.length > MAX_CONF_WINDOW) {
+            recentConfidences.shift();
+          }
+        }
+      });
+      updateConfidenceHistogramUI();
+    }
+
     if (thermalChart) updateChartSeries(thermalChart, nowLabel, [cpuTemp || 0, rp1Temp || 0, hailoTemp || 0]);
     if (resourceChart) updateChartSeries(resourceChart, nowLabel, [cpuUtil || 0, memUtil || 0]);
 
@@ -352,6 +414,14 @@ function handleLiveUpdate(data) {
       const rssPart = procRss !== null ? `${Math.round(procRss)} MB RSS` : '--';
       const loadPart = sysLoad !== null ? `Load ${sysLoad.toFixed(2)}` : '--';
       lblProc.textContent = `${cpuPart} | ${rssPart} | ${loadPart}`;
+    }
+
+    // Disk Utilisation
+    const diskUtil = metrics?.disk_utilisation && metrics.disk_utilisation.value !== null ? metrics.disk_utilisation.value : null;
+    if (diskChart && diskUtil !== null) {
+      updateChartSeries(diskChart, nowLabel, [diskUtil]);
+      const lblDisk = document.getElementById('lbl-disk-utilisation');
+      if (lblDisk) lblDisk.textContent = `${diskUtil.toFixed(1)}% Used`;
     }
   }
 
@@ -1054,6 +1124,106 @@ async function seedCpuFreqHistory() {
   }
 }
 
+/**
+ * Pre-populate Disk Utilisation chart with recent historical points
+ */
+async function seedDiskHistory() {
+  try {
+    const res = await fetch('/api/v1/metrics/history?metric_name=disk_utilisation&limit=30');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!diskChart || diskChart.data.labels.length > 5) return;
+    if (data.length === 0) return;
+
+    const labels = [];
+    const values = [];
+    data.forEach(item => {
+      labels.push(item?.timestamp_utc ? new Date(item.timestamp_utc).toLocaleTimeString() : '');
+      values.push(item?.value !== null && item?.value !== undefined ? item.value : 0);
+    });
+
+    diskChart.data.labels = labels;
+    if (diskChart.data.datasets[0]) diskChart.data.datasets[0].data = values;
+    diskChart.update('none');
+
+    const lastVal = values[values.length - 1];
+    const lblDisk = document.getElementById('lbl-disk-utilisation');
+    if (lblDisk && lastVal !== undefined) {
+      lblDisk.textContent = `${lastVal.toFixed(1)}% Used`;
+    }
+  } catch (err) {
+    console.debug('[TELEMETRY] Note on seeding disk history:', err);
+  }
+}
+
+/**
+ * Pre-populate Inference (Inter-frame, FPS, Detections count) and Confidence Histogram from historical SQLite records
+ */
+async function seedInferenceAndDetectionHistory() {
+  try {
+    const [resFrames, resDets] = await Promise.all([
+      fetch('/api/v1/inference/history?limit=30'),
+      fetch('/api/v1/detections/history?limit=500')
+    ]);
+
+    if (resFrames.ok) {
+      const frames = await resFrames.json();
+      if (frames.length > 0) {
+        const labels = [];
+        const intervals = [];
+        const detCounts = [];
+
+        for (let i = 0; i < frames.length; i++) {
+          const f = frames[i];
+          const label = f.timestamp_utc ? new Date(f.timestamp_utc).toLocaleTimeString() : '';
+          labels.push(label);
+          detCounts.push(f.detections_count !== undefined ? f.detections_count : 0);
+
+          if (i > 0 && frames[i - 1].timestamp_utc && f.timestamp_utc) {
+            const dt = (new Date(f.timestamp_utc).getTime() - new Date(frames[i - 1].timestamp_utc).getTime());
+            intervals.push(Math.max(1, dt));
+          } else {
+            intervals.push(35.0);
+          }
+        }
+
+        if (interFrameChart && interFrameChart.data.labels.length <= 5) {
+          interFrameChart.data.labels = labels;
+          if (interFrameChart.data.datasets[0]) interFrameChart.data.datasets[0].data = intervals;
+          interFrameChart.update('none');
+          const lastInterval = intervals[intervals.length - 1];
+          const lblInter = document.getElementById('lbl-inter-frame');
+          if (lblInter && lastInterval !== undefined) lblInter.textContent = `${lastInterval.toFixed(1)} ms`;
+        }
+
+        if (detectionsCountChart && detectionsCountChart.data.labels.length <= 5) {
+          detectionsCountChart.data.labels = labels;
+          if (detectionsCountChart.data.datasets[0]) detectionsCountChart.data.datasets[0].data = detCounts;
+          detectionsCountChart.update('none');
+          const lastCount = detCounts[detCounts.length - 1];
+          const lblDet = document.getElementById('lbl-detections-per-frame');
+          if (lblDet && lastCount !== undefined) lblDet.textContent = `${lastCount} object${lastCount === 1 ? '' : 's'}`;
+        }
+      }
+    }
+
+    if (resDets.ok) {
+      const dets = await resDets.json();
+      if (dets.length > 0) {
+        dets.forEach(d => {
+          if (typeof d.confidence === 'number' && !isNaN(d.confidence)) {
+            recentConfidences.push(d.confidence);
+            if (recentConfidences.length > MAX_CONF_WINDOW) recentConfidences.shift();
+          }
+        });
+        updateConfidenceHistogramUI();
+      }
+    }
+  } catch (err) {
+    console.debug('[INFERENCE] Note on seeding inference history:', err);
+  }
+}
+
 // Initialise on page load
 window.addEventListener('DOMContentLoaded', () => {
   checkInitialReadiness();
@@ -1063,4 +1233,6 @@ window.addEventListener('DOMContentLoaded', () => {
   seedCpuFreqHistory();
   seedVoltageHistory();
   seedProcFootprintHistory();
+  seedDiskHistory();
+  seedInferenceAndDetectionHistory();
 });
