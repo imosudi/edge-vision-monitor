@@ -19,7 +19,10 @@ let recentConfidences = [];
 const MAX_CONF_WINDOW = 500;
 
 function updateConfidenceHistogramUI() {
-  if (!confHistChart) return;
+  if (!confHistChart) {
+    setTimeout(updateConfidenceHistogramUI, 100);
+    return;
+  }
   const bins = new Array(10).fill(0);
   recentConfidences.forEach(conf => {
     let idx = Math.floor(conf * 10);
@@ -37,7 +40,7 @@ function updateConfidenceHistogramUI() {
       const mean = (sum / recentConfidences.length).toFixed(2);
       lblConf.textContent = `N=${recentConfidences.length} · Mean Conf: ${mean}`;
     } else {
-      lblConf.textContent = 'No Detections';
+      lblConf.textContent = '0 Detections';
     }
   }
 }
@@ -302,15 +305,19 @@ function handleLiveUpdate(data) {
     }
 
     // Inter-Frame Interval (ms)
-    const interFrameMs = inf.inter_frame_ms !== undefined ? inf.inter_frame_ms : null;
-    if (interFrameChart && interFrameMs !== null && interFrameMs > 0) {
+    const interFrameMs = inference?.inter_frame_ms !== undefined && inference?.inter_frame_ms !== null
+      ? inference.inter_frame_ms
+      : (fps > 0 ? (1000 / fps) : 0);
+    if (interFrameChart && interFrameMs !== null && interFrameMs >= 0) {
       updateChartSeries(interFrameChart, nowLabel, [interFrameMs]);
       const lblInter = document.getElementById('lbl-inter-frame');
       if (lblInter) lblInter.textContent = `${interFrameMs.toFixed(1)} ms`;
     }
 
     // Detections Per Frame
-    const detCount = inf.detections_count !== undefined ? inf.detections_count : (data.detections ? data.detections.length : 0);
+    const detCount = inference?.detections_count !== undefined
+      ? inference.detections_count
+      : (data.detections ? data.detections.length : 0);
     if (detectionsCountChart) {
       updateChartSeries(detectionsCountChart, nowLabel, [detCount]);
       const lblDet = document.getElementById('lbl-detections-per-frame');
@@ -1187,23 +1194,30 @@ async function seedInferenceAndDetectionHistory() {
           }
         }
 
-        if (interFrameChart && interFrameChart.data.labels.length <= 5) {
-          interFrameChart.data.labels = labels;
-          if (interFrameChart.data.datasets[0]) interFrameChart.data.datasets[0].data = intervals;
-          interFrameChart.update('none');
-          const lastInterval = intervals[intervals.length - 1];
-          const lblInter = document.getElementById('lbl-inter-frame');
-          if (lblInter && lastInterval !== undefined) lblInter.textContent = `${lastInterval.toFixed(1)} ms`;
-        }
+        function applySeededFrames() {
+          if (!interFrameChart || !detectionsCountChart) {
+            setTimeout(applySeededFrames, 80);
+            return;
+          }
+          if (interFrameChart.data.labels.length <= 5) {
+            interFrameChart.data.labels = labels;
+            if (interFrameChart.data.datasets[0]) interFrameChart.data.datasets[0].data = intervals;
+            interFrameChart.update('none');
+            const lastInterval = intervals[intervals.length - 1];
+            const lblInter = document.getElementById('lbl-inter-frame');
+            if (lblInter && lastInterval !== undefined) lblInter.textContent = `${lastInterval.toFixed(1)} ms`;
+          }
 
-        if (detectionsCountChart && detectionsCountChart.data.labels.length <= 5) {
-          detectionsCountChart.data.labels = labels;
-          if (detectionsCountChart.data.datasets[0]) detectionsCountChart.data.datasets[0].data = detCounts;
-          detectionsCountChart.update('none');
-          const lastCount = detCounts[detCounts.length - 1];
-          const lblDet = document.getElementById('lbl-detections-per-frame');
-          if (lblDet && lastCount !== undefined) lblDet.textContent = `${lastCount} object${lastCount === 1 ? '' : 's'}`;
+          if (detectionsCountChart.data.labels.length <= 5) {
+            detectionsCountChart.data.labels = labels;
+            if (detectionsCountChart.data.datasets[0]) detectionsCountChart.data.datasets[0].data = detCounts;
+            detectionsCountChart.update('none');
+            const lastCount = detCounts[detCounts.length - 1];
+            const lblDet = document.getElementById('lbl-detections-per-frame');
+            if (lblDet && lastCount !== undefined) lblDet.textContent = `${lastCount} object${lastCount === 1 ? '' : 's'}`;
+          }
         }
+        applySeededFrames();
       }
     }
 
@@ -1224,8 +1238,8 @@ async function seedInferenceAndDetectionHistory() {
   }
 }
 
-// Initialise on page load
-window.addEventListener('DOMContentLoaded', () => {
+// Initialise on page load with readyState check
+function onAppInit() {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
@@ -1235,4 +1249,10 @@ window.addEventListener('DOMContentLoaded', () => {
   seedProcFootprintHistory();
   seedDiskHistory();
   seedInferenceAndDetectionHistory();
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', onAppInit);
+} else {
+  onAppInit();
+}

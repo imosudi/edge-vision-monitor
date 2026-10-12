@@ -130,6 +130,9 @@ function initCharts() {
       },
       options: {
         ...chartOptionsBase,
+        elements: {
+          point: { radius: 3.5, hoverRadius: 6 }
+        },
         scales: {
           ...chartOptionsBase.scales,
           y: {
@@ -245,6 +248,7 @@ function initCharts() {
           },
           y: {
             beginAtZero: true,
+            suggestedMax: 10,
             grid: { color: 'rgba(0, 0, 0, 0.05)' },
             ticks: {
               color: '#64748b',
@@ -674,4 +678,8 @@ function appendModalSensorPoint(label, value) {
   modalSensorChart.update('none');
 }
 
-window.addEventListener('DOMContentLoaded', initCharts);
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initCharts);
+} else {
+  initCharts();
+}
