@@ -608,6 +608,23 @@ function updateChartSeries(chart, label, values) {
   });
 
   chart.update('none');
+
+  // If this chart is currently open in the Enlarge View modal, mirror points in real-time
+  if (typeof activeEnlargedChartId !== 'undefined' && activeEnlargedChartId && typeof enlargedChart !== 'undefined' && enlargedChart && CHART_REGISTRY[activeEnlargedChartId]?.getChart() === chart) {
+    enlargedChart.data.labels.push(label);
+    if (enlargedChart.data.labels.length > maxPts) {
+      enlargedChart.data.labels.shift();
+    }
+    values.forEach((val, idx) => {
+      if (enlargedChart.data.datasets[idx]) {
+        enlargedChart.data.datasets[idx].data.push(val);
+        if (enlargedChart.data.datasets[idx].data.length > maxPts) {
+          enlargedChart.data.datasets[idx].data.shift();
+        }
+      }
+    });
+    enlargedChart.update('none');
+  }
 }
 
 /**
@@ -731,7 +748,405 @@ function resetAllCharts() {
     }
     confHistChart.update('none');
   }
+
+  if (typeof enlargedChart !== 'undefined' && enlargedChart && enlargedChart.data) {
+    enlargedChart.data.labels = [];
+    if (Array.isArray(enlargedChart.data.datasets)) {
+      enlargedChart.data.datasets.forEach(ds => {
+        ds.data = [];
+      });
+    }
+    enlargedChart.update('none');
+  }
 }
+
+/* ==========================================================================
+   Waveform Enlarge View & High-Resolution Image/CSV Export (Snapshots)
+   ========================================================================== */
+
+let enlargedChart = null;
+let activeEnlargedChartId = null;
+
+const CHART_REGISTRY = {
+  'chart-latency': {
+    getChart: () => latencyChart,
+    title: 'Latency Breakdown History (ms)',
+    icon: '📈',
+    badge: 'INFERENCE PIPELINE',
+    desc: 'High-resolution visualization of preprocessing, Hailo-8L neural processing unit (NPU) accelerator execution, and postprocessing pipeline latencies over time.',
+    yUnit: 'ms',
+    defaultFilename: 'latency_breakdown_history'
+  },
+  'chart-fps': {
+    getChart: () => fpsChart,
+    title: 'Processed Frames Per Second (FPS)',
+    icon: '🚀',
+    badge: 'THROUGHPUT',
+    desc: 'Real-time pipeline throughput tracking processed frames per second across camera ingestion, neural inference, and tracking passes.',
+    yUnit: 'FPS',
+    defaultFilename: 'processed_fps_history'
+  },
+  'chart-interframe': {
+    getChart: () => interFrameChart,
+    title: 'Inter-Frame Interval (ms)',
+    icon: '⏱️',
+    badge: 'TEMPORAL JITTER',
+    desc: 'Delta timestamp between consecutive inference completions measuring temporal jitter and camera pipeline continuity.',
+    yUnit: 'ms',
+    defaultFilename: 'inter_frame_interval_history'
+  },
+  'chart-detections-count': {
+    getChart: () => detectionsCountChart,
+    title: 'Detections Per Frame',
+    icon: '🎯',
+    badge: 'OBJECT DENSITY',
+    desc: 'Per-frame detected object count progression providing real-time scene complexity and multi-target density tracking.',
+    yUnit: 'objects',
+    defaultFilename: 'detections_per_frame_history'
+  },
+  'chart-conf-hist': {
+    getChart: () => confHistChart,
+    title: 'Confidence Histogram',
+    icon: '📊',
+    badge: 'CONFIDENCE DISTRIBUTION',
+    desc: 'Binned confidence distribution (0.0 to 1.0) of all object detections identified across the detection session.',
+    yUnit: 'detections',
+    isHistogram: true,
+    defaultFilename: 'confidence_histogram'
+  },
+  'chart-thermal': {
+    getChart: () => thermalChart,
+    title: 'Thermal Profile History (°C)',
+    icon: '🌡️',
+    badge: 'THERMALS',
+    desc: 'Multi-zone temperature telemetry tracking Raspberry Pi 5 BCM2712 CPU, RP1 Southbridge I/O Controller, and Hailo-8L M.2 AI accelerator.',
+    yUnit: '°C',
+    defaultFilename: 'thermal_profile_history'
+  },
+  'chart-resources': {
+    getChart: () => resourceChart,
+    title: 'System Utilisation History (%)',
+    icon: '💻',
+    badge: 'SYSTEM LOAD',
+    desc: 'Host system resource telemetry monitoring quad-core Cortex-A76 CPU overall utilisation percentage and active RAM consumption.',
+    yUnit: '%',
+    defaultFilename: 'system_utilisation_history'
+  },
+  'chart-disk': {
+    getChart: () => diskChart,
+    title: 'Disk Utilisation (%)',
+    icon: '💾',
+    badge: 'STORAGE',
+    desc: 'Real-time root filesystem storage utilisation percentage tracking onboard NVMe/microSD capacity.',
+    yUnit: '%',
+    defaultFilename: 'disk_utilisation_history'
+  },
+  'chart-fan': {
+    getChart: () => fanChart,
+    title: 'Active Cooling & Fan Speed',
+    icon: '🌀',
+    badge: 'ACTIVE COOLING',
+    desc: 'Raspberry Pi Active Cooler tachometer and PWM speed curve monitoring rotational fan RPM under dynamic inference workload.',
+    yUnit: 'RPM',
+    defaultFilename: 'fan_speed_history'
+  },
+  'chart-cpufreq': {
+    getChart: () => cpuFreqChart,
+    title: 'CPU Quad-Core Frequencies (MHz)',
+    icon: '⚡',
+    badge: 'FREQUENCY GOVERNOR',
+    desc: 'Per-core instantaneous clock frequencies for Cortex-A76 Core 0, Core 1, Core 2, and Core 3 with throttle capped indicators.',
+    yUnit: 'MHz',
+    defaultFilename: 'cpu_quad_frequencies_history'
+  },
+  'chart-voltages': {
+    getChart: () => voltageChart,
+    title: 'RP1 I/O Controller Rail Voltages (V)',
+    icon: '🔋',
+    badge: 'POWER RAILS',
+    desc: 'RP1 Southbridge ADC power supply rail telemetry monitoring core 0.8V, 1.1V, 1.8V, and 3.3V DC voltage rails.',
+    yUnit: 'V',
+    defaultFilename: 'rp1_rail_voltages_history'
+  },
+  'chart-procfootprint': {
+    getChart: () => procFootprintChart,
+    title: 'Process Footprint & System Load',
+    icon: '⚙️',
+    badge: 'PROCESS METRICS',
+    desc: 'Edge Vision Monitor application process CPU utilisation (%), Resident Set Size (RSS MB), and Linux 1-minute system load average.',
+    yUnit: 'mixed',
+    defaultFilename: 'process_footprint_system_load_history'
+  }
+};
+
+function getTimestampStr() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function downloadBlob(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 250);
+}
+
+function exportCanvasWithBranding(srcCanvas, title, defaultFilename) {
+  if (!srcCanvas) return;
+  const offscreen = document.createElement('canvas');
+  const paddingX = 24;
+  const headerHeight = 70;
+  const footerHeight = 35;
+
+  offscreen.width = Math.max(srcCanvas.width, 1000) + (paddingX * 2);
+  offscreen.height = srcCanvas.height + headerHeight + footerHeight;
+  const ctx = offscreen.getContext('2d');
+
+  // Solid clean white background (prevents transparent black in photo viewers)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+
+  // Title
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 16px Inter, system-ui, sans-serif';
+  ctx.fillText(title, paddingX, 32);
+
+  // Subtitle / Provenance
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px Inter, system-ui, sans-serif';
+  ctx.fillText(`Edge Vision Monitor • Raspberry Pi 5 & Hailo-8L Edge AI • ${new Date().toLocaleString()}`, paddingX, 52);
+
+  // Subtle separator line
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(paddingX, 62);
+  ctx.lineTo(offscreen.width - paddingX, 62);
+  ctx.stroke();
+
+  // Draw chart canvas
+  const drawWidth = offscreen.width - (paddingX * 2);
+  const drawHeight = srcCanvas.height;
+  ctx.drawImage(srcCanvas, paddingX, headerHeight, drawWidth, drawHeight);
+
+  // Footer metadata
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '11px JetBrains Mono, monospace';
+  ctx.fillText('Live System & Hardware Telemetry Waveforms • High-Resolution Export', paddingX, offscreen.height - 14);
+
+  // Trigger download
+  const dataUrl = offscreen.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `${defaultFilename}_${getTimestampStr()}.png`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+  }, 250);
+}
+
+function exportChartImage(chartId) {
+  const reg = CHART_REGISTRY[chartId];
+  if (!reg) return;
+  const chart = reg.getChart();
+  if (!chart || !chart.canvas) {
+    alert('Chart canvas is not available to export.');
+    return;
+  }
+  exportCanvasWithBranding(chart.canvas, reg.title, reg.defaultFilename);
+}
+
+function exportChartCSV(chartId) {
+  const reg = CHART_REGISTRY[chartId];
+  if (!reg) return;
+  const chart = reg.getChart();
+  if (!chart || !chart.data || !chart.data.labels || chart.data.labels.length === 0) {
+    alert('No telemetry waveform points available to export yet.');
+    return;
+  }
+
+  const labels = chart.data.labels;
+  const datasets = chart.data.datasets || [];
+
+  if (reg.isHistogram) {
+    let csv = 'Confidence Bin Range,Bin Lower,Bin Upper,Detection Count\r\n';
+    const bins = datasets[0]?.data || [];
+    for (let i = 0; i < 10; i++) {
+      const lower = (i * 0.1).toFixed(1);
+      const upper = ((i + 1) * 0.1).toFixed(1);
+      const count = bins[i] || 0;
+      csv += `"${lower} - ${upper}",${lower},${upper},${count}\r\n`;
+    }
+    downloadBlob(csv, `${reg.defaultFilename}_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
+    return;
+  }
+
+  const header = ['Timestamp', ...datasets.map(ds => `"${(ds.label || 'Value').replace(/"/g, '""')}"`)].join(',');
+  const rows = [];
+  for (let i = 0; i < labels.length; i++) {
+    const timeVal = `"${(labels[i] || '').toString().replace(/"/g, '""')}"`;
+    const colVals = datasets.map(ds => {
+      const v = ds.data[i];
+      return (v !== null && v !== undefined && !isNaN(v)) ? v : '';
+    });
+    rows.push([timeVal, ...colVals].join(','));
+  }
+
+  const csv = [header, ...rows].join('\r\n');
+  downloadBlob(csv, `${reg.defaultFilename}_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
+}
+
+function openEnlargeChart(chartId) {
+  const reg = CHART_REGISTRY[chartId];
+  if (!reg) return;
+  const srcChart = reg.getChart();
+  if (!srcChart) return;
+
+  activeEnlargedChartId = chartId;
+
+  const modal = document.getElementById('modal-enlarge-waveform');
+  const modalHeading = document.getElementById('enlarge-modal-heading');
+  const modalIcon = document.getElementById('enlarge-modal-icon');
+  const modalBadge = document.getElementById('enlarge-modal-badge');
+  const modalDesc = document.getElementById('enlarge-modal-desc');
+
+  if (modalHeading) modalHeading.textContent = reg.title;
+  if (modalIcon) modalIcon.textContent = reg.icon || '📈';
+  if (modalBadge) modalBadge.textContent = reg.badge || 'LIVE WAVEFORM';
+  if (modalDesc) {
+    modalDesc.innerHTML = `<span>🔍</span> <span>Large Interactive View: ${reg.desc}</span>`;
+  }
+
+  if (modal) modal.style.display = 'flex';
+
+  const canvas = document.getElementById('chart-enlarged-canvas');
+  if (!canvas) return;
+
+  if (enlargedChart) {
+    enlargedChart.destroy();
+    enlargedChart = null;
+  }
+
+  const clonedDatasets = srcChart.data.datasets.map(ds => ({
+    ...ds,
+    data: [...ds.data],
+    borderWidth: 2.4,
+    pointRadius: (ds.pointRadius !== undefined && ds.pointRadius > 0) ? ds.pointRadius + 1 : (ds.data.length < 80 ? 2 : 0),
+    pointHoverRadius: 6
+  }));
+
+  const chartType = srcChart.config.type || 'line';
+
+  enlargedChart = new Chart(canvas, {
+    type: chartType,
+    data: {
+      labels: [...srcChart.data.labels],
+      datasets: clonedDatasets
+    },
+    options: {
+      ...chartOptionsBase,
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            color: '#1e293b',
+            font: { family: 'Inter', size: 12, weight: '600' },
+            boxWidth: 14,
+            padding: 12
+          }
+        },
+        tooltip: {
+          enabled: true,
+          mode: 'index',
+          intersect: false,
+          padding: 10,
+          titleFont: { family: 'Inter', size: 12, weight: '700' },
+          bodyFont: { family: 'JetBrains Mono', size: 12 }
+        }
+      },
+      scales: {
+        x: {
+          display: true,
+          grid: { color: 'rgba(0, 0, 0, 0.05)' },
+          ticks: {
+            color: '#64748b',
+            font: { family: 'JetBrains Mono', size: 10 },
+            maxTicksLimit: 16
+          }
+        },
+        y: {
+          ...srcChart.options.scales?.y,
+          display: true,
+          grid: { color: 'rgba(0, 0, 0, 0.06)' },
+          ticks: {
+            color: '#475569',
+            font: { family: 'JetBrains Mono', size: 11 }
+          }
+        },
+        ...(srcChart.options.scales?.y1 ? {
+          y1: {
+            ...srcChart.options.scales.y1,
+            display: true,
+            ticks: {
+              color: '#f59e0b',
+              font: { family: 'JetBrains Mono', size: 11 }
+            }
+          }
+        } : {})
+      }
+    }
+  });
+}
+
+function closeEnlargeChartModal() {
+  const modal = document.getElementById('modal-enlarge-waveform');
+  if (modal) modal.style.display = 'none';
+  if (enlargedChart) {
+    enlargedChart.destroy();
+    enlargedChart = null;
+  }
+  activeEnlargedChartId = null;
+}
+
+function handleEnlargeModalBackdrop(event) {
+  if (event.target && event.target.id === 'modal-enlarge-waveform') {
+    closeEnlargeChartModal();
+  }
+}
+
+function exportEnlargedChartPNG() {
+  if (!activeEnlargedChartId || !enlargedChart) return;
+  const reg = CHART_REGISTRY[activeEnlargedChartId];
+  const title = reg ? `${reg.title} (Enlarged High-Res)` : 'Telemetry Waveform';
+  const fname = reg ? `${reg.defaultFilename}_enlarged` : 'enlarged_waveform';
+  exportCanvasWithBranding(enlargedChart.canvas, title, fname);
+}
+
+function exportEnlargedChartCSV() {
+  if (!activeEnlargedChartId) return;
+  exportChartCSV(activeEnlargedChartId);
+}
+
+// Window Escape listener to close modals
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeEnlargeChartModal();
+    if (typeof closeDiagnosticsModal === 'function') closeDiagnosticsModal();
+  }
+});
 
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', initCharts);

@@ -54,6 +54,11 @@ function updateConfidenceHistogramUI() {
   confHistChart.data.datasets[0].data = [...sessionConfBins];
   confHistChart.update('none');
 
+  if (typeof activeEnlargedChartId !== 'undefined' && activeEnlargedChartId === 'chart-conf-hist' && typeof enlargedChart !== 'undefined' && enlargedChart) {
+    enlargedChart.data.datasets[0].data = [...sessionConfBins];
+    enlargedChart.update('none');
+  }
+
   const lblConf = document.getElementById('lbl-conf-summary');
   if (lblConf) {
     if (sessionConfTotal > 0) {

@@ -314,8 +314,21 @@
       
       <!-- Chart 1: Latency Breakdown -->
       <div class="card chart-card" data-cat="inference">
-        <div class="card-header">
-          <div class="card-title"><span>📈</span> Latency Breakdown History (ms)</div>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>📈</span> Latency Breakdown History (ms)</div>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-latency')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-latency')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-latency')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-latency"></canvas>
@@ -324,10 +337,21 @@
 
       <!-- Chart 2: Processed Frames Per Second -->
       <div class="card chart-card" data-cat="inference">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>🚀</span> Processed Frames Per Second (FPS)</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🚀</span> Processed Frames Per Second (FPS)</div>
             <span id="lbl-fps-stat" class="header-stat-pill">-- FPS</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fps')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fps')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fps')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -337,10 +361,21 @@
 
       <!-- Chart 3: Inter-Frame Interval -->
       <div class="card chart-card" data-cat="inference">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>⏱️</span> Inter-Frame Interval (ms)</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>⏱️</span> Inter-Frame Interval (ms)</div>
             <span id="lbl-inter-frame" class="header-stat-pill">-- ms</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-interframe')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-interframe')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-interframe')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -350,10 +385,21 @@
 
       <!-- Chart 4: Detections Per Frame -->
       <div class="card chart-card" data-cat="inference">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>🎯</span> Detections Per Frame</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🎯</span> Detections Per Frame</div>
             <span id="lbl-detections-per-frame" class="header-stat-pill">-- Objects</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-detections-count')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-detections-count')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-detections-count')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -363,10 +409,21 @@
 
       <!-- Chart 5: Confidence Histogram -->
       <div class="card chart-card" data-cat="inference">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>📊</span> Confidence Histogram</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>📊</span> Confidence Histogram</div>
             <span id="lbl-conf-summary" class="header-stat-pill">--</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-conf-hist')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-conf-hist')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-conf-hist')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -376,8 +433,21 @@
 
       <!-- Chart 6: Thermals -->
       <div class="card chart-card" data-cat="thermals">
-        <div class="card-header">
-          <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-thermal')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-thermal')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-thermal')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-thermal"></canvas>
@@ -386,8 +456,21 @@
 
       <!-- Chart 7: System CPU & RAM Utilisation -->
       <div class="card chart-card" data-cat="system">
-        <div class="card-header">
-          <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-resources')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-resources')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-resources')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-resources"></canvas>
@@ -396,10 +479,21 @@
 
       <!-- Chart 8: Disk Utilisation -->
       <div class="card chart-card" data-cat="system">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>💾</span> Disk Utilisation (%)</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>💾</span> Disk Utilisation (%)</div>
             <span id="lbl-disk-utilisation" class="header-stat-pill">--%</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-disk')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-disk')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-disk')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -409,10 +503,21 @@
 
       <!-- Chart 9: Active Cooling & Fan Dynamics -->
       <div class="card chart-card" data-cat="thermals">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>🌀</span> Active Cooling &amp; Fan Speed</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🌀</span> Active Cooling &amp; Fan Speed</div>
             <span id="lbl-fan-speed" class="header-stat-pill">-- RPM</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fan')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fan')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fan')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -422,10 +527,21 @@
 
       <!-- Chart 10: Quad-Core CPU Clock Frequencies -->
       <div class="card chart-card" data-cat="system">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>⚡</span> CPU Quad-Core Frequencies (MHz)</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>⚡</span> CPU Quad-Core Frequencies (MHz)</div>
             <span id="lbl-cpu-base-tag" class="header-stat-pill">2.4 GHz Base Target</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-cpufreq')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-cpufreq')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-cpufreq')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -435,8 +551,21 @@
 
       <!-- Chart 11: RP1 Southbridge Rail Voltages -->
       <div class="card chart-card" data-cat="system">
-        <div class="card-header">
-          <div class="card-title"><span>🔋</span> RP1 I/O Controller Rail Voltages (V)</div>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🔋</span> RP1 I/O Controller Rail Voltages (V)</div>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-voltages')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-voltages')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-voltages')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
         </div>
         <div class="chart-container">
           <canvas id="chart-voltages"></canvas>
@@ -445,10 +574,21 @@
 
       <!-- Chart 12: Process Footprint & System Load -->
       <div class="card chart-card" data-cat="system">
-        <div class="card-header">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <span><span>⚙️</span> Process Footprint &amp; System Load</span>
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>⚙️</span> Process Footprint &amp; System Load</div>
             <span id="lbl-proc-footprint" class="header-stat-pill">--</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-procfootprint')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-procfootprint')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-procfootprint')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
           </div>
         </div>
         <div class="chart-container">
@@ -458,6 +598,46 @@
 
     </section>
   </main>
+
+  <!-- Enlarge Waveform Modal (Snapshot 2 Inspiration) -->
+  <div id="modal-enlarge-waveform" class="modal-overlay" style="display: none;" onclick="handleEnlargeModalBackdrop(event)">
+    <div class="modal-content modal-enlarge-content">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <div class="card-title" id="enlarge-modal-title" style="font-size: 1.05rem; font-weight: 700;">
+            <span id="enlarge-modal-icon">📈</span> <span id="enlarge-modal-heading">Latency Breakdown History (ms)</span>
+          </div>
+          <span id="enlarge-modal-badge" class="badge-tag-amber">LIVE WAVEFORM</span>
+        </div>
+        <button type="button" class="btn btn-ghost" onclick="closeEnlargeChartModal()" title="Close Large View (Esc)">✕</button>
+      </div>
+
+      <!-- Subheader / Toolbar matching Snapshot 2 -->
+      <div class="enlarge-modal-toolbar">
+        <div class="enlarge-modal-desc" id="enlarge-modal-desc">
+          <span>🔍</span> <span>Large Interactive View: High-resolution real-time sensor waveform inspection and trend analysis.</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn-chart-action btn-export-img" id="btn-enlarge-export-png" onclick="exportEnlargedChartPNG()" title="Export high-resolution PNG image">
+            <span>📷</span> EXPORT HIGH-RES PNG
+          </button>
+          <button type="button" class="btn-chart-action btn-export-csv" id="btn-enlarge-export-csv" onclick="exportEnlargedChartCSV()" title="Export series to CSV">
+            <span class="icon-csv">📊</span> CSV
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Large Canvas -->
+      <div class="enlarge-chart-wrapper">
+        <canvas id="chart-enlarged-canvas"></canvas>
+      </div>
+
+      <!-- Footer matching Snapshot 2 -->
+      <div class="enlarge-modal-footer">
+        <button type="button" class="btn btn-close-large" onclick="closeEnlargeChartModal()">Close Large View</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Hardware Inventory & Diagnostics Modal -->
   <div id="modal-diagnostics" class="modal-overlay">
@@ -547,7 +727,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.4-pausewaveforms"></script>
-  <script src="/static/js/app.js?v=3.4-pausewaveforms"></script>
+  <script src="/static/js/charts.js?v=3.5-enlargeexport"></script>
+  <script src="/static/js/app.js?v=3.5-enlargeexport"></script>
 </body>
 </html>
