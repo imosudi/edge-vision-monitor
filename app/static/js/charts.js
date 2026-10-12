@@ -588,6 +588,9 @@ function initCharts() {
       }
     });
   }
+
+  // Initialise benchmark comparison charts
+  initBenchmarkCharts();
 }
 
 function updateChartSeries(chart, label, values) {
@@ -1145,8 +1148,388 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeEnlargeChartModal();
     if (typeof closeDiagnosticsModal === 'function') closeDiagnosticsModal();
+    if (typeof closeBenchmarkModal === 'function') closeBenchmarkModal();
   }
 });
+
+/* ==========================================================================
+   CPU vs Hailo-8L NPU Benchmark Comparison Charts & Overlays
+   ========================================================================== */
+
+let benchFpsChart = null;
+let benchLatencyChart = null;
+let benchCpuChart = null;
+let benchThermalChart = null;
+
+const benchChartOptionsBase = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  elements: {
+    point: { radius: 2, hoverRadius: 5 },
+    line: { tension: 0.25, borderWidth: 2 }
+  },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top',
+      labels: {
+        color: '#1e293b',
+        font: { family: 'Inter', size: 11, weight: '600' },
+        boxWidth: 14,
+        padding: 10
+      }
+    },
+    tooltip: {
+      enabled: true,
+      mode: 'index',
+      intersect: false,
+      titleFont: { family: 'Inter', size: 12, weight: '700' },
+      bodyFont: { family: 'JetBrains Mono', size: 11 }
+    }
+  },
+  scales: {
+    x: {
+      display: true,
+      grid: { color: 'rgba(0, 0, 0, 0.05)' },
+      ticks: {
+        color: '#64748b',
+        font: { family: 'JetBrains Mono', size: 10 },
+        maxTicksLimit: 15
+      },
+      title: {
+        display: true,
+        text: 'Elapsed Time in Seconds (t = 0s...Ts)',
+        color: '#64748b',
+        font: { family: 'Inter', size: 10, weight: '600' }
+      }
+    },
+    y: {
+      display: true,
+      grid: { color: 'rgba(0, 0, 0, 0.05)' },
+      ticks: {
+        color: '#475569',
+        font: { family: 'JetBrains Mono', size: 10 }
+      }
+    }
+  }
+};
+
+function initBenchmarkCharts() {
+  const ctxFps = document.getElementById('chart-bench-fps');
+  if (ctxFps && !benchFpsChart) {
+    benchFpsChart = new Chart(ctxFps, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Hailo-8L NPU (FPS)', data: [], borderColor: '#7c3aed', backgroundColor: 'rgba(124, 58, 237, 0.08)', fill: false },
+          { label: 'CPU (ONNX) (FPS)', data: [], borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)', borderDash: [4, 4], fill: false }
+        ]
+      },
+      options: benchChartOptionsBase
+    });
+  }
+
+  const ctxLat = document.getElementById('chart-bench-latency');
+  if (ctxLat && !benchLatencyChart) {
+    benchLatencyChart = new Chart(ctxLat, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Hailo-8L Exec Latency (ms)', data: [], borderColor: '#2563eb', fill: false },
+          { label: 'CPU Exec Latency (ms)', data: [], borderColor: '#dc2626', borderDash: [4, 4], fill: false }
+        ]
+      },
+      options: benchChartOptionsBase
+    });
+  }
+
+  const ctxCpu = document.getElementById('chart-bench-cpu');
+  if (ctxCpu && !benchCpuChart) {
+    benchCpuChart = new Chart(ctxCpu, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Host CPU (Hailo-8L Offload) (%)', data: [], borderColor: '#16a34a', fill: false },
+          { label: 'Host CPU (CPU Inference) (%)', data: [], borderColor: '#f97316', borderDash: [4, 4], fill: false }
+        ]
+      },
+      options: benchChartOptionsBase
+    });
+  }
+
+  const ctxTherm = document.getElementById('chart-bench-thermal');
+  if (ctxTherm && !benchThermalChart) {
+    benchThermalChart = new Chart(ctxTherm, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'BCM2712 Temp (Hailo-8L Run) (°C)', data: [], borderColor: '#06b6d4', fill: false },
+          { label: 'BCM2712 Temp (CPU Run) (°C)', data: [], borderColor: '#ec4899', borderDash: [4, 4], fill: false }
+        ]
+      },
+      options: benchChartOptionsBase
+    });
+  }
+}
+
+function renderBenchmarkOverlay(hailoPts, cpuPts) {
+  initBenchmarkCharts();
+
+  const maxLen = Math.max((hailoPts ? hailoPts.length : 0), (cpuPts ? cpuPts.length : 0));
+  const labels = [];
+  for (let i = 0; i < maxLen; i++) {
+    labels.push(`${i}s`);
+  }
+
+  const padSeries = (pts, key) => {
+    if (!pts || pts.length === 0) return [];
+    return pts.map(p => (p && typeof p[key] === 'number') ? p[key] : null);
+  };
+
+  // 1. Throughput (FPS)
+  if (benchFpsChart) {
+    benchFpsChart.data.labels = labels;
+    benchFpsChart.data.datasets[0].data = padSeries(hailoPts, 'fps');
+    benchFpsChart.data.datasets[1].data = padSeries(cpuPts, 'fps');
+    benchFpsChart.update('none');
+  }
+
+  // 2. Latency (ms)
+  if (benchLatencyChart) {
+    benchLatencyChart.data.labels = labels;
+    benchLatencyChart.data.datasets[0].data = padSeries(hailoPts, 'latency_exec');
+    benchLatencyChart.data.datasets[1].data = padSeries(cpuPts, 'latency_exec');
+    benchLatencyChart.update('none');
+  }
+
+  // 3. CPU Utilisation (%)
+  if (benchCpuChart) {
+    benchCpuChart.data.labels = labels;
+    benchCpuChart.data.datasets[0].data = padSeries(hailoPts, 'cpu_util');
+    benchCpuChart.data.datasets[1].data = padSeries(cpuPts, 'cpu_util');
+    benchCpuChart.update('none');
+  }
+
+  // 4. Thermals (°C)
+  if (benchThermalChart) {
+    benchThermalChart.data.labels = labels;
+    benchThermalChart.data.datasets[0].data = padSeries(hailoPts, 'cpu_temp');
+    benchThermalChart.data.datasets[1].data = padSeries(cpuPts, 'cpu_temp');
+    benchThermalChart.update('none');
+  }
+
+  // Compute KPI comparison metrics
+  const avg = (arr, key) => {
+    if (!arr || arr.length === 0) return 0;
+    const valid = arr.map(p => p[key]).filter(v => typeof v === 'number' && !isNaN(v));
+    if (valid.length === 0) return 0;
+    return valid.reduce((a, b) => a + b, 0) / valid.length;
+  };
+  const max = (arr, key) => {
+    if (!arr || arr.length === 0) return 0;
+    const valid = arr.map(p => p[key]).filter(v => typeof v === 'number' && !isNaN(v));
+    if (valid.length === 0) return 0;
+    return Math.max(...valid);
+  };
+
+  const hFps = avg(hailoPts, 'fps');
+  const cFps = avg(cpuPts, 'fps');
+  const hLat = avg(hailoPts, 'latency_exec');
+  const cLat = avg(cpuPts, 'latency_exec');
+  const hCpu = avg(hailoPts, 'cpu_util');
+  const cCpu = avg(cpuPts, 'cpu_util');
+  const hTemp = max(hailoPts, 'cpu_temp');
+  const cTemp = max(cpuPts, 'cpu_temp');
+
+  const elHFps = document.getElementById('kpi-hailo-fps');
+  const elCFps = document.getElementById('kpi-cpu-fps');
+  const elDFps = document.getElementById('kpi-delta-fps');
+  if (elHFps) elHFps.textContent = hFps > 0 ? `${hFps.toFixed(1)} FPS` : '--';
+  if (elCFps) elCFps.textContent = cFps > 0 ? `${cFps.toFixed(1)} FPS` : '--';
+  if (elDFps) {
+    if (hFps > 0 && cFps > 0) {
+      const mult = (hFps / (cFps || 1)).toFixed(1);
+      elDFps.className = 'kpi-footer-badge win-hailo';
+      elDFps.textContent = `⚡ ${mult}x Speedup on Hailo-8L NPU`;
+    } else {
+      elDFps.className = 'kpi-footer-badge';
+      elDFps.textContent = '⚡ Awaiting Benchmark';
+    }
+  }
+
+  const elHLat = document.getElementById('kpi-hailo-lat');
+  const elCLat = document.getElementById('kpi-cpu-lat');
+  const elDLat = document.getElementById('kpi-delta-lat');
+  if (elHLat) elHLat.textContent = hLat > 0 ? `${hLat.toFixed(1)} ms` : '--';
+  if (elCLat) elCLat.textContent = cLat > 0 ? `${cLat.toFixed(1)} ms` : '--';
+  if (elDLat) {
+    if (hLat > 0 && cLat > 0) {
+      const red = (((cLat - hLat) / (cLat || 1)) * 100).toFixed(1);
+      elDLat.className = 'kpi-footer-badge win-hailo';
+      elDLat.textContent = `📉 -${red}% Lower Latency on NPU`;
+    } else {
+      elDLat.className = 'kpi-footer-badge';
+      elDLat.textContent = '📉 Awaiting Benchmark';
+    }
+  }
+
+  const elHCpu = document.getElementById('kpi-hailo-cpu');
+  const elCCpu = document.getElementById('kpi-cpu-cpu');
+  const elDCpu = document.getElementById('kpi-delta-cpu');
+  if (elHCpu) elHCpu.textContent = hCpu > 0 ? `${hCpu.toFixed(1)}%` : '--';
+  if (elCCpu) elCCpu.textContent = cCpu > 0 ? `${cCpu.toFixed(1)}%` : '--';
+  if (elDCpu) {
+    if (hCpu > 0 && cCpu > 0) {
+      const saved = (cCpu - hCpu).toFixed(1);
+      elDCpu.className = 'kpi-footer-badge win-hailo';
+      elDCpu.textContent = `❄️ -${saved}% Host CPU Relieved`;
+    } else {
+      elDCpu.className = 'kpi-footer-badge';
+      elDCpu.textContent = '❄️ Awaiting Benchmark';
+    }
+  }
+
+  const elHTemp = document.getElementById('kpi-hailo-temp');
+  const elCTemp = document.getElementById('kpi-cpu-temp');
+  const elDTemp = document.getElementById('kpi-delta-temp');
+  if (elHTemp) elHTemp.textContent = hTemp > 0 ? `${hTemp.toFixed(1)}°C` : '--';
+  if (elCTemp) elCTemp.textContent = cTemp > 0 ? `${cTemp.toFixed(1)}°C` : '--';
+  if (elDTemp) {
+    if (hTemp > 0 && cTemp > 0) {
+      const delta = (cTemp - hTemp).toFixed(1);
+      elDTemp.className = 'kpi-footer-badge win-hailo';
+      elDTemp.textContent = `🌡️ ${delta}°C Cooler with Offload`;
+    } else {
+      elDTemp.className = 'kpi-footer-badge';
+      elDTemp.textContent = '🌡️ Awaiting Benchmark';
+    }
+  }
+}
+
+function exportBenchmarkCSV() {
+  const hailoPts = (typeof benchmarkData !== 'undefined' && benchmarkData.hailo) ? benchmarkData.hailo : [];
+  const cpuPts = (typeof benchmarkData !== 'undefined' && benchmarkData.cpu) ? benchmarkData.cpu : [];
+  const maxLen = Math.max(hailoPts.length, cpuPts.length);
+
+  if (maxLen === 0) {
+    alert('No benchmark comparison data recorded yet. Please run the benchmark first.');
+    return;
+  }
+
+  const header = [
+    'Relative Time (s)',
+    'Hailo-8L FPS',
+    'CPU (ONNX) FPS',
+    'Hailo-8L Exec Latency (ms)',
+    'CPU Exec Latency (ms)',
+    'Hailo-8L Total Latency (ms)',
+    'CPU Total Latency (ms)',
+    'Hailo-8L Host CPU (%)',
+    'CPU Host CPU (%)',
+    'Hailo-8L SoC Temp (C)',
+    'CPU SoC Temp (C)',
+    'Hailo-8L Fan RPM',
+    'CPU Fan RPM',
+    'Hailo-8L Process RSS (MB)',
+    'CPU Process RSS (MB)'
+  ].join(',');
+
+  const rows = [];
+  for (let i = 0; i < maxLen; i++) {
+    const h = hailoPts[i] || {};
+    const c = cpuPts[i] || {};
+    const fmt = v => (v !== null && v !== undefined && !isNaN(v)) ? v : '';
+    rows.push([
+      `"${i}s"`,
+      fmt(h.fps), fmt(c.fps),
+      fmt(h.latency_exec), fmt(c.latency_exec),
+      fmt(h.latency_total), fmt(c.latency_total),
+      fmt(h.cpu_util), fmt(c.cpu_util),
+      fmt(h.cpu_temp), fmt(c.cpu_temp),
+      fmt(h.fan_rpm), fmt(c.fan_rpm),
+      fmt(h.proc_rss), fmt(c.proc_rss)
+    ].join(','));
+  }
+
+  const csv = [header, ...rows].join('\r\n');
+  downloadBlob(csv, `hailo_vs_cpu_benchmark_comparison_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
+}
+
+function exportBenchmarkChartsPNG() {
+  const charts = [benchFpsChart, benchLatencyChart, benchCpuChart, benchThermalChart].filter(Boolean);
+  if (charts.length === 0 || !charts[0].canvas) {
+    alert('Benchmark charts are not initialized yet.');
+    return;
+  }
+
+  const offscreen = document.createElement('canvas');
+  const cardW = 600;
+  const cardH = 280;
+  const padding = 20;
+  const headerH = 80;
+  const footerH = 35;
+
+  offscreen.width = (cardW * 2) + (padding * 3);
+  offscreen.height = headerH + (cardH * 2) + (padding * 3) + footerH;
+  const ctx = offscreen.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+
+  // Title
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 20px Inter, system-ui, sans-serif';
+  ctx.fillText('CPU vs Hailo-8L NPU Benchmark Comparison Suite', padding, 35);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '13px Inter, system-ui, sans-serif';
+  ctx.fillText(`Edge Vision Monitor • Raspberry Pi 5 & Hailo-8L Edge AI • Aligned Relative-Time (0s...Ts) • ${new Date().toLocaleString()}`, padding, 58);
+
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, 70);
+  ctx.lineTo(offscreen.width - padding, 70);
+  ctx.stroke();
+
+  // Draw 2x2 grid of charts
+  const positions = [
+    { x: padding, y: headerH + padding, title: 'Pipeline Throughput (FPS)' },
+    { x: padding * 2 + cardW, y: headerH + padding, title: 'Execution Latency (ms)' },
+    { x: padding, y: headerH + padding * 2 + cardH, title: 'Host CPU Utilisation (%)' },
+    { x: padding * 2 + cardW, y: headerH + padding * 2 + cardH, title: 'SoC Temperature Profile (°C)' }
+  ];
+
+  charts.forEach((ch, idx) => {
+    if (idx < positions.length && ch.canvas) {
+      const pos = positions[idx];
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(pos.x, pos.y, cardW, cardH);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.strokeRect(pos.x, pos.y, cardW, cardH);
+      ctx.drawImage(ch.canvas, pos.x + 10, pos.y + 10, cardW - 20, cardH - 20);
+    }
+  });
+
+  // Footer
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '11px JetBrains Mono, monospace';
+  ctx.fillText('Overlaid Benchmark Telemetry Waveforms • High-Resolution Export', padding, offscreen.height - 14);
+
+  const dataUrl = offscreen.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `hailo_vs_cpu_benchmark_overlay_${getTimestampStr()}.png`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); }, 250);
+}
 
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', initCharts);

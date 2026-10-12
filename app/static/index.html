@@ -50,6 +50,10 @@
         </button>
       </div>
 
+      <button id="btn-benchmark-modal" class="btn btn-benchmark" onclick="openBenchmarkModal()" title="CPU vs Hailo-8L NPU Benchmark Comparison Suite">
+        <span>⚖️</span> CPU/NPU Benchmark
+      </button>
+
       <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
         <span id="icon-inference">⏹</span>
         <span id="text-inference">Stop Inference</span>
@@ -298,6 +302,9 @@
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <button id="btn-benchmark-mode-toggle" class="btn-benchmark-pill" onclick="openBenchmarkModal()" title="Run automated or manual benchmark comparison">
+          <span>⚖️</span> CPU vs NPU Benchmark
+        </button>
         <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
           ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
         </span>
@@ -599,6 +606,225 @@
     </section>
   </main>
 
+  <!-- CPU vs Hailo-8L NPU Benchmark Comparison Modal -->
+  <div id="modal-benchmark-suite" class="modal-overlay" style="display: none;" onclick="handleBenchmarkModalBackdrop(event)">
+    <div class="modal-content modal-benchmark-content">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <div class="card-title" style="font-size: 1.1rem; font-weight: 700;">
+            <span>⚖️</span> CPU vs Hailo-8L NPU Benchmark Comparison Suite
+          </div>
+          <span id="badge-benchmark-status" class="badge-tag-purple">BENCHMARK COMPARISON</span>
+        </div>
+        <button type="button" class="btn btn-ghost" onclick="closeBenchmarkModal()" title="Close (Esc)">✕</button>
+      </div>
+
+      <!-- Controls & Progress Toolbar -->
+      <div class="benchmark-toolbar">
+        <div class="benchmark-config-row">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <label for="select-benchmark-duration" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">
+              Run Duration per Phase:
+            </label>
+            <select id="select-benchmark-duration" class="input-select" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; width: 130px;">
+              <option value="15">15 seconds</option>
+              <option value="30" selected>30 seconds</option>
+              <option value="60">60 seconds</option>
+              <option value="120">2 minutes</option>
+            </select>
+            <button type="button" id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" style="padding: 0.38rem 0.9rem; font-size: 0.8rem;">
+              <span>▶</span> Run Automated Dual-Phase Benchmark
+            </button>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-ghost" id="btn-manual-record-hailo" onclick="manualRecordBenchmarkPhase('hailo')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Record baseline run on Hailo-8L">
+              <span>🚀</span> 1. Record Hailo-8L
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-manual-hold-data" onclick="manualHoldBenchmarkData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Hold current Hailo data in buffer">
+              <span>📌</span> 2. Hold Data
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-manual-record-cpu" onclick="manualRecordBenchmarkPhase('cpu')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Record comparison run on CPU">
+              <span>💻</span> 3. Record CPU
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-manual-clear-bench" onclick="clearBenchmarkData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Clear benchmark buffer">
+              <span>🗑️</span> Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Stepper / Status Progress Bar -->
+        <div class="benchmark-stepper">
+          <div class="stepper-step" id="step-hailo">
+            <span class="step-num">1</span>
+            <span class="step-label">Hailo-8L NPU Run</span>
+            <span class="step-state" id="step-state-hailo">Ready</span>
+          </div>
+          <div class="stepper-arrow">&rarr;</div>
+          <div class="stepper-step" id="step-hold">
+            <span class="step-num">2</span>
+            <span class="step-label">Buffer Held Data</span>
+            <span class="step-state" id="step-state-hold">Empty</span>
+          </div>
+          <div class="stepper-arrow">&rarr;</div>
+          <div class="stepper-step" id="step-cpu">
+            <span class="step-num">3</span>
+            <span class="step-label">CPU Inference Run</span>
+            <span class="step-state" id="step-state-cpu">Ready</span>
+          </div>
+          <div class="stepper-arrow">&rarr;</div>
+          <div class="stepper-step" id="step-overlay">
+            <span class="step-num">4</span>
+            <span class="step-label">Relative-Time Overlay</span>
+            <span class="step-state" id="step-state-overlay">Awaiting Data</span>
+          </div>
+        </div>
+
+        <!-- Live Status & Countdown Message -->
+        <div id="benchmark-status-msg" class="benchmark-status-msg" style="display: none;">
+          <span id="benchmark-spinner" class="spinner-inline">⏳</span>
+          <span id="benchmark-status-text">Benchmarking in progress...</span>
+          <span id="benchmark-countdown-pill" class="badge-tag-amber">0s</span>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards (Side-by-Side Comparison Metrics) -->
+      <div class="benchmark-kpi-grid">
+        <div class="benchmark-kpi-card">
+          <div class="kpi-title">🚀 Pipeline Throughput (FPS)</div>
+          <div class="kpi-comparison-row">
+            <div class="kpi-col">
+              <span class="kpi-tag tag-hailo">Hailo-8L</span>
+              <span class="kpi-val val-hailo" id="kpi-hailo-fps">--</span>
+            </div>
+            <div class="kpi-vs">vs</div>
+            <div class="kpi-col">
+              <span class="kpi-tag tag-cpu">CPU (ONNX)</span>
+              <span class="kpi-val val-cpu" id="kpi-cpu-fps">--</span>
+            </div>
+          </div>
+          <div class="kpi-footer-badge" id="kpi-delta-fps">⚡ Awaiting Benchmark</div>
+        </div>
+
+        <div class="benchmark-kpi-card">
+          <div class="kpi-title">⏱️ Accelerator / CPU Latency (ms)</div>
+          <div class="kpi-comparison-row">
+            <div class="kpi-col">
+              <span class="kpi-tag tag-hailo">Hailo-8L</span>
+              <span class="kpi-val val-hailo" id="kpi-hailo-lat">--</span>
+            </div>
+            <div class="kpi-vs">vs</div>
+            <div class="kpi-col">
+              <span class="kpi-tag tag-cpu">CPU (ONNX)</span>
+              <span class="kpi-val val-cpu" id="kpi-cpu-lat">--</span>
+            </div>
+          </div>
+          <div class="kpi-footer-badge" id="kpi-delta-lat">📉 Awaiting Benchmark</div>
+        </div>
+
+        <div class="benchmark-kpi-card">
+          <div class="kpi-title">💻 Host CPU Utilisation (%)</div>
+          <div class="kpi-comparison-row">
+            <div class="kpi-col">
+              <span class="kpi-tag tag-hailo">Offload Load</span>
+              <span class="kpi-val val-hailo" id="kpi-hailo-cpu">--</span>
+            </div>
+            <div class="kpi-vs">vs</div>
+            <div class="kpi-col">
+              <span class="kpi-tag tag-cpu">CPU Inference</span>
+              <span class="kpi-val val-cpu" id="kpi-cpu-cpu">--</span>
+            </div>
+          </div>
+          <div class="kpi-footer-badge" id="kpi-delta-cpu">❄️ Awaiting Benchmark</div>
+        </div>
+
+        <div class="benchmark-kpi-card">
+          <div class="kpi-title">🌡️ Peak SoC Temperature (°C)</div>
+          <div class="kpi-comparison-row">
+            <div class="kpi-col">
+              <span class="kpi-tag tag-hailo">Hailo Peak</span>
+              <span class="kpi-val val-hailo" id="kpi-hailo-temp">--</span>
+            </div>
+            <div class="kpi-vs">vs</div>
+            <div class="kpi-col">
+              <span class="kpi-tag tag-cpu">CPU Peak</span>
+              <span class="kpi-val val-cpu" id="kpi-cpu-temp">--</span>
+            </div>
+          </div>
+          <div class="kpi-footer-badge" id="kpi-delta-temp">🌡️ Awaiting Benchmark</div>
+        </div>
+      </div>
+
+      <!-- Overlaid Charts Grid (x-axis in relative seconds: 0s, 1s, 2s...) -->
+      <div class="benchmark-charts-grid">
+        <!-- Comparison Chart 1: FPS -->
+        <div class="card benchmark-chart-card">
+          <div class="card-header chart-card-header">
+            <div class="card-title-group">
+              <div class="card-title"><span>🚀</span> Pipeline Throughput Comparison (FPS)</div>
+            </div>
+            <span class="chart-xaxis-pill">X-Axis: Relative Time (s)</span>
+          </div>
+          <div class="chart-container" style="height: 240px;">
+            <canvas id="chart-bench-fps"></canvas>
+          </div>
+        </div>
+
+        <!-- Comparison Chart 2: Execution Latency -->
+        <div class="card benchmark-chart-card">
+          <div class="card-header chart-card-header">
+            <div class="card-title-group">
+              <div class="card-title"><span>⏱️</span> Execution Latency Comparison (ms)</div>
+            </div>
+            <span class="chart-xaxis-pill">X-Axis: Relative Time (s)</span>
+          </div>
+          <div class="chart-container" style="height: 240px;">
+            <canvas id="chart-bench-latency"></canvas>
+          </div>
+        </div>
+
+        <!-- Comparison Chart 3: CPU Utilisation -->
+        <div class="card benchmark-chart-card">
+          <div class="card-header chart-card-header">
+            <div class="card-title-group">
+              <div class="card-title"><span>💻</span> Host CPU Utilisation (%) [Offloaded vs Direct]</div>
+            </div>
+            <span class="chart-xaxis-pill">X-Axis: Relative Time (s)</span>
+          </div>
+          <div class="chart-container" style="height: 240px;">
+            <canvas id="chart-bench-cpu"></canvas>
+          </div>
+        </div>
+
+        <!-- Comparison Chart 4: Thermals -->
+        <div class="card benchmark-chart-card">
+          <div class="card-header chart-card-header">
+            <div class="card-title-group">
+              <div class="card-title"><span>🌡️</span> SoC Temperature Profile Comparison (°C)</div>
+            </div>
+            <span class="chart-xaxis-pill">X-Axis: Relative Time (s)</span>
+          </div>
+          <div class="chart-container" style="height: 240px;">
+            <canvas id="chart-bench-thermal"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer with Exports matching Snapshots -->
+      <div class="enlarge-modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn-chart-action btn-export-img" onclick="exportBenchmarkChartsPNG()" title="Export all overlaid comparison charts as image">
+            <span>📷</span> EXPORT COMPARISON CHARTS (PNG)
+          </button>
+          <button type="button" class="btn-chart-action btn-export-csv" onclick="exportBenchmarkCSV()" title="Export benchmark data side-by-side to CSV">
+            <span class="icon-csv">📊</span> EXPORT BENCHMARK CSV
+          </button>
+        </div>
+        <button type="button" class="btn btn-close-large" onclick="closeBenchmarkModal()">Close Benchmark View</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Enlarge Waveform Modal (Snapshot 2 Inspiration) -->
   <div id="modal-enlarge-waveform" class="modal-overlay" style="display: none;" onclick="handleEnlargeModalBackdrop(event)">
     <div class="modal-content modal-enlarge-content">
@@ -727,7 +953,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.5-enlargeexport"></script>
-  <script src="/static/js/app.js?v=3.5-enlargeexport"></script>
+  <script src="/static/js/charts.js?v=3.6-cpubenchmark"></script>
+  <script src="/static/js/app.js?v=3.6-cpubenchmark"></script>
 </body>
 </html>
