@@ -71,6 +71,9 @@ telemetry:
     critical_hailo_temp_c: 90.0
     warning_memory_percent: 85.0
     critical_memory_percent: 95.0
+    # Minimum inference FPS SLA thresholds (triggers alarm if performance drops)
+    warning_min_fps: null      # e.g., 15.0
+    critical_min_fps: null     # e.g., 8.0
 
 # SQLite Persistent Time-Series & Event Storage Settings
 storage:

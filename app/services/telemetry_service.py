@@ -150,6 +150,31 @@ class TelemetryService:
             elif s.metric_name == "rpi_arm_freq_capped_now" and s.value == 0:
                 self._clear_alarm("rpi_arm_freq_capped")
 
+        # Minimum Inference FPS Threshold Checks
+        if thresholds.critical_min_fps is not None or thresholds.warning_min_fps is not None:
+            try:
+                from app.core.lifecycle import get_lifecycle_manager
+                mgr = get_lifecycle_manager()
+                if mgr.inference_service and mgr.inference_service.is_running():
+                    cur_fps = mgr.inference_service.get_current_fps()
+                    if mgr.inference_service._total_processed >= 15:
+                        if thresholds.critical_min_fps is not None and cur_fps < thresholds.critical_min_fps:
+                            self._trigger_alarm(
+                                "inference_fps_min",
+                                f"CRITICAL: Inference throughput is {cur_fps:.1f} FPS (below critical minimum: {thresholds.critical_min_fps:.1f} FPS)",
+                                severity="CRITICAL",
+                            )
+                        elif thresholds.warning_min_fps is not None and cur_fps < thresholds.warning_min_fps:
+                            self._trigger_alarm(
+                                "inference_fps_min",
+                                f"WARNING: Inference throughput is {cur_fps:.1f} FPS (below warning minimum: {thresholds.warning_min_fps:.1f} FPS)",
+                                severity="WARNING",
+                            )
+                        else:
+                            self._clear_alarm("inference_fps_min")
+            except Exception as e:
+                logger.debug("Could not evaluate minimum FPS alarm: %s", e)
+
     def _trigger_alarm(self, key: str, msg: str, severity: str = "WARNING") -> None:
         if self._active_alarms.get(key) != severity:
             self._active_alarms[key] = severity

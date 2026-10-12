@@ -52,6 +52,8 @@ class TelemetryThresholds(BaseModel):
     critical_hailo_temp_c: float = Field(default=90.0, description="Critical threshold for Hailo NPU temperature in °C")
     warning_memory_percent: float = Field(default=85.0, description="Warning threshold for RAM usage %")
     critical_memory_percent: float = Field(default=95.0, description="Critical threshold for RAM usage %")
+    warning_min_fps: Optional[float] = Field(default=None, ge=0.1, le=120.0, description="Warning threshold if inference FPS drops below this value")
+    critical_min_fps: Optional[float] = Field(default=None, ge=0.1, le=120.0, description="Critical threshold if inference FPS drops below this value")
 
 
 class TelemetryConfig(BaseModel):
