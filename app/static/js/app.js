@@ -1007,12 +1007,60 @@ async function seedVoltageHistory() {
   }
 }
 
+/**
+ * Pre-populate CPU Quad-Core frequencies with recent historical points
+ */
+async function seedCpuFreqHistory() {
+  try {
+    const [r0, r1, r2, r3] = await Promise.all([
+      fetch('/api/v1/metrics/history?metric_name=cpu_freq_cpu0_mhz&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=cpu_freq_cpu1_mhz&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=cpu_freq_cpu2_mhz&limit=30'),
+      fetch('/api/v1/metrics/history?metric_name=cpu_freq_cpu3_mhz&limit=30')
+    ]);
+
+    if (!r0.ok) return;
+
+    const [d0, d1, d2, d3] = await Promise.all([
+      r0.json(),
+      r1.ok ? r1.json() : [],
+      r2.ok ? r2.json() : [],
+      r3.ok ? r3.json() : []
+    ]);
+
+    if (!cpuFreqChart || cpuFreqChart.data.labels.length > 5) return;
+    const count = d0.length;
+    if (count === 0) return;
+
+    const labels = [];
+    const f0 = [], f1 = [], f2 = [], f3 = [];
+    for (let i = 0; i < count; i++) {
+      labels.push(d0[i]?.timestamp_utc ? new Date(d0[i].timestamp_utc).toLocaleTimeString() : '');
+      const v0 = d0[i]?.value ?? 0;
+      f0.push(v0);
+      f1.push(d1[i]?.value ?? v0);
+      f2.push(d2[i]?.value ?? v0);
+      f3.push(d3[i]?.value ?? v0);
+    }
+
+    cpuFreqChart.data.labels = labels;
+    if (cpuFreqChart.data.datasets[0]) cpuFreqChart.data.datasets[0].data = f0;
+    if (cpuFreqChart.data.datasets[1]) cpuFreqChart.data.datasets[1].data = f1;
+    if (cpuFreqChart.data.datasets[2]) cpuFreqChart.data.datasets[2].data = f2;
+    if (cpuFreqChart.data.datasets[3]) cpuFreqChart.data.datasets[3].data = f3;
+    cpuFreqChart.update('none');
+  } catch (err) {
+    console.debug('[TELEMETRY] Note on seeding CPU freq history:', err);
+  }
+}
+
 // Initialise on page load
 window.addEventListener('DOMContentLoaded', () => {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
   connectWebSocket();
+  seedCpuFreqHistory();
   seedVoltageHistory();
   seedProcFootprintHistory();
 });

@@ -132,7 +132,7 @@ function initCharts() {
     });
   }
 
-  // 6. Quad-Core CPU Clock Frequencies
+  // 6. Quad-Core CPU Clock Frequencies (Distinct point styles and dash patterns for overlapping curves)
   const ctxCpuFreq = document.getElementById('chart-cpufreq');
   if (ctxCpuFreq) {
     cpuFreqChart = new Chart(ctxCpuFreq, {
@@ -140,13 +140,78 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'Core 0 (MHz)', data: [], borderColor: '#2563eb', backgroundColor: 'transparent' },
-          { label: 'Core 1 (MHz)', data: [], borderColor: '#7c3aed', backgroundColor: 'transparent' },
-          { label: 'Core 2 (MHz)', data: [], borderColor: '#c026d3', backgroundColor: 'transparent' },
-          { label: 'Core 3 (MHz)', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent' }
+          {
+            label: 'Core 0 (MHz)',
+            data: [],
+            borderColor: '#2563eb',
+            backgroundColor: '#2563eb',
+            borderWidth: 2.5,
+            borderDash: [],
+            pointStyle: 'circle',
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            tension: 0.25
+          },
+          {
+            label: 'Core 1 (MHz)',
+            data: [],
+            borderColor: '#7c3aed',
+            backgroundColor: '#7c3aed',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointStyle: 'triangle',
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.25
+          },
+          {
+            label: 'Core 2 (MHz)',
+            data: [],
+            borderColor: '#c026d3',
+            backgroundColor: '#c026d3',
+            borderWidth: 2,
+            borderDash: [2, 3],
+            pointStyle: 'rectRot',
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.25
+          },
+          {
+            label: 'Core 3 (MHz)',
+            data: [],
+            borderColor: '#f59e0b',
+            backgroundColor: '#f59e0b',
+            borderWidth: 2,
+            borderDash: [8, 3, 2, 3],
+            pointStyle: 'rect',
+            pointRadius: 4.5,
+            pointHoverRadius: 6.5,
+            tension: 0.25
+          }
         ]
       },
-      options: chartOptionsBase
+      options: {
+        ...chartOptionsBase,
+        elements: {
+          line: { tension: 0.25 }
+        },
+        plugins: {
+          ...chartOptionsBase.plugins,
+          legend: {
+            labels: {
+              color: '#475569',
+              font: { family: 'Inter', size: 11, weight: '500' },
+              usePointStyle: true,
+              pointStyleWidth: 11
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: (context) => ` ${context.dataset.label}: ${context.parsed.y} MHz`
+            }
+          }
+        }
+      }
     });
   }
 
