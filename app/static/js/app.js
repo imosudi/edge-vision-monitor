@@ -497,6 +497,14 @@ function formatDurationText(sec) {
   return s > 0 ? `${m}m ${s}s` : `${m} min`;
 }
 
+function formatCountdownText(sec) {
+  if (sec <= 0) return '0s left';
+  if (sec < 60) return `${sec}s left`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s left` : `${m}m left`;
+}
+
 function onDetectionDurationChange(val) {
   const sec = parseInt(val, 10) || 0;
   detectionDurationSec = sec;
@@ -530,7 +538,7 @@ function startDetectionCountdown(totalSeconds) {
   const badgeCountdown = document.getElementById('badge-detection-countdown');
   if (badgeCountdown) {
     badgeCountdown.style.display = 'inline-block';
-    badgeCountdown.textContent = `${totalSeconds}s left`;
+    badgeCountdown.textContent = formatCountdownText(totalSeconds);
   }
 
   detectionTimerHandle = setInterval(async () => {
@@ -560,7 +568,7 @@ function startDetectionCountdown(totalSeconds) {
       }
     } else {
       if (badgeCountdown) {
-        badgeCountdown.textContent = `${remainingSec}s left`;
+        badgeCountdown.textContent = formatCountdownText(remainingSec);
       }
     }
   }, 500);
