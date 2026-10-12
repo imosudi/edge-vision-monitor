@@ -1808,6 +1808,12 @@ async function startAutomatedBenchmark() {
   if (btnAuto) btnAuto.disabled = true;
   if (btnAutoWb) btnAutoWb.disabled = true;
 
+  // Ensure waveforms benchmark panel is visible
+  const benchPanel = document.getElementById('benchmark-waveforms-panel');
+  if (benchPanel) {
+    benchPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   // Modal Banner Elements
   const statusMsg = document.getElementById('benchmark-status-msg');
   const statusText = document.getElementById('benchmark-status-text');

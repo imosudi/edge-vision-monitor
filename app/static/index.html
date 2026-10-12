@@ -50,6 +50,10 @@
         </button>
       </div>
 
+      <button id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" title="Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider">
+        <span>⚖️</span> Run Automated Dual Benchmark
+      </button>
+
       <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
         <span id="icon-inference">⏹</span>
         <span id="text-inference">Stop Inference</span>
@@ -332,9 +336,6 @@
             <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">⏱️ Detection Time:</span>
             <span id="lbl-bench-target-val" class="header-stat-pill" style="font-size: 0.72rem; padding: 0.18rem 0.5rem; color: var(--accent-blue);">Continuous (30s)</span>
           </div>
-          <button type="button" id="btn-run-auto-waveform-bench" class="btn btn-benchmark" onclick="startAutomatedWaveformBenchmark()">
-            <span>▶</span> Run Automated Dual Benchmark
-          </button>
           <div class="btn-group-manual-bench">
             <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hailo" onclick="manualWaveformBenchmarkPhase('hailo')" title="Record baseline on Hailo-8L NPU">
               1. Record Hailo-8L
@@ -1042,7 +1043,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.10-unifiedslider"></script>
-  <script src="/static/js/app.js?v=3.10-unifiedslider"></script>
+  <script src="/static/js/charts.js?v=3.11-benchtopbar"></script>
+  <script src="/static/js/app.js?v=3.11-benchtopbar"></script>
 </body>
 </html>
