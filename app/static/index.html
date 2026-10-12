@@ -302,8 +302,17 @@
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-        <button id="btn-benchmark-mode-toggle" class="btn-benchmark-pill" onclick="openBenchmarkModal()" title="Run automated or manual benchmark comparison">
-          <span>⚖️</span> CPU vs NPU Benchmark
+        <!-- Waveform Mode Switcher: Live vs Benchmark Overlay -->
+        <div class="benchmark-view-switcher">
+          <button id="btn-view-live" class="view-switch-btn active" onclick="setWaveformViewMode('live')" title="Display real-time live sensor waveforms (Clock Time)">
+            <span>📡</span> Live Telemetry
+          </button>
+          <button id="btn-view-benchmark" class="view-switch-btn" onclick="setWaveformViewMode('benchmark')" title="Display dual benchmark overlay (Relative Time 0s...Ts)">
+            <span>⚖️</span> Dual Benchmark Overlay
+          </button>
+        </div>
+        <button id="btn-benchmark-mode-toggle" class="btn-benchmark-pill" onclick="openBenchmarkModal()" title="View benchmark summary modal dialog">
+          <span>📋</span> Summary Modal
         </button>
         <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
           ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
@@ -313,6 +322,105 @@
           <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
           <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (2)</button>
           <button class="tab-btn" onclick="filterCharts('system', this)">CPU &amp; System (5)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dedicated Benchmark Control & KPI Panel directly on the Live Waveforms -->
+    <div id="benchmark-waveforms-panel" class="benchmark-waveforms-panel">
+      <div class="benchmark-panel-header">
+        <div class="benchmark-panel-title">
+          <span class="badge-tag-purple">DUAL HARDWARE BENCHMARK</span>
+          <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">Hailo-8L NPU Accelerator vs Host CPU Inference</span>
+          <span style="font-size: 0.72rem; color: var(--text-muted);">(Plots overlaid directly on the 12 Live Telemetry Waveforms below with x-axis t = 0s...Ts)</span>
+        </div>
+        <div class="benchmark-panel-actions">
+          <div class="benchmark-control-group">
+            <label for="select-waveforms-bench-duration" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Duration:</label>
+            <select id="select-waveforms-bench-duration" class="input-select" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; width: 110px;">
+              <option value="10">10 Seconds</option>
+              <option value="30" selected>30 Seconds</option>
+              <option value="60">1 Minute</option>
+              <option value="120">2 Minutes</option>
+              <option value="300">5 Minutes</option>
+            </select>
+          </div>
+          <button type="button" id="btn-run-auto-waveform-bench" class="btn btn-benchmark" onclick="startAutomatedWaveformBenchmark()">
+            <span>▶</span> Run Automated Dual Benchmark
+          </button>
+          <div class="btn-group-manual-bench">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hailo" onclick="manualWaveformBenchmarkPhase('hailo')" title="Record baseline on Hailo-8L NPU">
+              1. Record Hailo-8L
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hold" onclick="manualWaveformHoldHailo()" title="Hold recorded Hailo-8L data in buffer">
+              2. Hold Hailo Data 📌
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-cpu" onclick="manualWaveformBenchmarkPhase('cpu')" title="Record comparison on Host CPU and overlay">
+              3. Record CPU &amp; Overlay 📈
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-clear" onclick="clearWaveformBenchmark()" title="Reset benchmark overlay buffer">
+              ↺ Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stepper & Progress indicator -->
+      <div class="benchmark-stepper-compact">
+        <div class="bench-step-compact" id="wb-step-hailo">
+          <span class="step-num">1</span>
+          <span class="step-text">Hailo-8L NPU: <strong id="wb-state-hailo">Ready</strong></span>
+        </div>
+        <span class="step-arrow">➔</span>
+        <div class="bench-step-compact" id="wb-step-hold">
+          <span class="step-num">2</span>
+          <span class="step-text">Hold Buffer: <strong id="wb-state-hold">Empty</strong></span>
+        </div>
+        <span class="step-arrow">➔</span>
+        <div class="bench-step-compact" id="wb-step-cpu">
+          <span class="step-num">3</span>
+          <span class="step-text">Host CPU (ONNX): <strong id="wb-state-cpu">Ready</strong></span>
+        </div>
+        <span class="step-arrow">➔</span>
+        <div class="bench-step-compact" id="wb-step-overlay">
+          <span class="step-num">4</span>
+          <span class="step-text">Overlaid on 12 Waveforms: <strong id="wb-state-overlay">Awaiting Data</strong></span>
+        </div>
+      </div>
+
+      <!-- Active execution banner / countdown -->
+      <div id="wb-progress-banner" class="wb-progress-banner" style="display: none;">
+        <span class="spinner-inline">⏳</span>
+        <span id="wb-progress-text">Benchmark in progress...</span>
+        <span id="wb-progress-pill" class="badge-tag-amber">0s</span>
+      </div>
+
+      <!-- KPI Comparison Bar directly above the 12 waveforms -->
+      <div id="wb-kpi-bar" class="wb-kpi-bar" style="display: none;">
+        <div class="wb-kpi-item">
+          <span class="wb-kpi-lbl">⚡ Throughput Speedup</span>
+          <span class="wb-kpi-val highlight" id="wb-kpi-fps-speedup">--</span>
+          <span class="wb-kpi-sub" id="wb-kpi-fps-detail">Hailo: -- FPS vs CPU: -- FPS</span>
+        </div>
+        <div class="wb-kpi-item">
+          <span class="wb-kpi-lbl">📉 Exec Latency Reduction</span>
+          <span class="wb-kpi-val highlight" id="wb-kpi-lat-speedup">--</span>
+          <span class="wb-kpi-sub" id="wb-kpi-lat-detail">Hailo: -- ms vs CPU: -- ms</span>
+        </div>
+        <div class="wb-kpi-item">
+          <span class="wb-kpi-lbl">❄️ Host CPU Offload</span>
+          <span class="wb-kpi-val" id="wb-kpi-cpu-saving">--</span>
+          <span class="wb-kpi-sub" id="wb-kpi-cpu-detail">Hailo Host: --% vs CPU: --%</span>
+        </div>
+        <div class="wb-kpi-item">
+          <span class="wb-kpi-lbl">🌡️ Peak Thermal Delta</span>
+          <span class="wb-kpi-val" id="wb-kpi-temp-delta">--</span>
+          <span class="wb-kpi-sub" id="wb-kpi-temp-detail">Hailo: --°C vs CPU: --°C</span>
+        </div>
+        <div class="wb-kpi-item">
+          <span class="wb-kpi-lbl">⏱️ Waveforms Time Scale</span>
+          <span class="wb-kpi-val" id="wb-kpi-scale">t = 0s...Ts</span>
+          <span class="wb-kpi-sub" id="wb-kpi-points">Both curves aligned from t=0s</span>
         </div>
       </div>
     </div>
@@ -953,7 +1061,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.6-cpubenchmark"></script>
-  <script src="/static/js/app.js?v=3.6-cpubenchmark"></script>
+  <script src="/static/js/charts.js?v=3.8-same-waveforms"></script>
+  <script src="/static/js/app.js?v=3.8-same-waveforms"></script>
 </body>
 </html>

@@ -593,8 +593,13 @@ function initCharts() {
   initBenchmarkCharts();
 }
 
+let isBenchmarkWaveformsMode = false;
+let savedLiveChartStates = null;
+
 function updateChartSeries(chart, label, values) {
   if (!chart) return;
+  if (isBenchmarkWaveformsMode) return; // Retain dual benchmark curves on live waveforms
+  if (typeof isWaveformsPaused !== 'undefined' && isWaveformsPaused) return;
   const maxPts = getSessionMaxChartPoints();
   chart.data.labels.push(label);
   if (chart.data.labels.length > maxPts) {
@@ -1529,6 +1534,422 @@ function exportBenchmarkChartsPNG() {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { document.body.removeChild(a); }, 250);
+}
+
+/* ==========================================================================
+   Dual Benchmark Rendering on the SAME Live Telemetry Waveforms
+   ========================================================================== */
+
+function captureLiveChartStates() {
+  const chartList = [
+    { id: 'latency', chart: latencyChart },
+    { id: 'fps', chart: fpsChart },
+    { id: 'interframe', chart: interFrameChart },
+    { id: 'detCount', chart: detectionsCountChart },
+    { id: 'confHist', chart: confHistChart },
+    { id: 'thermal', chart: thermalChart },
+    { id: 'resources', chart: resourceChart },
+    { id: 'disk', chart: diskChart },
+    { id: 'fan', chart: fanChart },
+    { id: 'cpuFreq', chart: cpuFreqChart },
+    { id: 'voltage', chart: voltageChart },
+    { id: 'procFootprint', chart: procFootprintChart }
+  ];
+
+  const states = {};
+  chartList.forEach(({ id, chart }) => {
+    if (chart && chart.data) {
+      states[id] = {
+        labels: [...(chart.data.labels || [])],
+        datasets: chart.data.datasets.map(ds => ({
+          label: ds.label,
+          data: [...(ds.data || [])],
+          borderColor: ds.borderColor,
+          backgroundColor: ds.backgroundColor,
+          borderDash: ds.borderDash ? [...ds.borderDash] : [],
+          fill: ds.fill,
+          borderWidth: ds.borderWidth,
+          pointRadius: ds.pointRadius,
+          yAxisID: ds.yAxisID
+        }))
+      };
+    }
+  });
+  return states;
+}
+
+function restoreLiveWaveforms() {
+  isBenchmarkWaveformsMode = false;
+
+  // 1. Restore chart datasets
+  if (savedLiveChartStates) {
+    const applyState = (chart, saved) => {
+      if (!chart || !saved) return;
+      chart.data.labels = [...saved.labels];
+      chart.data.datasets = saved.datasets.map(ds => ({ ...ds, data: [...ds.data] }));
+      if (chart.options && chart.options.scales && chart.options.scales.x) {
+        if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.display = (chart === confHistChart);
+        if (chart.options.scales.x.title) chart.options.scales.x.title.display = false;
+      }
+      chart.update('none');
+    };
+
+    applyState(latencyChart, savedLiveChartStates.latency);
+    applyState(fpsChart, savedLiveChartStates.fps);
+    applyState(interFrameChart, savedLiveChartStates.interframe);
+    applyState(detectionsCountChart, savedLiveChartStates.detCount);
+    applyState(confHistChart, savedLiveChartStates.confHist);
+    applyState(thermalChart, savedLiveChartStates.thermal);
+    applyState(resourceChart, savedLiveChartStates.resources);
+    applyState(diskChart, savedLiveChartStates.disk);
+    applyState(fanChart, savedLiveChartStates.fan);
+    applyState(cpuFreqChart, savedLiveChartStates.cpuFreq);
+    applyState(voltageChart, savedLiveChartStates.voltage);
+    applyState(procFootprintChart, savedLiveChartStates.procFootprint);
+  } else {
+    resetAllCharts();
+  }
+
+  // 2. Reset waveform card stat labels
+  const resetText = (id, def = '--') => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = def;
+  };
+  resetText('lbl-fps-stat', '-- FPS');
+  resetText('lbl-inter-frame', '-- ms');
+  resetText('lbl-detections-per-frame', '-- Objects');
+  resetText('lbl-conf-summary', '--');
+  resetText('lbl-disk-utilisation', '--%');
+  resetText('lbl-fan-speed', '-- RPM');
+  resetText('lbl-cpu-base-tag', '2.4 GHz Base Target');
+  resetText('lbl-proc-footprint', '--');
+
+  // 3. Hide benchmark KPI bar
+  const kpiBar = document.getElementById('wb-kpi-bar');
+  if (kpiBar) kpiBar.style.display = 'none';
+
+  console.log('[WAVEFORMS] Restored live telemetry waveform streaming.');
+}
+
+function renderDualBenchmarkOnLiveWaveforms(hailoPts, cpuPts, hailoConfs = [], cpuConfs = []) {
+  if (!savedLiveChartStates) {
+    savedLiveChartStates = captureLiveChartStates();
+  }
+  isBenchmarkWaveformsMode = true;
+
+  const hLen = hailoPts ? hailoPts.length : 0;
+  const cLen = cpuPts ? cpuPts.length : 0;
+  const maxLen = Math.max(hLen, cLen);
+
+  const labels = [];
+  for (let i = 0; i < maxLen; i++) {
+    labels.push(`${i}s`);
+  }
+
+  const getSeries = (pts, key) => {
+    if (!pts || pts.length === 0) return [];
+    return pts.map(p => (p && typeof p[key] === 'number') ? p[key] : null);
+  };
+
+  const setXAxis = (chart) => {
+    if (chart && chart.options && chart.options.scales && chart.options.scales.x) {
+      if (!chart.options.scales.x.ticks) chart.options.scales.x.ticks = {};
+      chart.options.scales.x.ticks.display = true;
+      chart.options.scales.x.ticks.color = '#64748b';
+      chart.options.scales.x.ticks.font = { family: 'JetBrains Mono', size: 10 };
+      chart.options.scales.x.ticks.maxTicksLimit = 15;
+      chart.options.scales.x.title = {
+        display: true,
+        text: 'Elapsed Time in Seconds (t = 0s...Ts)',
+        color: '#64748b',
+        font: { family: 'Inter', size: 10, weight: '600' }
+      };
+    }
+  };
+
+  // 1. Latency Breakdown History (ms)
+  if (latencyChart) {
+    latencyChart.data.labels = labels;
+    latencyChart.data.datasets = [
+      { label: 'Hailo-8L Exec Latency (ms)', data: getSeries(hailoPts, 'latency_exec'), borderColor: '#7c3aed', backgroundColor: 'transparent', borderWidth: 2.2, fill: false },
+      { label: 'CPU Exec Latency (ms)', data: getSeries(cpuPts, 'latency_exec'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Total Latency (ms)', data: getSeries(hailoPts, 'latency_total'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'CPU Total Latency (ms)', data: getSeries(cpuPts, 'latency_total'), borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4, 4], fill: false }
+    ];
+    setXAxis(latencyChart);
+    latencyChart.update('none');
+  }
+
+  // 2. Processed Frames Per Second (FPS)
+  if (fpsChart) {
+    fpsChart.data.labels = labels;
+    fpsChart.data.datasets = [
+      {
+        label: 'Hailo-8L NPU (FPS)',
+        data: getSeries(hailoPts, 'fps'),
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56, 189, 248, 0.12)',
+        fill: true,
+        borderWidth: 2.2,
+        tension: 0.2,
+        pointRadius: 2.5,
+        pointBackgroundColor: '#38bdf8'
+      },
+      {
+        label: 'CPU (ONNX) (FPS)',
+        data: getSeries(cpuPts, 'fps'),
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+        fill: true,
+        borderWidth: 2,
+        borderDash: [5, 4],
+        tension: 0.2,
+        pointRadius: 2.5,
+        pointBackgroundColor: '#ef4444'
+      }
+    ];
+    setXAxis(fpsChart);
+    fpsChart.update('none');
+  }
+
+  // 3. Inter-Frame Interval (ms)
+  if (interFrameChart) {
+    interFrameChart.data.labels = labels;
+    interFrameChart.data.datasets = [
+      { label: 'Hailo-8L Inter-Frame (ms)', data: getSeries(hailoPts, 'interframe'), borderColor: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.2)', borderWidth: 2, fill: false, pointRadius: 2.5 },
+      { label: 'CPU Inter-Frame (ms)', data: getSeries(cpuPts, 'interframe'), borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.2)', borderWidth: 2, borderDash: [5, 4], fill: false, pointRadius: 2.5 }
+    ];
+    setXAxis(interFrameChart);
+    interFrameChart.update('none');
+  }
+
+  // 4. Detections Per Frame
+  if (detectionsCountChart) {
+    detectionsCountChart.data.labels = labels;
+    detectionsCountChart.data.datasets = [
+      { label: 'Hailo-8L Detections / Frame', data: getSeries(hailoPts, 'det_count'), borderColor: '#2dd4bf', backgroundColor: 'transparent', borderWidth: 2, stepped: 'middle', fill: false },
+      { label: 'CPU Detections / Frame', data: getSeries(cpuPts, 'det_count'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], stepped: 'middle', fill: false }
+    ];
+    setXAxis(detectionsCountChart);
+    detectionsCountChart.update('none');
+  }
+
+  // 5. Confidence Distribution Histogram
+  if (confHistChart) {
+    const computeBins = (confs) => {
+      const bins = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      if (Array.isArray(confs)) {
+        confs.forEach(c => {
+          if (typeof c === 'number' && !isNaN(c)) {
+            let idx = Math.floor(c * 10);
+            if (idx >= 10) idx = 9;
+            if (idx < 0) idx = 0;
+            bins[idx]++;
+          }
+        });
+      }
+      return bins;
+    };
+    confHistChart.data.labels = ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '0.9-1.0'];
+    confHistChart.data.datasets = [
+      { label: 'Hailo-8L Detections', data: computeBins(hailoConfs), backgroundColor: '#38bdf8', borderRadius: 3, borderWidth: 0, barPercentage: 0.9, categoryPercentage: 0.8 },
+      { label: 'CPU Detections', data: computeBins(cpuConfs), backgroundColor: '#f97316', borderRadius: 3, borderWidth: 0, barPercentage: 0.9, categoryPercentage: 0.8 }
+    ];
+    confHistChart.update('none');
+  }
+
+  // 6. Thermal Profile History (°C)
+  if (thermalChart) {
+    thermalChart.data.labels = labels;
+    thermalChart.data.datasets = [
+      { label: 'Hailo Run - CPU Temp (°C)', data: getSeries(hailoPts, 'cpu_temp'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2, fill: false },
+      { label: 'CPU Run - CPU Temp (°C)', data: getSeries(cpuPts, 'cpu_temp'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Run - RP1 Temp (°C)', data: getSeries(hailoPts, 'rp1_temp'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'CPU Run - RP1 Temp (°C)', data: getSeries(cpuPts, 'rp1_temp'), borderColor: '#6366f1', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4, 4], fill: false },
+      { label: 'Hailo-8L NPU ASIC Temp (°C)', data: getSeries(hailoPts, 'hailo_temp'), borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 2, fill: false }
+    ];
+    setXAxis(thermalChart);
+    thermalChart.update('none');
+  }
+
+  // 7. System Utilisation History (%)
+  if (resourceChart) {
+    resourceChart.data.labels = labels;
+    resourceChart.data.datasets = [
+      { label: 'Hailo Host CPU Util (%)', data: getSeries(hailoPts, 'cpu_util'), borderColor: '#7c3aed', backgroundColor: 'transparent', borderWidth: 2.2, fill: false },
+      { label: 'CPU Run CPU Util (%)', data: getSeries(cpuPts, 'cpu_util'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Host RAM Util (%)', data: getSeries(hailoPts, 'mem_util'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'CPU Run RAM Util (%)', data: getSeries(cpuPts, 'mem_util'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4, 4], fill: false }
+    ];
+    setXAxis(resourceChart);
+    resourceChart.update('none');
+  }
+
+  // 8. Disk Utilisation (%)
+  if (diskChart) {
+    diskChart.data.labels = labels;
+    diskChart.data.datasets = [
+      { label: 'Hailo Run Disk Util (%)', data: getSeries(hailoPts, 'disk_util'), borderColor: '#fbbf24', backgroundColor: 'transparent', borderWidth: 2, fill: false },
+      { label: 'CPU Run Disk Util (%)', data: getSeries(cpuPts, 'disk_util'), borderColor: '#ea580c', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false }
+    ];
+    setXAxis(diskChart);
+    diskChart.update('none');
+  }
+
+  // 9. Active Cooling & Fan Speed
+  if (fanChart) {
+    fanChart.data.labels = labels;
+    fanChart.data.datasets = [
+      { label: 'Hailo Run Fan Speed (RPM)', data: getSeries(hailoPts, 'fan_rpm'), borderColor: '#059669', backgroundColor: 'transparent', borderWidth: 2, fill: false },
+      { label: 'CPU Run Fan Speed (RPM)', data: getSeries(cpuPts, 'fan_rpm'), borderColor: '#dc2626', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false }
+    ];
+    setXAxis(fanChart);
+    fanChart.update('none');
+  }
+
+  // 10. CPU Quad-Core Frequencies (MHz)
+  if (cpuFreqChart) {
+    cpuFreqChart.data.labels = labels;
+    cpuFreqChart.data.datasets = [
+      { label: 'Hailo Run Core 0 Freq (MHz)', data: getSeries(hailoPts, 'cpu0_freq'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 2.2, fill: false },
+      { label: 'CPU Run Core 0 Freq (MHz)', data: getSeries(cpuPts, 'cpu0_freq'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Run Core 1-3 Avg (MHz)', data: getSeries(hailoPts, 'cpu1_freq'), borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'CPU Run Core 1-3 Avg (MHz)', data: getSeries(cpuPts, 'cpu1_freq'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4, 4], fill: false }
+    ];
+    setXAxis(cpuFreqChart);
+    cpuFreqChart.update('none');
+  }
+
+  // 11. RP1 Southbridge Rail Voltages (V)
+  if (voltageChart) {
+    voltageChart.data.labels = labels;
+    voltageChart.data.datasets = [
+      { label: 'Hailo Run In1 Rail (V)', data: getSeries(hailoPts, 'v_in1'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 2, fill: false },
+      { label: 'CPU Run In1 Rail (V)', data: getSeries(cpuPts, 'v_in1'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Run In2 Rail (V)', data: getSeries(hailoPts, 'v_in2'), borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'CPU Run In2 Rail (V)', data: getSeries(cpuPts, 'v_in2'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4, 4], fill: false }
+    ];
+    setXAxis(voltageChart);
+    voltageChart.update('none');
+  }
+
+  // 12. Process Footprint & System Load
+  if (procFootprintChart) {
+    procFootprintChart.data.labels = labels;
+    procFootprintChart.data.datasets = [
+      { label: 'Hailo Process CPU (%)', data: getSeries(hailoPts, 'proc_cpu'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, fill: false, yAxisID: 'y' },
+      { label: 'CPU Run Process CPU (%)', data: getSeries(cpuPts, 'proc_cpu'), borderColor: '#991b1b', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false, yAxisID: 'y' },
+      { label: 'Hailo Process RAM (MB)', data: getSeries(hailoPts, 'proc_rss'), borderColor: '#2563eb', backgroundColor: 'transparent', borderWidth: 2, fill: false, yAxisID: 'y' },
+      { label: 'CPU Run Process RAM (MB)', data: getSeries(cpuPts, 'proc_rss'), borderColor: '#0891b2', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false, yAxisID: 'y' },
+      { label: 'Hailo System Load (1m)', data: getSeries(hailoPts, 'sys_load'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2, fill: false, yAxisID: 'y1' },
+      { label: 'CPU System Load (1m)', data: getSeries(cpuPts, 'sys_load'), borderColor: '#d97706', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 4], fill: false, yAxisID: 'y1' }
+    ];
+    setXAxis(procFootprintChart);
+    procFootprintChart.update('none');
+  }
+
+  // Compute Summary KPI Stats
+  const avg = (arr, k) => {
+    if (!arr || arr.length === 0) return 0;
+    const vals = arr.map(p => p[k]).filter(v => typeof v === 'number' && !isNaN(v));
+    return vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  };
+  const max = (arr, k) => {
+    if (!arr || arr.length === 0) return 0;
+    const vals = arr.map(p => p[k]).filter(v => typeof v === 'number' && !isNaN(v));
+    return vals.length > 0 ? Math.max(...vals) : 0;
+  };
+
+  const hFps = avg(hailoPts, 'fps');
+  const cFps = avg(cpuPts, 'fps');
+  const hLat = avg(hailoPts, 'latency_exec');
+  const cLat = avg(cpuPts, 'latency_exec');
+  const hCpu = avg(hailoPts, 'cpu_util');
+  const cCpu = avg(cpuPts, 'cpu_util');
+  const hTemp = max(hailoPts, 'cpu_temp');
+  const cTemp = max(cpuPts, 'cpu_temp');
+
+  // Update Card Header Stat Pills
+  const elFpsPill = document.getElementById('lbl-fps-stat');
+  if (elFpsPill) {
+    if (hFps > 0 && cFps > 0) {
+      const speedup = (hFps / (cFps || 1)).toFixed(1);
+      elFpsPill.textContent = `Hailo: ${hFps.toFixed(1)} | CPU: ${cFps.toFixed(1)} FPS (${speedup}x)`;
+    } else if (hFps > 0) {
+      elFpsPill.textContent = `Hailo: ${hFps.toFixed(1)} FPS (Baseline)`;
+    } else if (cFps > 0) {
+      elFpsPill.textContent = `CPU: ${cFps.toFixed(1)} FPS`;
+    }
+  }
+
+  const elInterPill = document.getElementById('lbl-inter-frame');
+  if (elInterPill) {
+    const hInter = avg(hailoPts, 'interframe');
+    const cInter = avg(cpuPts, 'interframe');
+    if (hInter > 0 && cInter > 0) {
+      elInterPill.textContent = `Hailo: ${hInter.toFixed(1)}ms | CPU: ${cInter.toFixed(1)}ms`;
+    }
+  }
+
+  const elFanPill = document.getElementById('lbl-fan-speed');
+  if (elFanPill) {
+    const hFan = avg(hailoPts, 'fan_rpm');
+    const cFan = avg(cpuPts, 'fan_rpm');
+    if (hFan > 0 || cFan > 0) {
+      elFanPill.textContent = `Hailo: ${Math.round(hFan)} | CPU: ${Math.round(cFan)} RPM`;
+    }
+  }
+
+  const elCpuFreqPill = document.getElementById('lbl-cpu-base-tag');
+  if (elCpuFreqPill) elCpuFreqPill.textContent = `Overlaid t=0s...${maxLen - 1}s`;
+
+  // Update KPI overview bar above waveforms
+  const kpiBar = document.getElementById('wb-kpi-bar');
+  if (kpiBar) {
+    kpiBar.style.display = 'grid';
+    const elFpsSpeedup = document.getElementById('wb-kpi-fps-speedup');
+    const elFpsDetail = document.getElementById('wb-kpi-fps-detail');
+    const elLatSpeedup = document.getElementById('wb-kpi-lat-speedup');
+    const elLatDetail = document.getElementById('wb-kpi-lat-detail');
+    const elCpuSaving = document.getElementById('wb-kpi-cpu-saving');
+    const elCpuDetail = document.getElementById('wb-kpi-cpu-detail');
+    const elTempDelta = document.getElementById('wb-kpi-temp-delta');
+    const elTempDetail = document.getElementById('wb-kpi-temp-detail');
+
+    if (hFps > 0 && cFps > 0) {
+      const mult = (hFps / (cFps || 1)).toFixed(1);
+      if (elFpsSpeedup) elFpsSpeedup.textContent = `⚡ ${mult}x Speedup`;
+      if (elFpsDetail) elFpsDetail.textContent = `Hailo: ${hFps.toFixed(1)} FPS vs CPU: ${cFps.toFixed(1)} FPS`;
+    } else {
+      if (elFpsSpeedup) elFpsSpeedup.textContent = '--';
+      if (elFpsDetail) elFpsDetail.textContent = `Hailo: ${hFps.toFixed(1)} FPS | CPU: ${cFps.toFixed(1)} FPS`;
+    }
+
+    if (hLat > 0 && cLat > 0) {
+      const red = (cLat / (hLat || 1)).toFixed(1);
+      if (elLatSpeedup) elLatSpeedup.textContent = `📉 ${red}x Faster`;
+      if (elLatDetail) elLatDetail.textContent = `Hailo: ${hLat.toFixed(1)}ms vs CPU: ${cLat.toFixed(1)}ms`;
+    }
+
+    if (hCpu > 0 || cCpu > 0) {
+      const saved = Math.round(cCpu - hCpu);
+      if (elCpuSaving) elCpuSaving.textContent = saved > 0 ? `❄️ -${saved}% Host CPU` : `💻 ${Math.round(hCpu)}% vs ${Math.round(cCpu)}%`;
+      if (elCpuDetail) elCpuDetail.textContent = `Hailo Host: ${hCpu.toFixed(1)}% vs CPU: ${cCpu.toFixed(1)}%`;
+    }
+
+    if (hTemp > 0 || cTemp > 0) {
+      const delta = (cTemp - hTemp).toFixed(1);
+      if (elTempDelta) elTempDelta.textContent = `🌡️ Δ ${delta}°C Cooler`;
+      if (elTempDetail) elTempDetail.textContent = `Hailo Max: ${hTemp.toFixed(1)}°C vs CPU: ${cTemp.toFixed(1)}°C`;
+    }
+  }
+
+  // Also sync modal overlay charts if initialized
+  if (typeof renderBenchmarkOverlay === 'function') {
+    renderBenchmarkOverlay(hailoPts, cpuPts);
+  }
+
+  console.log(`[WAVEFORMS] Rendered dual benchmark overlay directly onto the 12 live telemetry waveforms (${maxLen}s).`);
 }
 
 if (document.readyState === 'loading') {

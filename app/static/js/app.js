@@ -495,17 +495,36 @@ function handleLiveUpdate(data) {
         latency_prep: prepLat || 0,
         latency_post: postLat || 0,
         latency_total: ((npuLat || 0) + (prepLat || 0) + (postLat || 0)),
+        interframe: (interFrameMs !== null && interFrameMs >= 0) ? interFrameMs : 0,
+        det_count: detCount || 0,
         cpu_util: cpuUtil !== null ? cpuUtil : 0,
         cpu_temp: cpuTemp !== null ? cpuTemp : 0,
         rp1_temp: rp1Temp !== null ? rp1Temp : 0,
         hailo_temp: hailoTemp !== null ? hailoTemp : 0,
         mem_util: memUtil !== null ? memUtil : 0,
         fan_rpm: fanRpm !== null ? fanRpm : 0,
+        disk_util: diskUtil !== null ? diskUtil : 0,
+        cpu0_freq: cpu0Freq !== null ? cpu0Freq : 0,
+        cpu1_freq: cpu1Freq !== null ? cpu1Freq : (cpu0Freq || 0),
+        cpu2_freq: cpu2Freq !== null ? cpu2Freq : (cpu0Freq || 0),
+        cpu3_freq: cpu3Freq !== null ? cpu3Freq : (cpu0Freq || 0),
+        v_in1: vIn1 !== null ? vIn1 : 0,
+        v_in2: vIn2 !== null ? vIn2 : 0,
+        v_in3: vIn3 !== null ? vIn3 : 0,
+        v_in4: vIn4 !== null ? vIn4 : 0,
         proc_cpu: procCpu !== null ? procCpu : 0,
         proc_rss: procRss !== null ? procRss : 0,
         sys_load: sysLoad !== null ? sysLoad : 0,
         backend: currentBenchmarkPhase
       });
+      if (Array.isArray(detections)) {
+        if (!benchmarkConfList[currentBenchmarkPhase]) benchmarkConfList[currentBenchmarkPhase] = [];
+        detections.forEach(d => {
+          if (d && typeof d.confidence === 'number' && !isNaN(d.confidence)) {
+            benchmarkConfList[currentBenchmarkPhase].push(d.confidence);
+          }
+        });
+      }
       updateBenchmarkStepperUI();
     }
 
@@ -1540,9 +1559,15 @@ if (document.readyState === 'loading') {
 
 /* ==========================================================================
    CPU vs Hailo-8L NPU Benchmark Coordination Suite
+   (Plots overlaid directly on the 12 Live Telemetry Waveforms)
    ========================================================================== */
 
 let benchmarkData = {
+  hailo: [],
+  cpu: []
+};
+
+let benchmarkConfList = {
   hailo: [],
   cpu: []
 };
@@ -1552,6 +1577,34 @@ let currentBenchmarkPhase = null; // 'hailo' | 'cpu' | null
 let benchmarkPhaseStartTime = null;
 let benchmarkPhaseTargetSec = 30;
 let benchmarkTimerHandle = null;
+let waveformViewMode = 'live'; // 'live' | 'benchmark'
+
+function setWaveformViewMode(mode) {
+  waveformViewMode = mode;
+  const btnLive = document.getElementById('btn-view-live');
+  const btnBench = document.getElementById('btn-view-benchmark');
+
+  if (mode === 'benchmark') {
+    btnLive?.classList.remove('active');
+    btnBench?.classList.add('active');
+
+    const hLen = benchmarkData.hailo ? benchmarkData.hailo.length : 0;
+    const cLen = benchmarkData.cpu ? benchmarkData.cpu.length : 0;
+    if (hLen > 0 || cLen > 0) {
+      if (typeof renderDualBenchmarkOnLiveWaveforms === 'function') {
+        renderDualBenchmarkOnLiveWaveforms(benchmarkData.hailo, benchmarkData.cpu, benchmarkConfList.hailo, benchmarkConfList.cpu);
+      }
+    } else {
+      alert('No benchmark data buffered yet. Click "Run Automated Dual Benchmark" or record Hailo-8L and CPU steps to generate comparison curves.');
+    }
+  } else {
+    btnLive?.classList.add('active');
+    btnBench?.classList.remove('active');
+    if (typeof restoreLiveWaveforms === 'function') {
+      restoreLiveWaveforms();
+    }
+  }
+}
 
 function openBenchmarkModal() {
   const modal = document.getElementById('modal-benchmark-suite');
@@ -1580,6 +1633,7 @@ function handleBenchmarkModalBackdrop(event) {
 }
 
 function updateBenchmarkStepperUI() {
+  // Modal Stepper
   const stepHailo = document.getElementById('step-hailo');
   const stepStateHailo = document.getElementById('step-state-hailo');
   const stepHold = document.getElementById('step-hold');
@@ -1589,58 +1643,93 @@ function updateBenchmarkStepperUI() {
   const stepOverlay = document.getElementById('step-overlay');
   const stepStateOverlay = document.getElementById('step-state-overlay');
 
+  // Waveforms Panel Stepper
+  const wbStepHailo = document.getElementById('wb-step-hailo');
+  const wbStateHailo = document.getElementById('wb-state-hailo');
+  const wbStepHold = document.getElementById('wb-step-hold');
+  const wbStateHold = document.getElementById('wb-state-hold');
+  const wbStepCpu = document.getElementById('wb-step-cpu');
+  const wbStateCpu = document.getElementById('wb-state-cpu');
+  const wbStepOverlay = document.getElementById('wb-step-overlay');
+  const wbStateOverlay = document.getElementById('wb-state-overlay');
+
   const hLen = benchmarkData.hailo ? benchmarkData.hailo.length : 0;
   const cLen = benchmarkData.cpu ? benchmarkData.cpu.length : 0;
 
-  // Hailo state
+  // 1. Hailo state
   if (currentBenchmarkPhase === 'hailo') {
     stepHailo?.classList.add('active');
     stepHailo?.classList.remove('completed');
+    wbStepHailo?.classList.add('active');
+    wbStepHailo?.classList.remove('completed');
     if (stepStateHailo) stepStateHailo.textContent = `Running (${hLen}s)...`;
+    if (wbStateHailo) wbStateHailo.textContent = `Running (${hLen}s)...`;
   } else if (hLen > 0) {
     stepHailo?.classList.remove('active');
     stepHailo?.classList.add('completed');
+    wbStepHailo?.classList.remove('active');
+    wbStepHailo?.classList.add('completed');
     if (stepStateHailo) stepStateHailo.textContent = `${hLen}s Done ✅`;
+    if (wbStateHailo) wbStateHailo.textContent = `${hLen}s Done ✅`;
   } else {
     stepHailo?.classList.remove('active', 'completed');
+    wbStepHailo?.classList.remove('active', 'completed');
     if (stepStateHailo) stepStateHailo.textContent = 'Ready';
+    if (wbStateHailo) wbStateHailo.textContent = 'Ready';
   }
 
-  // Hold buffer state
+  // 2. Hold buffer state
   if (hLen > 0) {
     stepHold?.classList.add('completed');
+    wbStepHold?.classList.add('completed');
     if (stepStateHold) stepStateHold.textContent = `${hLen} pts Held 📌`;
+    if (wbStateHold) wbStateHold.textContent = `${hLen} pts Held 📌`;
   } else {
     stepHold?.classList.remove('completed');
+    wbStepHold?.classList.remove('completed');
     if (stepStateHold) stepStateHold.textContent = 'Empty';
+    if (wbStateHold) wbStateHold.textContent = 'Empty';
   }
 
-  // CPU state
+  // 3. CPU state
   if (currentBenchmarkPhase === 'cpu') {
     stepCpu?.classList.add('active');
     stepCpu?.classList.remove('completed');
+    wbStepCpu?.classList.add('active');
+    wbStepCpu?.classList.remove('completed');
     if (stepStateCpu) stepStateCpu.textContent = `Running (${cLen}s)...`;
+    if (wbStateCpu) wbStateCpu.textContent = `Running (${cLen}s)...`;
   } else if (cLen > 0) {
     stepCpu?.classList.remove('active');
     stepCpu?.classList.add('completed');
+    wbStepCpu?.classList.remove('active');
+    wbStepCpu?.classList.add('completed');
     if (stepStateCpu) stepStateCpu.textContent = `${cLen}s Done ✅`;
+    if (wbStateCpu) wbStateCpu.textContent = `${cLen}s Done ✅`;
   } else {
     stepCpu?.classList.remove('active', 'completed');
+    wbStepCpu?.classList.remove('active', 'completed');
     if (stepStateCpu) stepStateCpu.textContent = 'Ready';
+    if (wbStateCpu) wbStateCpu.textContent = 'Ready';
   }
 
-  // Overlay state
+  // 4. Overlay state
   if (hLen > 0 && cLen > 0) {
     stepOverlay?.classList.add('completed');
+    wbStepOverlay?.classList.add('completed');
     if (stepStateOverlay) stepStateOverlay.textContent = 'Overlaid 📈';
+    if (wbStateOverlay) wbStateOverlay.textContent = 'Overlaid on 12 Waveforms 📈';
   } else {
     stepOverlay?.classList.remove('completed');
+    wbStepOverlay?.classList.remove('completed');
     if (stepStateOverlay) stepStateOverlay.textContent = 'Awaiting Data';
+    if (wbStateOverlay) wbStateOverlay.textContent = 'Awaiting Data';
   }
 }
 
 function clearBenchmarkData() {
   benchmarkData = { hailo: [], cpu: [] };
+  benchmarkConfList = { hailo: [], cpu: [] };
   isBenchmarkRunning = false;
   currentBenchmarkPhase = null;
   benchmarkPhaseStartTime = null;
@@ -1650,12 +1739,21 @@ function clearBenchmarkData() {
   }
   const statusMsg = document.getElementById('benchmark-status-msg');
   if (statusMsg) statusMsg.style.display = 'none';
+  const wbBanner = document.getElementById('wb-progress-banner');
+  if (wbBanner) wbBanner.style.display = 'none';
 
   updateBenchmarkStepperUI();
   if (typeof renderBenchmarkOverlay === 'function') {
     renderBenchmarkOverlay([], []);
   }
+  if (waveformViewMode === 'benchmark') {
+    setWaveformViewMode('live');
+  }
   console.log('[BENCHMARK] Buffer cleared');
+}
+
+function clearWaveformBenchmark() {
+  clearBenchmarkData();
 }
 
 function manualHoldBenchmarkData() {
@@ -1668,28 +1766,57 @@ function manualHoldBenchmarkData() {
   alert(`Hailo-8L Baseline data held successfully (${hLen} relative-time seconds buffered). Now switch and record CPU inference!`);
 }
 
+function manualWaveformHoldHailo() {
+  manualHoldBenchmarkData();
+}
+
+function manualWaveformBenchmarkPhase(phase) {
+  manualRecordBenchmarkPhase(phase);
+}
+
+function startAutomatedWaveformBenchmark() {
+  startAutomatedBenchmark();
+}
+
 async function startAutomatedBenchmark() {
   if (isBenchmarkRunning) return;
-  const durationSel = document.getElementById('select-benchmark-duration');
-  const durSec = parseInt(durationSel?.value, 10) || 30;
+  const durationWb = document.getElementById('select-waveforms-bench-duration');
+  const durationModal = document.getElementById('select-benchmark-duration');
+  const durSec = parseInt(durationWb?.value || durationModal?.value, 10) || 30;
 
   clearBenchmarkData();
   isBenchmarkRunning = true;
   benchmarkPhaseTargetSec = durSec;
 
   const btnAuto = document.getElementById('btn-run-auto-benchmark');
+  const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
   if (btnAuto) btnAuto.disabled = true;
+  if (btnAutoWb) btnAutoWb.disabled = true;
 
+  // Modal Banner Elements
   const statusMsg = document.getElementById('benchmark-status-msg');
   const statusText = document.getElementById('benchmark-status-text');
   const statusPill = document.getElementById('benchmark-countdown-pill');
   if (statusMsg) statusMsg.style.display = 'flex';
 
+  // Waveforms Banner Elements
+  const wbBanner = document.getElementById('wb-progress-banner');
+  const wbText = document.getElementById('wb-progress-text');
+  const wbPill = document.getElementById('wb-progress-pill');
+  if (wbBanner) wbBanner.style.display = 'flex';
+
+  const setProgressMsg = (msg, pill) => {
+    if (statusText) statusText.textContent = msg;
+    if (statusPill) statusPill.textContent = pill;
+    if (wbText) wbText.textContent = msg;
+    if (wbPill) wbPill.textContent = pill;
+  };
+
   try {
     // -----------------------------------------------------------------------
     // PHASE 1: Hailo-8L NPU Run
     // -----------------------------------------------------------------------
-    if (statusText) statusText.textContent = 'Phase 1/2: Initialising Hailo-8L NPU Accelerator...';
+    setProgressMsg('Phase 1/2: Initialising Hailo-8L NPU Accelerator...', 'Initialising');
     await fetch('/api/v1/inference/backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1699,6 +1826,7 @@ async function startAutomatedBenchmark() {
 
     currentBenchmarkPhase = 'hailo';
     benchmarkData.hailo = [];
+    benchmarkConfList.hailo = [];
     benchmarkPhaseStartTime = Math.floor(Date.now() / 1000);
     updateBenchmarkStepperUI();
 
@@ -1706,8 +1834,7 @@ async function startAutomatedBenchmark() {
       benchmarkTimerHandle = setInterval(() => {
         const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
         const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
-        if (statusText) statusText.textContent = `Phase 1/2: Recording Hailo-8L NPU Baseline... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`;
-        if (statusPill) statusPill.textContent = `${remaining}s remaining`;
+        setProgressMsg(`Phase 1/2: Recording Hailo-8L NPU Baseline... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`, `${remaining}s remaining`);
 
         if (elapsed >= benchmarkPhaseTargetSec) {
           clearInterval(benchmarkTimerHandle);
@@ -1726,8 +1853,7 @@ async function startAutomatedBenchmark() {
     // -----------------------------------------------------------------------
     // TRANSITION: Hold Hailo data & Switch to CPU Inference
     // -----------------------------------------------------------------------
-    if (statusText) statusText.textContent = 'Transitioning: Holding Hailo-8L data & Switching backend to CPU (ONNX)...';
-    if (statusPill) statusPill.textContent = 'Switching...';
+    setProgressMsg('Transitioning: Holding Hailo-8L data & Switching backend to CPU (ONNX)...', 'Switching...');
     await new Promise(r => setTimeout(r, 1500));
 
     await fetch('/api/v1/inference/backend', {
@@ -1743,6 +1869,7 @@ async function startAutomatedBenchmark() {
     // -----------------------------------------------------------------------
     currentBenchmarkPhase = 'cpu';
     benchmarkData.cpu = [];
+    benchmarkConfList.cpu = [];
     benchmarkPhaseStartTime = Math.floor(Date.now() / 1000);
     updateBenchmarkStepperUI();
 
@@ -1750,8 +1877,7 @@ async function startAutomatedBenchmark() {
       benchmarkTimerHandle = setInterval(() => {
         const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
         const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
-        if (statusText) statusText.textContent = `Phase 2/2: Recording CPU ONNX Inference... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`;
-        if (statusPill) statusPill.textContent = `${remaining}s remaining`;
+        setProgressMsg(`Phase 2/2: Recording CPU ONNX Inference... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`, `${remaining}s remaining`);
 
         if (elapsed >= benchmarkPhaseTargetSec) {
           clearInterval(benchmarkTimerHandle);
@@ -1768,12 +1894,11 @@ async function startAutomatedBenchmark() {
     console.log(`[BENCHMARK] Phase 2 complete: Collected ${benchmarkData.cpu.length} CPU data points.`);
 
     // -----------------------------------------------------------------------
-    // OVERLAY: Render Relative-Time Overlays & Reset to Hailo default
+    // OVERLAY: Render Relative-Time Overlays on the 12 Live Waveforms & Reset to Hailo default
     // -----------------------------------------------------------------------
-    if (statusText) statusText.textContent = 'Benchmark Finished! Rendering relative-time overlaid comparison...';
-    if (statusPill) statusPill.textContent = 'Complete ✅';
+    setProgressMsg('Benchmark Finished! Rendering relative-time comparison directly on the 12 waveforms below...', 'Complete ✅');
 
-    // Switch backend back to Hailo-8L
+    // Switch backend back to Hailo-8L default
     await fetch('/api/v1/inference/backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1783,14 +1908,17 @@ async function startAutomatedBenchmark() {
       await loadAvailableBackends();
     }
 
-    if (typeof renderBenchmarkOverlay === 'function') {
-      renderBenchmarkOverlay(benchmarkData.hailo, benchmarkData.cpu);
+    // Set waveform mode to benchmark and render directly onto the 12 waveforms
+    setWaveformViewMode('benchmark');
+    if (typeof renderDualBenchmarkOnLiveWaveforms === 'function') {
+      renderDualBenchmarkOnLiveWaveforms(benchmarkData.hailo, benchmarkData.cpu, benchmarkConfList.hailo, benchmarkConfList.cpu);
     }
     updateBenchmarkStepperUI();
 
     setTimeout(() => {
       if (statusMsg) statusMsg.style.display = 'none';
-    }, 4000);
+      if (wbBanner) wbBanner.style.display = 'none';
+    }, 4500);
 
   } catch (err) {
     console.error('[BENCHMARK] Error during automated benchmark execution:', err);
@@ -1799,26 +1927,41 @@ async function startAutomatedBenchmark() {
     isBenchmarkRunning = false;
     currentBenchmarkPhase = null;
     if (btnAuto) btnAuto.disabled = false;
+    if (btnAutoWb) btnAutoWb.disabled = false;
   }
 }
 
 async function manualRecordBenchmarkPhase(backend) {
   if (isBenchmarkRunning) return;
-  const durationSel = document.getElementById('select-benchmark-duration');
-  const durSec = parseInt(durationSel?.value, 10) || 30;
+  const durationWb = document.getElementById('select-waveforms-bench-duration');
+  const durationModal = document.getElementById('select-benchmark-duration');
+  const durSec = parseInt(durationWb?.value || durationModal?.value, 10) || 30;
 
   isBenchmarkRunning = true;
   currentBenchmarkPhase = backend;
   benchmarkPhaseTargetSec = durSec;
-  benchmarkData[backend] = []; // reset that specific phase
+  benchmarkData[backend] = [];
+  benchmarkConfList[backend] = [];
 
   const statusMsg = document.getElementById('benchmark-status-msg');
   const statusText = document.getElementById('benchmark-status-text');
   const statusPill = document.getElementById('benchmark-countdown-pill');
   if (statusMsg) statusMsg.style.display = 'flex';
 
+  const wbBanner = document.getElementById('wb-progress-banner');
+  const wbText = document.getElementById('wb-progress-text');
+  const wbPill = document.getElementById('wb-progress-pill');
+  if (wbBanner) wbBanner.style.display = 'flex';
+
+  const setProgressMsg = (msg, pill) => {
+    if (statusText) statusText.textContent = msg;
+    if (statusPill) statusPill.textContent = pill;
+    if (wbText) wbText.textContent = msg;
+    if (wbPill) wbPill.textContent = pill;
+  };
+
   try {
-    if (statusText) statusText.textContent = `Manual Recording: Setting backend to ${backend}...`;
+    setProgressMsg(`Manual Recording: Setting backend to ${backend.toUpperCase()}...`, 'Configuring');
     await fetch('/api/v1/inference/backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1834,8 +1977,7 @@ async function manualRecordBenchmarkPhase(backend) {
       benchmarkTimerHandle = setInterval(() => {
         const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
         const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
-        if (statusText) statusText.textContent = `Recording ${backend.toUpperCase()} Inference (${elapsed}s / ${benchmarkPhaseTargetSec}s)...`;
-        if (statusPill) statusPill.textContent = `${remaining}s remaining`;
+        setProgressMsg(`Recording ${backend.toUpperCase()} Inference (${elapsed}s / ${benchmarkPhaseTargetSec}s)...`, `${remaining}s remaining`);
 
         if (elapsed >= benchmarkPhaseTargetSec) {
           clearInterval(benchmarkTimerHandle);
@@ -1850,15 +1992,16 @@ async function manualRecordBenchmarkPhase(backend) {
     updateBenchmarkStepperUI();
 
     if (benchmarkData.hailo.length > 0 && benchmarkData.cpu.length > 0) {
-      if (typeof renderBenchmarkOverlay === 'function') {
-        renderBenchmarkOverlay(benchmarkData.hailo, benchmarkData.cpu);
+      setWaveformViewMode('benchmark');
+      if (typeof renderDualBenchmarkOnLiveWaveforms === 'function') {
+        renderDualBenchmarkOnLiveWaveforms(benchmarkData.hailo, benchmarkData.cpu, benchmarkConfList.hailo, benchmarkConfList.cpu);
       }
     }
 
-    if (statusText) statusText.textContent = `${backend.toUpperCase()} run finished (${benchmarkData[backend].length}s buffered).`;
-    if (statusPill) statusPill.textContent = 'Done ✅';
+    setProgressMsg(`${backend.toUpperCase()} run finished (${benchmarkData[backend].length}s buffered).`, 'Done ✅');
     setTimeout(() => {
       if (statusMsg) statusMsg.style.display = 'none';
+      if (wbBanner) wbBanner.style.display = 'none';
     }, 3500);
   } catch (err) {
     console.error(`[BENCHMARK] Manual record error for ${backend}:`, err);
@@ -1868,3 +2011,4 @@ async function manualRecordBenchmarkPhase(backend) {
     currentBenchmarkPhase = null;
   }
 }
+

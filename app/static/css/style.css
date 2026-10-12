@@ -1385,3 +1385,223 @@ footer {
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
 }
+
+/* --------------------------------------------------------------------------
+   Benchmark Waveforms Panel & Live Telemetry View Switcher
+   -------------------------------------------------------------------------- */
+.benchmark-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+
+.view-switch-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s ease;
+}
+
+.view-switch-btn:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.view-switch-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+}
+
+.benchmark-waveforms-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: var(--shadow-sm);
+  border-left: 4px solid #7c3aed;
+}
+
+.benchmark-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.benchmark-panel-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.benchmark-panel-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.benchmark-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-group-manual-bench {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-color);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-group-manual-bench .btn-sm {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-group-manual-bench .btn-sm:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.benchmark-stepper-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-canvas);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.bench-step-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.bench-step-compact .step-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bench-step-compact.active {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.bench-step-compact.active .step-num {
+  background: #7c3aed;
+  color: #ffffff;
+  animation: pulse-ring 1.5s infinite;
+}
+
+.bench-step-compact.completed {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.bench-step-compact.completed .step-num {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.step-arrow {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.wb-progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  background: #fdf4ff;
+  border: 1px solid #f0abfc;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #86198f;
+}
+
+.wb-kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  background: #f8fafc;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e2e8f0;
+}
+
+.wb-kpi-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.wb-kpi-lbl {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.wb-kpi-val {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.wb-kpi-val.highlight {
+  color: #7c3aed;
+}
+
+.wb-kpi-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
