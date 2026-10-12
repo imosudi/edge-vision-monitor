@@ -10,8 +10,8 @@ let isSwitchingBackend = false;
 
 // Class colour palette matching backend
 const CLASS_COLORS = [
-  '#00f0ff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444',
-  '#3b82f6', '#ec4899', '#0ea5e9', '#22c55e', '#f97316'
+  '#2563eb', '#7c3aed', '#16a34a', '#f59e0b', '#ef4444',
+  '#ec4899', '#0891b2', '#6366f1', '#f97316', '#84cc16'
 ];
 
 function connectWebSocket() {
@@ -172,7 +172,7 @@ function handleLiveUpdate(data) {
     cpuBar.style.width = `${Math.min(100, (cpuTemp / 90) * 100)}%`;
     if (cpuTemp >= 80) cpuBar.style.background = 'var(--accent-rose)';
     else if (cpuTemp >= 70) cpuBar.style.background = 'var(--accent-amber)';
-    else cpuBar.style.background = 'var(--accent-cyan)';
+    else cpuBar.style.background = 'var(--accent-blue)';
   }
   if (rp1Temp !== null) {
     document.getElementById('val-rp1-temp').textContent = `${rp1Temp}°C`;

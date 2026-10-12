@@ -15,19 +15,19 @@ const chartOptionsBase = {
   plugins: {
     legend: {
       labels: {
-        color: '#94a3b8',
-        font: { family: 'Inter', size: 11 },
+        color: '#475569',
+        font: { family: 'Inter', size: 11, weight: '500' },
         boxWidth: 10
       }
     }
   },
   scales: {
     x: {
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      grid: { color: 'rgba(0, 0, 0, 0.04)' },
       ticks: { display: false }
     },
     y: {
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      grid: { color: 'rgba(0, 0, 0, 0.05)' },
       ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
     }
   }
@@ -46,9 +46,9 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'NPU Exec (ms)', data: [], borderColor: '#00f0ff', backgroundColor: 'rgba(0, 240, 255, 0.1)', fill: false },
-          { label: 'Preprocess (ms)', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false },
-          { label: 'Postprocess (ms)', data: [], borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', fill: false }
+          { label: 'Accelerator Exec (ms)', data: [], borderColor: '#7c3aed', backgroundColor: 'rgba(124, 58, 237, 0.08)', fill: false },
+          { label: 'Preprocess (ms)', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.08)', fill: false },
+          { label: 'Postprocess (ms)', data: [], borderColor: '#ec4899', backgroundColor: 'rgba(236, 72, 153, 0.08)', fill: false }
         ]
       },
       options: chartOptionsBase
@@ -62,7 +62,7 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'Inference FPS', data: [], borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true }
+          { label: 'Inference FPS', data: [], borderColor: '#16a34a', backgroundColor: 'rgba(22, 163, 74, 0.12)', fill: true }
         ]
       },
       options: chartOptionsBase
@@ -77,8 +77,8 @@ function initCharts() {
         labels: [],
         datasets: [
           { label: 'CPU Temp (°C)', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent' },
-          { label: 'RP1 Temp (°C)', data: [], borderColor: '#00f0ff', backgroundColor: 'transparent' },
-          { label: 'Hailo NPU (°C)', data: [], borderColor: '#10b981', backgroundColor: 'transparent' }
+          { label: 'RP1 Temp (°C)', data: [], borderColor: '#2563eb', backgroundColor: 'transparent' },
+          { label: 'Hailo NPU (°C)', data: [], borderColor: '#16a34a', backgroundColor: 'transparent' }
         ]
       },
       options: chartOptionsBase
@@ -92,8 +92,8 @@ function initCharts() {
       data: {
         labels: [],
         datasets: [
-          { label: 'CPU Util (%)', data: [], borderColor: '#8b5cf6', backgroundColor: 'transparent' },
-          { label: 'RAM Util (%)', data: [], borderColor: '#00f0ff', backgroundColor: 'transparent' }
+          { label: 'CPU Util (%)', data: [], borderColor: '#7c3aed', backgroundColor: 'transparent' },
+          { label: 'RAM Util (%)', data: [], borderColor: '#2563eb', backgroundColor: 'transparent' }
         ]
       },
       options: {
