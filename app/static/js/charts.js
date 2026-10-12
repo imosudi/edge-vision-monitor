@@ -591,8 +591,12 @@ function initCharts() {
 
   // Initialise benchmark comparison charts
   initBenchmarkCharts();
+
+  // Capture initial clean live chart templates for reset operations
+  initialLiveChartTemplates = captureLiveChartStates();
 }
 
+let initialLiveChartTemplates = null;
 let isBenchmarkWaveformsMode = false;
 let savedLiveChartStates = null;
 
@@ -723,38 +727,74 @@ function appendModalSensorPoint(label, value) {
  * Reset all real-time dashboard and modal charts datasets and labels.
  */
 function resetAllCharts() {
-  const lineCharts = [
-    latencyChart,
-    fpsChart,
-    interFrameChart,
-    detectionsCountChart,
-    thermalChart,
-    resourceChart,
-    diskChart,
-    fanChart,
-    cpuFreqChart,
-    voltageChart,
-    procFootprintChart,
-    modalSensorChart
-  ];
+  isBenchmarkWaveformsMode = false;
+  savedLiveChartStates = null;
 
-  lineCharts.forEach(chart => {
-    if (chart && chart.data) {
-      chart.data.labels = [];
-      if (Array.isArray(chart.data.datasets)) {
-        chart.data.datasets.forEach(ds => {
-          ds.data = [];
-        });
+  if (initialLiveChartTemplates) {
+    const applyCleanTemplate = (chart, template) => {
+      if (!chart || !template) return;
+      chart.data.labels = (chart === confHistChart) ? ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '0.9-1.0'] : [];
+      chart.data.datasets = template.datasets.map(ds => ({
+        ...ds,
+        data: (chart === confHistChart) ? [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : []
+      }));
+      if (chart.options && chart.options.scales && chart.options.scales.x) {
+        if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.display = (chart === confHistChart);
+        if (chart.options.scales.x.title) chart.options.scales.x.title.display = false;
       }
       chart.update('none');
-    }
-  });
+    };
 
-  if (confHistChart && confHistChart.data && Array.isArray(confHistChart.data.datasets)) {
-    if (confHistChart.data.datasets[0]) {
-      confHistChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    applyCleanTemplate(latencyChart, initialLiveChartTemplates.latency);
+    applyCleanTemplate(fpsChart, initialLiveChartTemplates.fps);
+    applyCleanTemplate(interFrameChart, initialLiveChartTemplates.interframe);
+    applyCleanTemplate(detectionsCountChart, initialLiveChartTemplates.detCount);
+    applyCleanTemplate(confHistChart, initialLiveChartTemplates.confHist);
+    applyCleanTemplate(thermalChart, initialLiveChartTemplates.thermal);
+    applyCleanTemplate(resourceChart, initialLiveChartTemplates.resources);
+    applyCleanTemplate(diskChart, initialLiveChartTemplates.disk);
+    applyCleanTemplate(fanChart, initialLiveChartTemplates.fan);
+    applyCleanTemplate(cpuFreqChart, initialLiveChartTemplates.cpuFreq);
+    applyCleanTemplate(voltageChart, initialLiveChartTemplates.voltage);
+    applyCleanTemplate(procFootprintChart, initialLiveChartTemplates.procFootprint);
+  } else {
+    const lineCharts = [
+      latencyChart,
+      fpsChart,
+      interFrameChart,
+      detectionsCountChart,
+      thermalChart,
+      resourceChart,
+      diskChart,
+      fanChart,
+      cpuFreqChart,
+      voltageChart,
+      procFootprintChart,
+      modalSensorChart
+    ];
+
+    lineCharts.forEach(chart => {
+      if (chart && chart.data) {
+        chart.data.labels = [];
+        if (Array.isArray(chart.data.datasets)) {
+          chart.data.datasets.forEach(ds => {
+            ds.data = [];
+          });
+        }
+        if (chart.options && chart.options.scales && chart.options.scales.x) {
+          if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.display = (chart === confHistChart);
+          if (chart.options.scales.x.title) chart.options.scales.x.title.display = false;
+        }
+        chart.update('none');
+      }
+    });
+
+    if (confHistChart && confHistChart.data && Array.isArray(confHistChart.data.datasets)) {
+      if (confHistChart.data.datasets[0]) {
+        confHistChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      }
+      confHistChart.update('none');
     }
-    confHistChart.update('none');
   }
 
   if (typeof enlargedChart !== 'undefined' && enlargedChart && enlargedChart.data) {
@@ -766,6 +806,25 @@ function resetAllCharts() {
     }
     enlargedChart.update('none');
   }
+
+  const kpiBar = document.getElementById('wb-kpi-bar');
+  if (kpiBar) kpiBar.style.display = 'none';
+
+  const resetText = (id, def = '--') => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = def;
+  };
+  resetText('lbl-latency-val', '-- ms');
+  resetText('lbl-fps-val', '-- FPS');
+  resetText('lbl-fps-stat', '-- FPS');
+  resetText('lbl-inter-frame', '-- ms');
+  resetText('lbl-detections-per-frame', '-- Objects');
+  resetText('lbl-conf-summary', '--');
+  resetText('lbl-thermal-cpu', '-- °C');
+  resetText('lbl-disk-utilisation', '--%');
+  resetText('lbl-fan-speed', '-- RPM');
+  resetText('lbl-cpu-base-tag', '2.4 GHz Base Target');
+  resetText('lbl-proc-footprint', '--');
 }
 
 /* ==========================================================================

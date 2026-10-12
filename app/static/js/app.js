@@ -1754,8 +1754,14 @@ function clearBenchmarkData() {
   if (typeof renderBenchmarkOverlay === 'function') {
     renderBenchmarkOverlay([], []);
   }
-  if (waveformViewMode === 'benchmark') {
-    setWaveformViewMode('live');
+  waveformViewMode = 'live';
+  const btnLive = document.getElementById('btn-view-live');
+  const btnBench = document.getElementById('btn-view-benchmark');
+  btnLive?.classList.add('active');
+  btnBench?.classList.remove('active');
+
+  if (typeof resetAllCharts === 'function') {
+    resetAllCharts();
   }
   console.log('[BENCHMARK] Buffer cleared');
 }
@@ -1798,6 +1804,16 @@ function startAutomatedWaveformBenchmark() {
 async function startAutomatedBenchmark() {
   if (isBenchmarkRunning) return;
   const durSec = getBenchmarkTargetDuration();
+
+  // Cancel any manual detection countdown timer so it does not stop inference prematurely
+  clearDetectionCountdown();
+
+  // Reset view mode explicitly to live waveforms
+  waveformViewMode = 'live';
+  const btnLive = document.getElementById('btn-view-live');
+  const btnBench = document.getElementById('btn-view-benchmark');
+  btnLive?.classList.add('active');
+  btnBench?.classList.remove('active');
 
   // Like "Start Inference", unpause waveforms and perform a full reset before continuation
   setWaveformsPaused(false, 'Benchmark Started');

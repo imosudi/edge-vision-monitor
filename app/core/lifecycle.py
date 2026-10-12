@@ -130,6 +130,14 @@ class ApplicationLifecycleManager:
         Switch inference backend at runtime (e.g. 'hailo' <-> 'cpu').
         """
         backend_lower = backend.lower()
+        if self.inference_engine:
+            st = self.inference_engine.get_status()
+            current_backend = (st.get("backend") or "").lower()
+            if current_backend == backend_lower and (not model_path or model_path == getattr(self.inference_engine, "onnx_path", None)):
+                logger.info("Inference backend '%s' is already active, skipping re-initialization", backend)
+                self.config.model.active_backend = backend_lower
+                return True
+
         if backend_lower in ("cpu", "onnx"):
             from app.inference.engine import ONNXInferenceEngine
             new_engine = ONNXInferenceEngine(self.config.model, onnx_path=model_path)

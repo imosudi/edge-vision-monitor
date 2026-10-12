@@ -146,15 +146,26 @@ class InferenceService:
 
         old_engine = self._engine
         try:
+            if old_engine is not None:
+                try:
+                    old_engine.close()
+                except Exception as ce:
+                    logger.warning("Error closing previous engine before switch: %s", ce)
+
             logger.info("Initializing new engine: %s", type(new_engine).__name__)
             res = new_engine.initialize()
             if not res.is_valid:
                 logger.warning("New engine initialization failed: %s (%s)", res.error_message, res.status)
+                if old_engine is not None:
+                    try:
+                        old_engine.initialize()
+                        self._engine = old_engine
+                    except Exception:
+                        pass
                 if was_running:
                     self.start()
                 return False
 
-            old_engine.close()
             self._engine = new_engine
 
             # Reset latency metrics for clear stats under new backend
