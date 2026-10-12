@@ -64,7 +64,14 @@ def create_app() -> FastAPI:
         def serve_dashboard():
             index_path = static_dir / "index.html"
             if index_path.exists():
-                return FileResponse(index_path)
+                return FileResponse(
+                    index_path,
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
             return {"message": "Edge Vision Monitor API running. Dashboard assets missing."}
 
         @app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
