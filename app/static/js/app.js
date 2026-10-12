@@ -780,6 +780,12 @@ async function toggleInference() {
     // Unpause waveforms and reset Sensor Catalogue & Live Data Provenance telemetry and detection data
     setWaveformsPaused(false, 'Inference Started');
     await resetTelemetryAndDetectionData();
+  } else {
+    // Stop Inference requested: stop any ongoing automated or manual benchmark operations immediately
+    if (typeof stopBenchmarkOperations === 'function') {
+      stopBenchmarkOperations('Stop Inference requested');
+    }
+    clearDetectionCountdown();
   }
 
   try {
@@ -1581,11 +1587,79 @@ let benchmarkConfList = {
 };
 
 let isBenchmarkRunning = false;
+let isBenchmarkCancelled = false;
 let currentBenchmarkPhase = null; // 'hailo' | 'cpu' | null
 let benchmarkPhaseStartTime = null;
 let benchmarkPhaseTargetSec = 30;
 let benchmarkTimerHandle = null;
 let waveformViewMode = 'live'; // 'live' | 'benchmark'
+
+function benchmarkSleep(ms) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      if (isBenchmarkCancelled || (Date.now() - start >= ms)) {
+        clearInterval(interval);
+        resolve(!isBenchmarkCancelled);
+      }
+    }, 100);
+  });
+}
+
+function stopBenchmarkOperations(reason = 'Inference Stopped') {
+  if (!isBenchmarkRunning && !currentBenchmarkPhase) return;
+  console.log(`[BENCHMARK] Aborting benchmark operations: ${reason}`);
+  isBenchmarkCancelled = true;
+  if (benchmarkTimerHandle) {
+    clearInterval(benchmarkTimerHandle);
+    benchmarkTimerHandle = null;
+  }
+  isBenchmarkRunning = false;
+  currentBenchmarkPhase = null;
+
+  // Re-enable benchmark buttons
+  const btnAuto = document.getElementById('btn-run-auto-benchmark');
+  const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
+  if (btnAuto) btnAuto.disabled = false;
+  if (btnAutoWb) btnAutoWb.disabled = false;
+
+  // Update progress banners with cancellation notice
+  const statusMsg = document.getElementById('benchmark-status-msg');
+  const wbBanner = document.getElementById('wb-progress-banner');
+  const statusText = document.getElementById('benchmark-status-text');
+  const wbText = document.getElementById('wb-progress-text');
+  const statusPill = document.getElementById('benchmark-countdown-pill');
+  const wbPill = document.getElementById('wb-progress-pill');
+
+  if (statusText) statusText.textContent = `Benchmark Halted: ${reason}`;
+  if (wbText) wbText.textContent = `Benchmark Halted: ${reason}`;
+  if (statusPill) statusPill.textContent = 'Stopped ⏹';
+  if (wbPill) wbPill.textContent = 'Stopped ⏹';
+
+  setTimeout(() => {
+    if (statusMsg) statusMsg.style.display = 'none';
+    if (wbBanner) wbBanner.style.display = 'none';
+  }, 2200);
+
+  updateBenchmarkStepperUI();
+}
+
+async function cleanupCancelledBenchmark() {
+  isBenchmarkRunning = false;
+  currentBenchmarkPhase = null;
+  try {
+    await fetch('/api/v1/inference/backend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend: 'hailo' })
+    });
+    if (typeof loadAvailableBackends === 'function') {
+      await loadAvailableBackends();
+    }
+  } catch (e) {
+    console.warn('[BENCHMARK] Error restoring backend after cancel:', e);
+  }
+}
 
 function setWaveformViewMode(mode) {
   waveformViewMode = mode;
@@ -1807,6 +1881,7 @@ async function startAutomatedBenchmark() {
 
   // Cancel any manual detection countdown timer so it does not stop inference prematurely
   clearDetectionCountdown();
+  isBenchmarkCancelled = false;
 
   // Reset view mode explicitly to live waveforms
   waveformViewMode = 'live';
@@ -1821,6 +1896,7 @@ async function startAutomatedBenchmark() {
 
   clearBenchmarkData();
   isBenchmarkRunning = true;
+  isBenchmarkCancelled = false;
   benchmarkPhaseTargetSec = durSec;
 
   const btnAuto = document.getElementById('btn-run-auto-benchmark');
@@ -1853,16 +1929,40 @@ async function startAutomatedBenchmark() {
     if (wbPill) wbPill.textContent = pill;
   };
 
+  const runPhaseTimer = (phaseName, targetSec) => {
+    return new Promise(resolve => {
+      benchmarkTimerHandle = setInterval(() => {
+        if (isBenchmarkCancelled) {
+          clearInterval(benchmarkTimerHandle);
+          benchmarkTimerHandle = null;
+          resolve(false);
+          return;
+        }
+        const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
+        const remaining = Math.max(0, targetSec - elapsed);
+        setProgressMsg(`${phaseName}... (${elapsed}s / ${targetSec}s)`, `${remaining}s remaining`);
+
+        if (elapsed >= targetSec) {
+          clearInterval(benchmarkTimerHandle);
+          benchmarkTimerHandle = null;
+          resolve(true);
+        }
+      }, 500);
+    });
+  };
+
   try {
     // -----------------------------------------------------------------------
     // PHASE 1: Hailo-8L NPU Run
     // -----------------------------------------------------------------------
+    if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
     setProgressMsg('Phase 1/2: Initialising Hailo-8L NPU Accelerator...', 'Initialising');
     await fetch('/api/v1/inference/backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ backend: 'hailo' })
     });
+    if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
     await fetch('/api/v1/inference/start', { method: 'POST' });
 
     currentBenchmarkPhase = 'hailo';
@@ -1871,19 +1971,11 @@ async function startAutomatedBenchmark() {
     benchmarkPhaseStartTime = Math.floor(Date.now() / 1000);
     updateBenchmarkStepperUI();
 
-    await new Promise(resolve => {
-      benchmarkTimerHandle = setInterval(() => {
-        const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
-        const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
-        setProgressMsg(`Phase 1/2: Recording Hailo-8L NPU Baseline... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`, `${remaining}s remaining`);
-
-        if (elapsed >= benchmarkPhaseTargetSec) {
-          clearInterval(benchmarkTimerHandle);
-          benchmarkTimerHandle = null;
-          resolve();
-        }
-      }, 500);
-    });
+    const phase1Ok = await runPhaseTimer('Phase 1/2: Recording Hailo-8L NPU Baseline', benchmarkPhaseTargetSec);
+    if (!phase1Ok || isBenchmarkCancelled) {
+      await cleanupCancelledBenchmark();
+      return;
+    }
 
     // Stop inference and hold Hailo-8L data
     await fetch('/api/v1/inference/stop', { method: 'POST' });
@@ -1891,18 +1983,26 @@ async function startAutomatedBenchmark() {
     updateBenchmarkStepperUI();
     console.log(`[BENCHMARK] Phase 1 complete: Held ${benchmarkData.hailo.length} Hailo-8L data points.`);
 
+    if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
+
     // -----------------------------------------------------------------------
     // TRANSITION: Hold Hailo data & Switch to CPU Inference
     // -----------------------------------------------------------------------
     setProgressMsg('Transitioning: Holding Hailo-8L data & Switching backend to CPU (ONNX)...', 'Switching...');
-    await new Promise(r => setTimeout(r, 1500));
+    if (!await benchmarkSleep(1500) || isBenchmarkCancelled) {
+      await cleanupCancelledBenchmark();
+      return;
+    }
 
     await fetch('/api/v1/inference/backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ backend: 'cpu' })
     });
-    await new Promise(r => setTimeout(r, 1000));
+    if (!await benchmarkSleep(1000) || isBenchmarkCancelled) {
+      await cleanupCancelledBenchmark();
+      return;
+    }
     await fetch('/api/v1/inference/start', { method: 'POST' });
 
     // -----------------------------------------------------------------------
@@ -1914,25 +2014,19 @@ async function startAutomatedBenchmark() {
     benchmarkPhaseStartTime = Math.floor(Date.now() / 1000);
     updateBenchmarkStepperUI();
 
-    await new Promise(resolve => {
-      benchmarkTimerHandle = setInterval(() => {
-        const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
-        const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
-        setProgressMsg(`Phase 2/2: Recording CPU ONNX Inference... (${elapsed}s / ${benchmarkPhaseTargetSec}s)`, `${remaining}s remaining`);
-
-        if (elapsed >= benchmarkPhaseTargetSec) {
-          clearInterval(benchmarkTimerHandle);
-          benchmarkTimerHandle = null;
-          resolve();
-        }
-      }, 500);
-    });
+    const phase2Ok = await runPhaseTimer('Phase 2/2: Recording CPU ONNX Inference', benchmarkPhaseTargetSec);
+    if (!phase2Ok || isBenchmarkCancelled) {
+      await cleanupCancelledBenchmark();
+      return;
+    }
 
     // Stop CPU inference
     await fetch('/api/v1/inference/stop', { method: 'POST' });
     currentBenchmarkPhase = null;
     updateBenchmarkStepperUI();
     console.log(`[BENCHMARK] Phase 2 complete: Collected ${benchmarkData.cpu.length} CPU data points.`);
+
+    if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
 
     // -----------------------------------------------------------------------
     // OVERLAY: Render Relative-Time Overlays on the 12 Live Waveforms & Reset to Hailo default
@@ -1963,7 +2057,9 @@ async function startAutomatedBenchmark() {
 
   } catch (err) {
     console.error('[BENCHMARK] Error during automated benchmark execution:', err);
-    alert(`Benchmark execution error: ${err.message}`);
+    if (!isBenchmarkCancelled) {
+      alert(`Benchmark execution error: ${err.message}`);
+    }
   } finally {
     isBenchmarkRunning = false;
     currentBenchmarkPhase = null;
@@ -2019,6 +2115,12 @@ async function manualRecordBenchmarkPhase(backend) {
 
     await new Promise(resolve => {
       benchmarkTimerHandle = setInterval(() => {
+        if (isBenchmarkCancelled) {
+          clearInterval(benchmarkTimerHandle);
+          benchmarkTimerHandle = null;
+          resolve();
+          return;
+        }
         const elapsed = Math.floor(Date.now() / 1000) - benchmarkPhaseStartTime;
         const remaining = Math.max(0, benchmarkPhaseTargetSec - elapsed);
         setProgressMsg(`Recording ${backend.toUpperCase()} Inference (${elapsed}s / ${benchmarkPhaseTargetSec}s)...`, `${remaining}s remaining`);
@@ -2034,6 +2136,11 @@ async function manualRecordBenchmarkPhase(backend) {
     await fetch('/api/v1/inference/stop', { method: 'POST' });
     currentBenchmarkPhase = null;
     updateBenchmarkStepperUI();
+
+    if (isBenchmarkCancelled) {
+      await cleanupCancelledBenchmark();
+      return;
+    }
 
     if (benchmarkData.hailo.length > 0 && benchmarkData.cpu.length > 0) {
       setWaveformViewMode('benchmark');
