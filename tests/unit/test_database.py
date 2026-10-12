@@ -99,3 +99,23 @@ def test_inference_frame_and_detection_persistence(test_repo):
 def test_csv_export(test_repo):
     csv_str = test_repo.export_telemetry_csv()
     assert "timestamp_utc,metric_name,value,unit" in csv_str
+
+
+def test_reset_history(test_repo):
+    samples = [
+        TelemetrySample(
+            metric_name="cpu_temp",
+            value=48.0,
+            unit="celsius",
+            source="hwmon",
+            availability_status="AVAILABLE",
+        )
+    ]
+    test_repo.enqueue_telemetry(samples)
+    time.sleep(0.3)
+    assert len(test_repo.query_telemetry_history(metric_name="cpu_temp")) >= 1
+
+    deleted = test_repo.reset_history()
+    assert deleted["telemetry"] >= 1
+    assert len(test_repo.query_telemetry_history(metric_name="cpu_temp")) == 0
+

@@ -328,14 +328,36 @@ def control_playback(req: PlaybackControlRequest) -> Dict[str, Any]:
 
 
 @api_router.post("/inference/start")
-def start_inference() -> Dict[str, Any]:
-    """Start or resume background YOLO11 inference worker."""
+def start_inference(
+    reset_history: bool = Query(True, description="Reset telemetry and detection history for fresh run"),
+) -> Dict[str, Any]:
+    """Start or resume background YOLO11 inference worker, resetting session history by default."""
     mgr = get_lifecycle_manager()
     if not mgr.inference_service:
         raise HTTPException(status_code=500, detail="Inference service not ready")
 
+    if reset_history:
+        if mgr.repository:
+            mgr.repository.reset_history()
+        mgr.inference_service.reset_stats()
+
     mgr.inference_service.start()
     return {"status": "started", "running": mgr.inference_service.is_running()}
+
+
+@api_router.post("/history/reset")
+def reset_history_endpoint() -> Dict[str, Any]:
+    """
+    Explicitly reset persisted telemetry records, frame inference history, and object detections.
+    Also clears in-memory rolling statistics for a fresh detection run.
+    """
+    mgr = get_lifecycle_manager()
+    deleted = {}
+    if mgr.repository:
+        deleted = mgr.repository.reset_history()
+    if mgr.inference_service:
+        mgr.inference_service.reset_stats()
+    return {"status": "ok", "deleted": deleted}
 
 
 @api_router.post("/inference/stop")

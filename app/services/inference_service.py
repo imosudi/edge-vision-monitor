@@ -279,6 +279,23 @@ class InferenceService:
             return 0.0
         return round((len(self._recent_fps_timestamps) - 1) / duration, 1)
 
+    def reset_stats(self) -> None:
+        """Reset rolling latency stats, frame counters, and cached detections."""
+        with self._lock:
+            self._total_processed = 0
+            self._total_dropped = 0
+            self._total_errors = 0
+            self._recent_fps_timestamps.clear()
+            self._last_frame_ts = 0.0
+            self._last_inter_frame_ms = 0.0
+            self._lat_preprocess = RollingLatencyTracker(window_size=100)
+            self._lat_hailo = RollingLatencyTracker(window_size=100)
+            self._lat_postprocess = RollingLatencyTracker(window_size=100)
+            self._lat_total = RollingLatencyTracker(window_size=100)
+            self._latest_detections.clear()
+            self._latest_result = None
+        logger.info("Inference rolling statistics and detection caches reset")
+
     def get_stats(self) -> Dict[str, Any]:
         """Return comprehensive rolling inference performance metrics."""
         eng_st = self._engine.get_status()

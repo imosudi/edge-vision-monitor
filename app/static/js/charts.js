@@ -678,6 +678,45 @@ function appendModalSensorPoint(label, value) {
   modalSensorChart.update('none');
 }
 
+/**
+ * Reset all real-time dashboard and modal charts datasets and labels.
+ */
+function resetAllCharts() {
+  const lineCharts = [
+    latencyChart,
+    fpsChart,
+    interFrameChart,
+    detectionsCountChart,
+    thermalChart,
+    resourceChart,
+    diskChart,
+    fanChart,
+    cpuFreqChart,
+    voltageChart,
+    procFootprintChart,
+    modalSensorChart
+  ];
+
+  lineCharts.forEach(chart => {
+    if (chart && chart.data) {
+      chart.data.labels = [];
+      if (Array.isArray(chart.data.datasets)) {
+        chart.data.datasets.forEach(ds => {
+          ds.data = [];
+        });
+      }
+      chart.update('none');
+    }
+  });
+
+  if (confHistChart && confHistChart.data && Array.isArray(confHistChart.data.datasets)) {
+    if (confHistChart.data.datasets[0]) {
+      confHistChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    }
+    confHistChart.update('none');
+  }
+}
+
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', initCharts);
 } else {

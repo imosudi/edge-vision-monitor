@@ -482,13 +482,16 @@
               <h3 style="font-size: 0.95rem; color: var(--accent-indigo); font-weight: 700; margin: 0;">Sensor Catalogue &amp; Live Data Provenance</h3>
               <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Discovered hardware buses, sysfs sensors, and real-time streaming telemetry.</p>
             </div>
-            <div style="display: flex; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
               <a href="/api/v1/history/export/telemetry" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Telemetry CSV
               </a>
               <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Detections CSV
               </a>
+              <button type="button" class="btn btn-ghost" onclick="resetTelemetryAndDetectionData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Reset sensor telemetry and detection session data">
+                🗑️ Reset Data
+              </button>
             </div>
           </div>
 
@@ -539,7 +542,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.1-30min"></script>
-  <script src="/static/js/app.js?v=3.1-30min"></script>
+  <script src="/static/js/charts.js?v=3.2-reset"></script>
+  <script src="/static/js/app.js?v=3.2-reset"></script>
 </body>
 </html>

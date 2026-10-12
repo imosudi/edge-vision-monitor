@@ -419,6 +419,38 @@ class TelemetryRepository:
         finally:
             conn.close()
 
+    def reset_history(
+        self, clear_telemetry: bool = True, clear_inference: bool = True, clear_detections: bool = True
+    ) -> Dict[str, int]:
+        """
+        Delete persisted telemetry samples, inference frames, and detections from SQLite
+        and discard pending items in the ingestion queue.
+        """
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except (queue.Empty, ValueError):
+                break
+
+        conn = get_connection(self._db_path)
+        deleted = {"telemetry": 0, "inference_frames": 0, "detections": 0}
+        try:
+            with conn:
+                if clear_telemetry:
+                    c1 = conn.execute("DELETE FROM telemetry_samples")
+                    deleted["telemetry"] = c1.rowcount
+                if clear_inference:
+                    c2 = conn.execute("DELETE FROM inference_frames")
+                    deleted["inference_frames"] = c2.rowcount
+                if clear_detections:
+                    c3 = conn.execute("DELETE FROM detections")
+                    deleted["detections"] = c3.rowcount
+            logger.info("Reset history completed: %s", deleted)
+            return deleted
+        finally:
+            conn.close()
+
     def export_telemetry_csv(
         self, metric_name: Optional[str] = None, limit: int = 5000
     ) -> str:

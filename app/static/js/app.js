@@ -595,9 +595,85 @@ function initDetectionDurationSlider() {
   }
 }
 
+/**
+ * Reset Sensor Catalogue & Live Data Provenance telemetry and detection data:
+ * - Wipes backend persisted SQLite telemetry and detections via API
+ * - Clears all dashboard charts and modal sensor plotter
+ * - Resets modal min/max/avg stats and catalogue table live pills
+ * - Resets HUD pills, counters, and detection list
+ */
+async function resetTelemetryAndDetectionData() {
+  console.log('[INFERENCE] Resetting Sensor Catalogue & Live Data Provenance telemetry and detection data...');
+
+  // 1. Reset frontend charts
+  if (typeof resetAllCharts === 'function') {
+    resetAllCharts();
+  }
+
+  // 2. Reset modal sensor statistics and values
+  modalMetricStats = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+  const valEl = document.getElementById('modal-sensor-val');
+  const minEl = document.getElementById('modal-sensor-min');
+  const maxEl = document.getElementById('modal-sensor-max');
+  const avgEl = document.getElementById('modal-sensor-avg');
+  if (valEl) valEl.textContent = '--';
+  if (minEl) minEl.textContent = '--';
+  if (maxEl) maxEl.textContent = '--';
+  if (avgEl) avgEl.textContent = '--';
+
+  // 3. Reset catalogue table live value pills
+  if (cachedMetricsCatalog && Array.isArray(cachedMetricsCatalog)) {
+    cachedMetricsCatalog.forEach(c => {
+      const cell = document.getElementById(`cat-val-${c.metric_name}`);
+      if (cell) cell.textContent = '--';
+    });
+  }
+
+  // 4. Reset detection HUD pills and lists
+  recentConfidences = [];
+  const lblConf = document.getElementById('lbl-conf-dist');
+  if (lblConf) lblConf.textContent = '0 Detections';
+
+  const container = document.getElementById('detections-feed');
+  if (container) {
+    container.innerHTML = '<div class="empty-state">No detections in current frame</div>';
+  }
+
+  const hudObj = document.getElementById('hud-objects');
+  if (hudObj) hudObj.textContent = '0';
+  const badgeDet = document.getElementById('badge-det-count');
+  if (badgeDet) badgeDet.textContent = '0 objects';
+  const lblDet = document.getElementById('lbl-detections-per-frame');
+  if (lblDet) lblDet.textContent = '0 objects';
+
+  const hudFps = document.getElementById('hud-fps');
+  if (hudFps) hudFps.textContent = '--';
+  const hudLat = document.getElementById('hud-hailo-lat');
+  if (hudLat) hudLat.textContent = '--';
+  const lblLat = document.getElementById('lbl-latency-val');
+  if (lblLat) lblLat.textContent = '-- ms';
+  const lblFps = document.getElementById('lbl-fps-val');
+  if (lblFps) lblFps.textContent = '-- FPS';
+  const lblInter = document.getElementById('lbl-inter-frame');
+  if (lblInter) lblInter.textContent = '-- ms';
+
+  // 5. Call backend reset endpoint to wipe SQLite records
+  try {
+    await fetch('/api/v1/history/reset', { method: 'POST' });
+  } catch (err) {
+    console.warn('Failed to call /api/v1/history/reset:', err);
+  }
+}
+
 async function toggleInference() {
   const willStart = !isInferenceRunning;
   const endpoint = isInferenceRunning ? '/api/v1/inference/stop' : '/api/v1/inference/start';
+
+  if (willStart) {
+    // Reset Sensor Catalogue & Live Data Provenance telemetry and detection data
+    await resetTelemetryAndDetectionData();
+  }
+
   try {
     const res = await fetch(endpoint, { method: 'POST' });
     const data = await res.json();
