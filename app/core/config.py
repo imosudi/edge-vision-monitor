@@ -77,8 +77,12 @@ class StorageConfig(BaseModel):
 
     db_path: str = Field(default="data/telemetry.db", description="Path to SQLite database file")
     retention_days: int = Field(default=7, ge=1, le=365, description="Database history retention in days")
+    retention_hours: Optional[float] = Field(default=None, ge=0.1, description="Database history retention in hours (overrides retention_days if specified)")
+    prune_interval_seconds: float = Field(default=3600.0, ge=1.0, le=86400.0, description="Interval in seconds between automated retention pruning runs")
+    max_db_size_mb: Optional[float] = Field(default=500.0, ge=1.0, le=10000.0, description="Maximum database size in megabytes before size-based pruning is enforced")
     batch_size: int = Field(default=50, ge=1, le=1000, description="Max batch size before SQLite write transaction")
     flush_interval_seconds: float = Field(default=1.0, ge=0.1, le=10.0, description="Max delay before pending batch flush")
+    max_queue_size: int = Field(default=5000, ge=100, le=50000, description="Maximum bounded queue size before shedding samples")
 
 
 class ServerConfig(BaseModel):
@@ -132,6 +136,11 @@ class AppConfig(BaseModel):
             },
             "storage": {
                 "retention_days": self.storage.retention_days,
+                "retention_hours": self.storage.retention_hours or (self.storage.retention_days * 24.0),
+                "prune_interval_seconds": self.storage.prune_interval_seconds,
+                "max_db_size_mb": self.storage.max_db_size_mb,
+                "batch_size": self.storage.batch_size,
+                "flush_interval_seconds": self.storage.flush_interval_seconds,
             },
             "server": {
                 "port": self.server.port,

@@ -118,7 +118,7 @@ curl -s http://localhost:8000/api/v1/metrics/current
 ---
 
 #### `GET /api/v1/metrics/history`
-Query persisted time-series measurements with optional filtering and downsampling.
+Query persisted time-series measurements with optional filtering, striding, bucket aggregation, or LTTB downsampling.
 
 **Parameters**:
 - `metric_name` *(string, optional)*: Filter by metric identifier.
@@ -126,9 +126,27 @@ Query persisted time-series measurements with optional filtering and downsamplin
 - `end_time` *(string, optional)*: ISO-8601 end timestamp.
 - `limit` *(integer, optional, default: 300)*: Maximum records to return.
 - `downsample` *(integer, optional, default: 1)*: Step factor to thin points.
+- `target_points` *(integer, optional)*: Target output point count for downsampling algorithms.
+- `method` *(string, optional, default: "stride")*: Downsampling algorithm (`"stride"`, `"bucket"`, or `"lttb"`).
 
 ```bash
-curl -s "http://localhost:8000/api/v1/metrics/history?metric_name=cpu_utilisation&limit=50"
+curl -s "http://localhost:8000/api/v1/metrics/history?metric_name=cpu_utilisation&target_points=50&method=lttb"
+```
+
+---
+
+#### `GET /api/v1/metrics/downsampled`
+High-performance downsampled time-series query specifically tailored for visual graphs and telemetry dashboards.
+
+**Parameters**:
+- `metric_name` *(string, required)*: Metric identifier to downsample.
+- `start_time` *(string, optional)*: ISO-8601 start timestamp.
+- `end_time` *(string, optional)*: ISO-8601 end timestamp.
+- `target_points` *(integer, optional, default: 100)*: Target number of display points.
+- `method` *(string, optional, default: "lttb")*: Downsampling algorithm (`"lttb"` or `"bucket"`).
+
+```bash
+curl -s "http://localhost:8000/api/v1/metrics/downsampled?metric_name=soc_thermal_celsius&target_points=100&method=lttb"
 ```
 
 ---
@@ -288,6 +306,53 @@ Control prerecorded video playback (`play`, `pause`, `restart`).
 curl -s -X POST http://localhost:8000/api/v1/video/playback \
   -H "Content-Type: application/json" \
   -d '{ "action": "pause" }'
+```
+
+---
+
+### 2.5 Storage, Retention, & CSV Exports
+
+#### `GET /api/v1/storage/status`
+Retrieves database file sizes (primary DB, WAL log, SHM shared memory), record counts, bounded queue metrics, and automated retention history.
+
+```bash
+curl -s "http://localhost:8000/api/v1/storage/status"
+```
+
+---
+
+#### `POST /api/v1/storage/prune`
+Manually triggers retention pruning to delete expired records and maintain disk footprint. Accepts an optional `retention_hours` query parameter override.
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/storage/prune?retention_hours=24.0"
+```
+
+---
+
+#### `GET /api/v1/history/export/telemetry`
+Streams persisted hardware and system telemetry samples as a downloadable CSV dataset. Supports optional `metric_name`, `start_time`, `end_time`, and `limit` filters.
+
+```bash
+curl -s "http://localhost:8000/api/v1/history/export/telemetry?metric_name=cpu_temp" -o telemetry.csv
+```
+
+---
+
+#### `GET /api/v1/history/export/detections`
+Streams historical object detection records as a downloadable CSV dataset with frame sequences, class names, confidence ratings, and bounding box coordinates.
+
+```bash
+curl -s "http://localhost:8000/api/v1/history/export/detections?class_name=person" -o detections.csv
+```
+
+---
+
+#### `GET /api/v1/history/export/waveforms`
+Streams a unified multi-channel time-series dataset combining both hardware sensor telemetry and computer vision inference latencies/counts aligned across time.
+
+```bash
+curl -s "http://localhost:8000/api/v1/history/export/waveforms" -o waveforms.csv
 ```
 
 ---

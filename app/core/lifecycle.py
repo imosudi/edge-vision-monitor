@@ -46,6 +46,11 @@ class ApplicationLifecycleManager:
             db_path=self.config.storage.db_path,
             batch_size=self.config.storage.batch_size,
             flush_interval_seconds=self.config.storage.flush_interval_seconds,
+            max_queue_size=self.config.storage.max_queue_size,
+            retention_days=self.config.storage.retention_days,
+            retention_hours=self.config.storage.retention_hours,
+            prune_interval_seconds=self.config.storage.prune_interval_seconds,
+            max_db_size_mb=self.config.storage.max_db_size_mb,
         )
         self.repository.start()
 

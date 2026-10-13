@@ -351,7 +351,10 @@ All application endpoints are versioned under `/api/v1/`:
 | `GET` | `/api/v1/status` | Current application state, active input source, and alarm counts |
 | `GET` | `/api/v1/metrics/current` | Snapshot of all latest normalised hardware telemetry readings |
 | `GET` | `/api/v1/metrics/history` | Historical time-series query with optional metric filter and downsampling |
+| `GET` | `/api/v1/metrics/downsampled` | High-performance downsampled time-series query (LTTB or bucket aggregation) |
 | `GET` | `/api/v1/metrics/catalog` | Discovered sensor catalogue, units, and provenance |
+| `GET` | `/api/v1/storage/status` | SQLite file sizes, WAL mode status, record counts, and retention metrics |
+| `POST` | `/api/v1/storage/prune` | On-demand automated retention pruning of expired time-series records |
 | `GET` | `/api/v1/inference/stats` | Rolling FPS, total frame counters, and latency percentiles (mean, p95, p99) |
 | `GET` | `/api/v1/detections/latest` | Structured detections for the most recently evaluated frame |
 | `GET` | `/api/v1/video/sources` | Discovered input devices (CSI camera, USB devices, media files) |
@@ -364,6 +367,7 @@ All application endpoints are versioned under `/api/v1/`:
 | `GET` | `/api/v1/system/info` | Host hardware, CPU model, kernel, and driver version details |
 | `GET` | `/api/v1/history/export/telemetry` | Export persisted telemetry records as a downloadable CSV dataset |
 | `GET` | `/api/v1/history/export/detections` | Export persisted object detections as a downloadable CSV dataset |
+| `GET` | `/api/v1/history/export/waveforms` | Export unified multi-channel telemetry and inference waveforms CSV |
 | `WS` | `/api/v1/ws` | High-frequency WebSocket publishing live telemetry and detections at 5 Hz |
 
 ---
@@ -384,14 +388,18 @@ The browser dashboard is served directly from the embedded FastAPI service at `h
 
 ## 12. Storage & Retention Behaviour
 
-The persistence service uses embedded SQLite with `WAL` (Write-Ahead Logging) mode enabled:
-- **Non-Blocking Queue**: Telemetry and frame statistics are enqueued to a bounded memory buffer. A dedicated background thread drains the queue in transactions of up to 50 items or every 1.0 second.
-- **Schema**:
+The persistence service uses embedded SQLite with Write-Ahead Logging (`WAL`) mode enabled:
+- **Non-Blocking Ingestion**: Telemetry samples and frame performance statistics are enqueued into a bounded memory buffer. If the buffer reaches capacity during peak workloads, excess samples are dropped without blocking the event loop or inference pipeline, tracking dropped sample counters.
+- **Asynchronous Batched Commits**: A dedicated background writer worker thread drains the bounded queue in atomic transactions of up to configurable `batch_size` items (default: 50) or every `flush_interval_seconds` (default: 1.0s).
+- **WAL Concurrency Configuration**: Every SQLite connection applies `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = NORMAL`, `PRAGMA busy_timeout = 10000`, and a 64MB page cache (`PRAGMA cache_size = -64000`), allowing uninterrupted concurrent reader queries while writes commit in the background.
+- **Query Downsampling**: Supports fast time-series queries downsampled via Strided subsampling, temporal Bucket Aggregation (computing min, max, mean, and sample count per window), and Largest-Triangle-Three-Buckets (LTTB) downsampling to preserve peaks and waveform extremes across long monitoring runs.
+- **Automated Retention Pruning**: Periodic background maintenance sweeps execute every `prune_interval_seconds` (default: 1 hour) to safely delete expired records older than `retention_hours` or `retention_days` across all tables. When `max_db_size_mb` is configured, automated WAL checkpointing (`PRAGMA wal_checkpoint(TRUNCATE)`) and oldest-record trimming prevent unbounded disk consumption.
+- **Streaming CSV Exports**: High-performance chunked generator endpoints (`/api/v1/history/export/...`) stream multi-channel telemetry, object detections, and unified aligned waveforms directly over HTTP with negligible memory footprint.
+- **Relational Schema**:
   - `telemetry_samples`: Timestamp, monotonic time, metric name, normalised value, unit, source interface, status, and error message.
-  - `inference_frames`: Sequence number, source ID, latencies (acquisition, preprocessing, Hailo execution, post-processing, total), detection count, dropped flag.
-  - `detections`: Bounding box normalised coordinates (`xmin`, `ymin`, `xmax`, `ymax`), class ID, label, confidence.
+  - `inference_frames`: Sequence number, source ID, latencies (acquisition, preprocessing, Hailo execution, post-processing, total), detection count, and dropped flag.
+  - `detections`: Bounding box normalised coordinates (`xmin`, `ymin`, `xmax`, `ymax`), class ID, label, and confidence.
   - `system_events`: Lifecycle events, source transitions, and hardware warning alarms.
-- **Automated Retention**: Historical records exceeding `storage.retention_days` (default: 7 days) are purged during maintenance sweeps.
 
 ---
 

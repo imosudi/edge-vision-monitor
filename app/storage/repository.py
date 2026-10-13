@@ -1,6 +1,7 @@
 """
 Persistent telemetry repository with non-blocking batched writes,
-time-series range queries, downsampling, retention pruning, and CSV export.
+time-series range queries, downsampling, automated retention pruning, and CSV export.
+Configured for SQLite Write-Ahead Logging (WAL) mode with high-throughput concurrent reads.
 """
 
 from __future__ import annotations
@@ -12,10 +13,21 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from app.core.logging_config import get_logger
-from app.storage.database import get_connection, init_database
+from app.storage.database import (
+    checkpoint_wal,
+    get_connection,
+    get_db_file_sizes,
+    init_database,
+)
+from app.storage.downsampling import (
+    downsample_bucket_aggregation,
+    downsample_lttb,
+    downsample_stride,
+)
 from app.storage.models import (
     DetectionRecord,
     InferenceFrameRecord,
@@ -29,7 +41,8 @@ logger = get_logger("STORAGE.REPO")
 class TelemetryRepository:
     """
     Manages non-blocking batched ingestion of telemetry, inference frames, detections,
-    and system events into SQLite, while servicing fast queries from API and dashboard.
+    and system events into SQLite in WAL mode, while servicing fast queries,
+    query downsampling, automated retention pruning, and streaming CSV exports.
     """
 
     def __init__(
@@ -38,21 +51,43 @@ class TelemetryRepository:
         batch_size: int = 50,
         flush_interval_seconds: float = 1.0,
         max_queue_size: int = 5000,
+        retention_days: int = 7,
+        retention_hours: Optional[float] = None,
+        prune_interval_seconds: float = 3600.0,
+        max_db_size_mb: Optional[float] = 500.0,
     ):
         self._db_path = db_path
-        self._batch_size = batch_size
-        self._flush_interval = flush_interval_seconds
-        self._queue: queue.Queue[Tuple[str, Any]] = queue.Queue(maxsize=max_queue_size)
+        self._batch_size = max(1, batch_size)
+        self._flush_interval = max(0.01, flush_interval_seconds)
+        self._max_queue_size = max(1, max_queue_size)
+        self._queue: queue.Queue[Tuple[str, Any]] = queue.Queue(maxsize=self._max_queue_size)
+
+        # Retention parameters
+        self._retention_hours = float(retention_hours) if retention_hours is not None else float(retention_days * 24.0)
+        self._prune_interval_seconds = max(0.05, prune_interval_seconds)
+        self._max_db_size_mb = max_db_size_mb
+
         self._stop_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
-        self._dropped_samples_count = 0
         self._write_lock = threading.Lock()
 
-        # Ensure database is initialised
+        # Telemetry ingestion and maintenance metrics
+        self._dropped_samples_count = 0
+        self._total_telemetry_enqueued = 0
+        self._total_inference_enqueued = 0
+        self._total_events_enqueued = 0
+        self._total_committed_records = 0
+        self._total_batches_committed = 0
+        self._total_purged_records = 0
+        self._last_prune_time = time.monotonic()
+        self._last_prune_timestamp_utc: Optional[str] = None
+        self._last_prune_summary: Dict[str, Any] = {}
+
+        # Ensure database and WAL mode are initialised
         init_database(self._db_path)
 
     def start(self) -> None:
-        """Start the background batched writer thread."""
+        """Start the background batched writer and automated pruning thread."""
         if self._worker_thread and self._worker_thread.is_alive():
             return
         self._stop_event.clear()
@@ -60,7 +95,12 @@ class TelemetryRepository:
             target=self._writer_loop, name="StorageWriterWorker", daemon=True
         )
         self._worker_thread.start()
-        logger.info("Storage background writer worker started")
+        logger.info(
+            "Storage background writer worker started (batch_size=%d, flush_interval=%.2fs, retention=%.1fh)",
+            self._batch_size,
+            self._flush_interval,
+            self._retention_hours,
+        )
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop background worker and flush any pending write items."""
@@ -70,26 +110,41 @@ class TelemetryRepository:
         self._drain_remaining()
         logger.info("Storage repository stopped cleanly")
 
+    # -------------------------------------------------------------------------
+    # Non-blocking Asynchronous Enqueue API
+    # -------------------------------------------------------------------------
+
     def enqueue_telemetry(self, samples: List[TelemetrySample]) -> bool:
-        """Enqueue telemetry samples for asynchronous batched persistence."""
+        """
+        Enqueue telemetry samples for asynchronous batched persistence.
+        Completely non-blocking: drops samples and logs warning if queue is full.
+        """
+        if not samples:
+            return True
         try:
             self._queue.put_nowait(("telemetry", samples))
+            self._total_telemetry_enqueued += len(samples)
             return True
         except queue.Full:
             self._dropped_samples_count += len(samples)
-            logger.warning(
-                "Storage queue full! Dropped %d telemetry samples (total dropped: %d)",
-                len(samples),
-                self._dropped_samples_count,
-            )
+            if self._dropped_samples_count % 50 == 0 or self._dropped_samples_count <= len(samples):
+                logger.warning(
+                    "Storage queue full! Dropped %d telemetry samples (cumulative dropped: %d)",
+                    len(samples),
+                    self._dropped_samples_count,
+                )
             return False
 
     def enqueue_inference(
         self, frame: InferenceFrameRecord, detections: List[DetectionRecord]
     ) -> bool:
-        """Enqueue inference frame record and associated object detections."""
+        """
+        Enqueue inference frame record and associated object detections.
+        Completely non-blocking: never delays the computer vision pipeline.
+        """
         try:
             self._queue.put_nowait(("inference", (frame, detections)))
+            self._total_inference_enqueued += 1
             return True
         except queue.Full:
             self._dropped_samples_count += 1
@@ -97,25 +152,40 @@ class TelemetryRepository:
             return False
 
     def enqueue_event(self, event: SystemEventRecord) -> bool:
-        """Enqueue system lifecycle or diagnostic event."""
+        """
+        Enqueue system lifecycle or diagnostic event.
+        Completely non-blocking.
+        """
         try:
             self._queue.put_nowait(("event", event))
+            self._total_events_enqueued += 1
             return True
         except queue.Full:
             logger.warning("Storage queue full! Dropped system event")
             return False
 
+    # -------------------------------------------------------------------------
+    # Worker Thread and Batched Commits
+    # -------------------------------------------------------------------------
+
     def _writer_loop(self) -> None:
-        """Continuously pulls items from queue and flushes in SQLite transactions."""
+        """
+        Continuously pulls items from bounded queue, executes batched transactions,
+        and triggers periodic automated retention pruning.
+        """
         conn = get_connection(self._db_path)
         last_flush = time.monotonic()
         pending_telemetry: List[TelemetrySample] = []
         pending_inference: List[Tuple[InferenceFrameRecord, List[DetectionRecord]]] = []
         pending_events: List[SystemEventRecord] = []
+        total_pending = 0
 
         try:
             while not self._stop_event.is_set():
-                timeout = max(0.05, self._flush_interval - (time.monotonic() - last_flush))
+                if total_pending > 0:
+                    timeout = max(0.01, min(0.1, self._flush_interval - (time.monotonic() - last_flush)))
+                else:
+                    timeout = max(0.01, min(0.1, self._prune_interval_seconds))
                 try:
                     item_type, item_data = self._queue.get(timeout=timeout)
                     if item_type == "telemetry":
@@ -130,6 +200,8 @@ class TelemetryRepository:
 
                 total_pending = len(pending_telemetry) + len(pending_inference) + len(pending_events)
                 now = time.monotonic()
+
+                # Batch commit threshold check (count or time-based)
                 if total_pending >= self._batch_size or (total_pending > 0 and (now - last_flush) >= self._flush_interval):
                     self._commit_batch(conn, pending_telemetry, pending_inference, pending_events)
                     pending_telemetry.clear()
@@ -137,15 +209,26 @@ class TelemetryRepository:
                     pending_events.clear()
                     last_flush = now
 
+                # Automated periodic retention pruning check
+                if (now - self._last_prune_time) >= self._prune_interval_seconds:
+                    self._last_prune_time = now
+                    try:
+                        summary = self._run_retention_prune_internal(conn)
+                        self._last_prune_summary = summary
+                        self._last_prune_timestamp_utc = summary.get("timestamp_utc")
+                        self._total_purged_records += summary.get("total_purged", 0)
+                    except Exception as pe:
+                        logger.error("Automated retention pruning encountered an error: %s", pe)
+
         except Exception as e:
-            logger.error("Error in storage writer loop: %s", e, exc_info=True)
+            logger.error("Fatal error in storage writer loop: %s", e, exc_info=True)
         finally:
             if pending_telemetry or pending_inference or pending_events:
                 self._commit_batch(conn, pending_telemetry, pending_inference, pending_events)
             conn.close()
 
     def _drain_remaining(self) -> None:
-        """Final drain on shutdown."""
+        """Final drain on shutdown: commits all remaining queue items to SQLite."""
         conn = get_connection(self._db_path)
         telemetry: List[TelemetrySample] = []
         inference: List[Tuple[InferenceFrameRecord, List[DetectionRecord]]] = []
@@ -175,7 +258,8 @@ class TelemetryRepository:
         inference: List[Tuple[InferenceFrameRecord, List[DetectionRecord]]],
         events: List[SystemEventRecord],
     ) -> None:
-        """Write records to SQLite within a single transaction."""
+        """Write records to SQLite within a single immediate transaction."""
+        committed_count = 0
         try:
             with self._write_lock:
                 with conn:
@@ -201,10 +285,11 @@ class TelemetryRepository:
                                 for s in telemetry
                             ],
                         )
+                        committed_count += len(telemetry)
 
                     if inference:
                         for frame, detections in inference:
-                            cur = conn.execute(
+                            conn.execute(
                                 """
                                 INSERT INTO inference_frames (
                                     frame_seq, source_id, timestamp_utc, acquisition_ms,
@@ -226,6 +311,7 @@ class TelemetryRepository:
                                     frame.error_status,
                                 ),
                             )
+                            committed_count += 1
                             if detections:
                                 conn.executemany(
                                     """
@@ -249,6 +335,7 @@ class TelemetryRepository:
                                         for d in detections
                                     ],
                                 )
+                                committed_count += len(detections)
 
                     if events:
                         conn.executemany(
@@ -270,11 +357,115 @@ class TelemetryRepository:
                                 for e in events
                             ],
                         )
+                        committed_count += len(events)
+
+            self._total_committed_records += committed_count
+            self._total_batches_committed += 1
         except Exception as e:
             logger.error("Failed to commit SQLite batch: %s", e, exc_info=True)
 
     # -------------------------------------------------------------------------
-    # Query API
+    # Automated Retention Pruning
+    # -------------------------------------------------------------------------
+
+    def _run_retention_prune_internal(
+        self, conn: sqlite3.Connection, retention_hours: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Internal prune routine running inside the writer connection or maintenance call.
+        Enforces time-based cutoff and optional database file size constraints.
+        """
+        hours = retention_hours if retention_hours is not None else self._retention_hours
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+        cutoff_utc = cutoff_dt.isoformat()
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        with self._write_lock:
+            with conn:
+                c1 = conn.execute("DELETE FROM telemetry_samples WHERE timestamp_utc < ?", (cutoff_utc,))
+                c2 = conn.execute("DELETE FROM inference_frames WHERE timestamp_utc < ?", (cutoff_utc,))
+                c3 = conn.execute("DELETE FROM detections WHERE timestamp_utc < ?", (cutoff_utc,))
+                c4 = conn.execute("DELETE FROM system_events WHERE timestamp_utc < ?", (cutoff_utc,))
+                total_deleted = c1.rowcount + c2.rowcount + c3.rowcount + c4.rowcount
+
+            # Size-based pruning check
+            size_pruned = 0
+            if self._max_db_size_mb is not None and self._max_db_size_mb > 0:
+                sizes = get_db_file_sizes(self._db_path)
+                current_mb = sizes["total_bytes"] / (1024.0 * 1024.0)
+                if current_mb > self._max_db_size_mb:
+                    logger.warning(
+                        "Database size (%.1f MB) exceeds limit (%.1f MB). Pruning oldest records...",
+                        current_mb,
+                        self._max_db_size_mb,
+                    )
+                    with conn:
+                        # Prune oldest 15% of records
+                        sp1 = conn.execute(
+                            """
+                            DELETE FROM telemetry_samples WHERE id IN (
+                                SELECT id FROM telemetry_samples ORDER BY id ASC LIMIT 2000
+                            )
+                            """
+                        )
+                        sp2 = conn.execute(
+                            """
+                            DELETE FROM inference_frames WHERE id IN (
+                                SELECT id FROM inference_frames ORDER BY id ASC LIMIT 1000
+                            )
+                            """
+                        )
+                        size_pruned = sp1.rowcount + sp2.rowcount
+                    # Checkpoint WAL to release pages
+                    checkpoint_wal(self._db_path, "TRUNCATE")
+
+        total_purged = total_deleted + size_pruned
+        if total_purged > 0:
+            logger.info(
+                "Retention pruning completed: purged %d records older than %s (retention: %.1fh, size_pruned: %d)",
+                total_deleted,
+                cutoff_utc,
+                hours,
+                size_pruned,
+            )
+
+        return {
+            "purged_telemetry": c1.rowcount,
+            "purged_inference": c2.rowcount,
+            "purged_detections": c3.rowcount,
+            "purged_events": c4.rowcount,
+            "purged_oversize": size_pruned,
+            "total_purged": total_purged,
+            "cutoff_utc": cutoff_utc,
+            "timestamp_utc": now_utc,
+            "retention_hours": hours,
+        }
+
+    def prune_retention(self, retention_hours: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Public method to manually trigger automated retention pruning.
+        Can override configured retention hours on demand.
+        """
+        conn = get_connection(self._db_path)
+        try:
+            summary = self._run_retention_prune_internal(conn, retention_hours=retention_hours)
+            self._last_prune_summary = summary
+            self._last_prune_timestamp_utc = summary.get("timestamp_utc")
+            self._total_purged_records += summary.get("total_purged", 0)
+            return summary
+        finally:
+            conn.close()
+
+    def purge_older_than(self, retention_days: int) -> int:
+        """
+        Backwards-compatible retention purge method.
+        Purges records older than specified number of days.
+        """
+        summary = self.prune_retention(retention_hours=retention_days * 24.0)
+        return summary.get("total_purged", 0)
+
+    # -------------------------------------------------------------------------
+    # Time-Series Query API with Downsampling
     # -------------------------------------------------------------------------
 
     def query_telemetry_history(
@@ -284,8 +475,17 @@ class TelemetryRepository:
         end_time: Optional[str] = None,
         limit: int = 500,
         downsample: int = 1,
+        target_points: Optional[int] = None,
+        method: str = "stride",
     ) -> List[Dict[str, Any]]:
-        """Query historical time-series telemetry records."""
+        """
+        Query historical time-series telemetry records with optional downsampling.
+
+        Supports:
+        - Strided downsampling ('stride')
+        - Largest-Triangle-Three-Buckets ('lttb')
+        - Time-window bucket aggregation ('bucket')
+        """
         query = "SELECT * FROM telemetry_samples WHERE 1=1"
         params: List[Any] = []
 
@@ -300,20 +500,59 @@ class TelemetryRepository:
             params.append(end_time)
 
         query += " ORDER BY id DESC LIMIT ?"
-        params.append(min(limit * max(1, downsample), 10000))
+        # Fetch sufficient rows to downsample accurately
+        fetch_limit = min(limit * max(1, downsample) * (5 if target_points else 1), 20000)
+        params.append(fetch_limit)
 
         conn = get_connection(self._db_path)
         try:
             cursor = conn.execute(query, params)
             rows = [dict(r) for r in cursor.fetchall()]
-            # Apply downsampling if requested
-            if downsample > 1 and rows:
-                rows = rows[::downsample]
-            # Return chronological order
+            # Return in chronological order (oldest to newest)
             rows.reverse()
+
+            if not rows:
+                return []
+
+            # Apply requested downsampling algorithm
+            if target_points is not None and target_points > 0 and len(rows) > target_points:
+                if method.lower() == "lttb":
+                    return downsample_lttb(rows, target_points=target_points)
+                elif method.lower() == "bucket":
+                    return downsample_bucket_aggregation(rows, target_points=target_points)
+                else:
+                    step = max(1, len(rows) // target_points)
+                    return downsample_stride(rows, stride=step)
+
+            if downsample > 1:
+                return downsample_stride(rows, stride=downsample)
+
+            if len(rows) > limit:
+                return rows[-limit:]
+
             return rows
         finally:
             conn.close()
+
+    def query_downsampled_metrics(
+        self,
+        metric_name: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        target_points: int = 100,
+        method: str = "lttb",
+    ) -> List[Dict[str, Any]]:
+        """
+        High-performance downsampled query explicitly tailored for responsive charts.
+        """
+        return self.query_telemetry_history(
+            metric_name=metric_name,
+            start_time=start_time,
+            end_time=end_time,
+            limit=target_points * 2,
+            target_points=target_points,
+            method=method,
+        )
 
     def query_inference_history(
         self,
@@ -321,7 +560,7 @@ class TelemetryRepository:
         end_time: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Query historical inference frame performance records."""
+        """Query historical inference frame performance records in chronological order."""
         query = "SELECT * FROM inference_frames WHERE 1=1"
         params: List[Any] = []
 
@@ -351,7 +590,7 @@ class TelemetryRepository:
         class_name: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Query historical object detection events."""
+        """Query historical object detection events in chronological order."""
         query = "SELECT * FROM detections WHERE 1=1"
         params: List[Any] = []
 
@@ -366,7 +605,7 @@ class TelemetryRepository:
             params.append(class_name)
 
         query += " ORDER BY id DESC LIMIT ?"
-        params.append(min(limit, 1000))
+        params.append(min(limit, 2000))
 
         conn = get_connection(self._db_path)
         try:
@@ -404,26 +643,11 @@ class TelemetryRepository:
         finally:
             conn.close()
 
-    def purge_older_than(self, retention_days: int) -> int:
-        """Purge telemetry and frame records older than the retention threshold."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
-        with self._write_lock:
-            conn = get_connection(self._db_path)
-            deleted = 0
-            try:
-                with conn:
-                    c1 = conn.execute("DELETE FROM telemetry_samples WHERE timestamp_utc < ?", (cutoff,))
-                    c2 = conn.execute("DELETE FROM inference_frames WHERE timestamp_utc < ?", (cutoff,))
-                    c3 = conn.execute("DELETE FROM detections WHERE timestamp_utc < ?", (cutoff,))
-                    c4 = conn.execute("DELETE FROM system_events WHERE timestamp_utc < ?", (cutoff,))
-                    deleted = c1.rowcount + c2.rowcount + c3.rowcount + c4.rowcount
-                logger.info("Purged %d records older than %s (%d days)", deleted, cutoff, retention_days)
-                return deleted
-            finally:
-                conn.close()
-
     def reset_history(
-        self, clear_telemetry: bool = True, clear_inference: bool = True, clear_detections: bool = True
+        self,
+        clear_telemetry: bool = True,
+        clear_inference: bool = True,
+        clear_detections: bool = True,
     ) -> Dict[str, int]:
         """
         Delete persisted telemetry samples, inference frames, and detections from SQLite
@@ -451,85 +675,201 @@ class TelemetryRepository:
                         c3 = conn.execute("DELETE FROM detections")
                         deleted["detections"] = c3.rowcount
                 logger.info("Reset history completed: %s", deleted)
+                checkpoint_wal(self._db_path, "TRUNCATE")
                 return deleted
             finally:
                 conn.close()
 
+    # -------------------------------------------------------------------------
+    # CSV Export API (String and Chunked Generator Streaming)
+    # -------------------------------------------------------------------------
+
     def export_telemetry_csv(
-        self, metric_name: Optional[str] = None, limit: int = 5000
+        self,
+        metric_name: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50000,
     ) -> str:
         """Export telemetry samples as a CSV formatted string."""
-        samples = self.query_telemetry_history(metric_name=metric_name, limit=limit)
-        output = io.StringIO()
-        if not samples:
-            return "timestamp_utc,metric_name,value,unit,source,availability_status\n"
-        writer = csv.DictWriter(
-            output,
-            fieldnames=[
-                "timestamp_utc",
-                "metric_name",
-                "value",
-                "unit",
-                "source",
-                "availability_status",
-            ],
-            extrasaction="ignore",
+        return "".join(
+            self.stream_telemetry_csv(
+                metric_name=metric_name,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+            )
         )
-        writer.writeheader()
-        writer.writerows(samples)
-        return output.getvalue()
 
-    def export_detections_csv(self, limit: int = 5000) -> str:
+    def stream_telemetry_csv(
+        self,
+        metric_name: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50000,
+        chunk_size: int = 2000,
+    ) -> Generator[str, None, None]:
+        """Stream telemetry samples chunk-by-chunk for memory-efficient HTTP delivery."""
+        query = (
+            "SELECT timestamp_utc, metric_name, value, unit, source, availability_status "
+            "FROM telemetry_samples WHERE 1=1"
+        )
+        params: List[Any] = []
+        if metric_name:
+            query += " AND metric_name = ?"
+            params.append(metric_name)
+        if start_time:
+            query += " AND timestamp_utc >= ?"
+            params.append(start_time)
+        if end_time:
+            query += " AND timestamp_utc <= ?"
+            params.append(end_time)
+
+        query += " ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+
+        header = "timestamp_utc,metric_name,value,unit,source,availability_status\r\n"
+        yield header
+
+        conn = get_connection(self._db_path)
+        try:
+            cursor = conn.execute(query, params)
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\r\n")
+
+            while True:
+                rows = cursor.fetchmany(chunk_size)
+                if not rows:
+                    break
+                for row in rows:
+                    writer.writerow([row[0], row[1], row[2], row[3], row[4], row[5]])
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+        finally:
+            conn.close()
+
+    def export_detections_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        class_name: Optional[str] = None,
+        limit: int = 50000,
+    ) -> str:
         """Export detections history as a CSV formatted string."""
-        dets = self.query_detections_history(limit=limit)
-        output = io.StringIO()
-        if not dets:
-            return "timestamp_utc,frame_seq,class_id,class_name,confidence,box_xmin,box_ymin,box_xmax,box_ymax\n"
-        writer = csv.DictWriter(
-            output,
-            fieldnames=[
-                "timestamp_utc",
-                "frame_seq",
-                "class_id",
-                "class_name",
-                "confidence",
-                "box_xmin",
-                "box_ymin",
-                "box_xmax",
-                "box_ymax",
-            ],
-            extrasaction="ignore",
+        return "".join(
+            self.stream_detections_csv(
+                start_time=start_time,
+                end_time=end_time,
+                class_name=class_name,
+                limit=limit,
+            )
         )
-        writer.writeheader()
-        writer.writerows(dets)
-        return output.getvalue()
 
-    def export_waveforms_csv(self, limit: int = 5000) -> str:
+    def stream_detections_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        class_name: Optional[str] = None,
+        limit: int = 50000,
+        chunk_size: int = 2000,
+    ) -> Generator[str, None, None]:
+        """Stream object detection records chunk-by-chunk."""
+        query = (
+            "SELECT timestamp_utc, frame_seq, class_id, class_name, confidence, "
+            "box_xmin, box_ymin, box_xmax, box_ymax FROM detections WHERE 1=1"
+        )
+        params: List[Any] = []
+        if start_time:
+            query += " AND timestamp_utc >= ?"
+            params.append(start_time)
+        if end_time:
+            query += " AND timestamp_utc <= ?"
+            params.append(end_time)
+        if class_name:
+            query += " AND class_name = ?"
+            params.append(class_name)
+
+        query += " ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+
+        header = "timestamp_utc,frame_seq,class_id,class_name,confidence,box_xmin,box_ymin,box_xmax,box_ymax\r\n"
+        yield header
+
+        conn = get_connection(self._db_path)
+        try:
+            cursor = conn.execute(query, params)
+            output = io.StringIO()
+            writer = csv.writer(output, lineterminator="\r\n")
+
+            while True:
+                rows = cursor.fetchmany(chunk_size)
+                if not rows:
+                    break
+                for row in rows:
+                    writer.writerow(list(row))
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+        finally:
+            conn.close()
+
+    def export_waveforms_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50000,
+    ) -> str:
         """
         Export complete multi-channel telemetry sensor and inference waveforms
         as a unified time-series CSV dataset.
         """
+        return "".join(
+            self.stream_waveforms_csv(
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+            )
+        )
+
+    def stream_waveforms_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50000,
+    ) -> Generator[str, None, None]:
+        """
+        Stream multi-channel time-aligned waveforms joining hardware telemetry
+        and computer vision inference metrics into unified rows.
+        """
         conn = get_connection(self._db_path)
         try:
-            t_rows = conn.execute(
-                """
-                SELECT timestamp_utc, metric_name, value
-                FROM telemetry_samples
-                ORDER BY timestamp_utc ASC, id ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            t_query = "SELECT timestamp_utc, metric_name, value FROM telemetry_samples WHERE 1=1"
+            t_params: List[Any] = []
+            if start_time:
+                t_query += " AND timestamp_utc >= ?"
+                t_params.append(start_time)
+            if end_time:
+                t_query += " AND timestamp_utc <= ?"
+                t_params.append(end_time)
+            t_query += " ORDER BY timestamp_utc ASC, id ASC LIMIT ?"
+            t_params.append(limit)
+            t_rows = conn.execute(t_query, t_params).fetchall()
 
-            inf_rows = conn.execute(
-                """
-                SELECT timestamp_utc, preprocessing_ms, hailo_exec_ms, postprocessing_ms, total_latency_ms, detections_count
-                FROM inference_frames
-                ORDER BY timestamp_utc ASC, id ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            inf_query = (
+                "SELECT timestamp_utc, preprocessing_ms, hailo_exec_ms, postprocessing_ms, "
+                "total_latency_ms, detections_count FROM inference_frames WHERE 1=1"
+            )
+            inf_params: List[Any] = []
+            if start_time:
+                inf_query += " AND timestamp_utc >= ?"
+                inf_params.append(start_time)
+            if end_time:
+                inf_query += " AND timestamp_utc <= ?"
+                inf_params.append(end_time)
+            inf_query += " ORDER BY timestamp_utc ASC, id ASC LIMIT ?"
+            inf_params.append(limit)
+            inf_rows = conn.execute(inf_query, inf_params).fetchall()
         finally:
             conn.close()
 
@@ -550,16 +890,85 @@ class TelemetryRepository:
             ts_map[ts]["latency_total_ms"] = row[4]
             ts_map[ts]["detections_count"] = row[5]
 
-        output = io.StringIO()
         if not ts_map:
-            return "timestamp_utc,latency_prep_ms,latency_exec_ms,latency_post_ms,latency_total_ms,detections_count,cpu_temp,mem_util,cpu_util\n"
+            yield "timestamp_utc,latency_prep_ms,latency_exec_ms,latency_post_ms,latency_total_ms,detections_count,cpu_temp,mem_util,cpu_util\r\n"
+            return
 
         all_keys = sorted({k for data in ts_map.values() for k in data.keys()})
         fieldnames = ["timestamp_utc"] + all_keys
-        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\r\n")
         writer.writeheader()
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        chunk_count = 0
         for ts, data in sorted(ts_map.items()):
             row_dict = {"timestamp_utc": ts}
             row_dict.update(data)
             writer.writerow(row_dict)
-        return output.getvalue()
+            chunk_count += 1
+            if chunk_count >= 1000:
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+                chunk_count = 0
+
+        if output.tell() > 0:
+            yield output.getvalue()
+
+    # -------------------------------------------------------------------------
+    # Diagnostics & Storage Statistics
+    # -------------------------------------------------------------------------
+
+    def get_storage_stats(self) -> Dict[str, Any]:
+        """
+        Return comprehensive storage metrics: WAL file sizes, record counts,
+        queue capacity, dropped sample metrics, and automated retention history.
+        """
+        conn = get_connection(self._db_path)
+        try:
+            c1 = conn.execute("SELECT count(*) FROM telemetry_samples").fetchone()[0]
+            c2 = conn.execute("SELECT count(*) FROM inference_frames").fetchone()[0]
+            c3 = conn.execute("SELECT count(*) FROM detections").fetchone()[0]
+            c4 = conn.execute("SELECT count(*) FROM system_events").fetchone()[0]
+            cur_mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
+        finally:
+            conn.close()
+
+        file_sizes = get_db_file_sizes(self._db_path)
+
+        return {
+            "db_path": self._db_path,
+            "journal_mode": str(cur_mode).lower(),
+            "file_sizes": file_sizes,
+            "total_records": {
+                "telemetry_samples": c1,
+                "inference_frames": c2,
+                "detections": c3,
+                "system_events": c4,
+                "total": c1 + c2 + c3 + c4,
+            },
+            "queue": {
+                "pending_items": self._queue.qsize(),
+                "max_size": self._max_queue_size,
+                "dropped_samples": self._dropped_samples_count,
+            },
+            "ingestion_totals": {
+                "telemetry_enqueued": self._total_telemetry_enqueued,
+                "inference_enqueued": self._total_inference_enqueued,
+                "events_enqueued": self._total_events_enqueued,
+                "committed_records": self._total_committed_records,
+                "batches_committed": self._total_batches_committed,
+            },
+            "retention": {
+                "retention_hours": self._retention_hours,
+                "prune_interval_seconds": self._prune_interval_seconds,
+                "max_db_size_mb": self._max_db_size_mb,
+                "total_purged_records": self._total_purged_records,
+                "last_prune_timestamp_utc": self._last_prune_timestamp_utc,
+                "last_prune_summary": self._last_prune_summary,
+            },
+        }

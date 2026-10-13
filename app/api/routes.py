@@ -115,6 +115,8 @@ def get_metrics_history(
     end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
     limit: int = Query(300, ge=1, le=5000),
     downsample: int = Query(1, ge=1, le=50),
+    target_points: Optional[int] = Query(None, ge=10, le=5000, description="Target number of points"),
+    method: str = Query("stride", description="Downsampling method: 'stride', 'bucket', or 'lttb'"),
 ) -> List[Dict[str, Any]]:
     """Query time-series telemetry history from SQLite with optional downsampling."""
     mgr = get_lifecycle_manager()
@@ -126,6 +128,29 @@ def get_metrics_history(
         end_time=end_time,
         limit=limit,
         downsample=downsample,
+        target_points=target_points,
+        method=method,
+    )
+
+
+@api_router.get("/metrics/downsampled")
+def get_downsampled_metrics(
+    metric_name: str = Query(..., description="Target metric name to downsample"),
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    target_points: int = Query(100, ge=10, le=2000, description="Target number of downsampled points"),
+    method: str = Query("lttb", description="Downsample algorithm: 'lttb' or 'bucket'"),
+) -> List[Dict[str, Any]]:
+    """Query high-performance downsampled time-series tailored for responsive charting."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        return []
+    return mgr.repository.query_downsampled_metrics(
+        metric_name=metric_name,
+        start_time=start_time,
+        end_time=end_time,
+        target_points=target_points,
+        method=method,
     )
 
 
@@ -472,43 +497,89 @@ def get_system_info() -> SystemInfoResponse:
     )
 
 
+@api_router.get("/storage/status")
+def get_storage_status() -> Dict[str, Any]:
+    """Database file sizes, WAL status, record counts, and automated retention history."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        raise HTTPException(status_code=500, detail="Storage repository not initialised")
+    return mgr.repository.get_storage_stats()
+
+
+@api_router.post("/storage/prune")
+def trigger_retention_prune(
+    retention_hours: Optional[float] = Query(None, ge=0.1, description="Optional override for retention threshold in hours"),
+) -> Dict[str, Any]:
+    """Trigger on-demand retention pruning to purge expired records and manage database size."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        raise HTTPException(status_code=500, detail="Storage repository not initialised")
+    return mgr.repository.prune_retention(retention_hours=retention_hours)
+
+
 @api_router.get("/history/export/telemetry")
-def export_telemetry_csv():
-    """Export persisted telemetry records as CSV dataset."""
+def export_telemetry_csv(
+    metric_name: Optional[str] = Query(None, description="Optional metric filter"),
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    limit: int = Query(50000, ge=1, le=500000),
+):
+    """Export persisted telemetry records as streaming CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
         raise HTTPException(status_code=500, detail="Repository not initialised")
-    csv_str = mgr.repository.export_telemetry_csv()
-    return PlainTextResponse(
-        csv_str,
+    return StreamingResponse(
+        mgr.repository.stream_telemetry_csv(
+            metric_name=metric_name,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        ),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=telemetry_export.csv"},
     )
 
 
 @api_router.get("/history/export/detections")
-def export_detections_csv():
-    """Export persisted detections history as CSV dataset."""
+def export_detections_csv(
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    class_name: Optional[str] = Query(None, description="Optional class filter"),
+    limit: int = Query(50000, ge=1, le=500000),
+):
+    """Export persisted detections history as streaming CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
         raise HTTPException(status_code=500, detail="Repository not initialised")
-    csv_str = mgr.repository.export_detections_csv()
-    return PlainTextResponse(
-        csv_str,
+    return StreamingResponse(
+        mgr.repository.stream_detections_csv(
+            start_time=start_time,
+            end_time=end_time,
+            class_name=class_name,
+            limit=limit,
+        ),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=detections_export.csv"},
     )
 
 
 @api_router.get("/history/export/waveforms")
-def export_waveforms_csv():
-    """Export unified multi-channel telemetry and inference waveforms as CSV dataset."""
+def export_waveforms_csv(
+    start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
+    end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
+    limit: int = Query(50000, ge=1, le=500000),
+):
+    """Export unified multi-channel telemetry and inference waveforms as streaming CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
         raise HTTPException(status_code=500, detail="Repository not initialised")
-    csv_str = mgr.repository.export_waveforms_csv()
-    return PlainTextResponse(
-        csv_str,
+    return StreamingResponse(
+        mgr.repository.stream_waveforms_csv(
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        ),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=waveforms_telemetry_export.csv"},
     )
+
