@@ -1142,68 +1142,20 @@ select.input-select:focus {
 .status-pill.unsupported { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }
 .status-pill.unavailable { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 
-/* Footer & Citation */
-footer.app-footer, footer {
+/* Footer */
+footer {
   text-align: center;
-  padding: 1.1rem 1.5rem;
+  padding: 1.25rem 1.5rem;
   background: #ffffff;
   border-top: 1px solid var(--border-subtle);
   font-size: 0.82rem;
-  color: var(--text-secondary);
-}
-
-.footer-citation-meta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  font-size: 0.82rem;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 .footer-cite-key {
-  display: inline-flex;
-  align-items: center;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: var(--accent-blue, #2563eb);
-  padding: 0.15rem 0.55rem;
-  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 0.78rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.footer-separator {
-  color: #cbd5e1;
-  font-size: 0.95rem;
-}
-
-.footer-item {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.footer-license-badge {
-  display: inline-flex;
-  align-items: center;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
-  padding: 0.12rem 0.48rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.74rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: var(--transition);
-}
-
-.footer-license-badge:hover {
-  background: #d1fae5;
-  color: #047857;
-  border-color: #6ee7b7;
+  color: var(--accent-blue, #2563eb);
 }
 
 /* --------------------------------------------------------------------------
