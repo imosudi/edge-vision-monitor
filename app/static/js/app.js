@@ -2162,38 +2162,3 @@ async function manualRecordBenchmarkPhase(backend) {
     currentBenchmarkPhase = null;
   }
 }
-
-/**
- * Copy academic BibTeX citation to clipboard
- * Reflects EdgeVisionMonitor2026, author, year, and license.
- */
-function copyBibtexCitation(btn) {
-  const bibtex = `@software{EdgeVisionMonitor2026,
-  author    = {Isiaka, Mosudi},
-  title     = {Edge Vision Monitor: Production-Grade YOLO11 Edge AI Inference, Telemetry, and Monitoring Platform for Raspberry Pi 5 and Hailo-8L},
-  year      = {2026},
-  url       = {https://github.com/imosudi/edge-vision-monitor},
-  license   = {BSD-3-Clause}
-}`;
-
-  const copySuccess = () => {
-    if (btn) {
-      const origHTML = btn.innerHTML;
-      btn.innerHTML = '<span>✅</span> Citation Copied!';
-      btn.classList.add('copied');
-      setTimeout(() => {
-        btn.innerHTML = origHTML;
-        btn.classList.remove('copied');
-      }, 2500);
-    }
-  };
-
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(bibtex).then(copySuccess).catch(err => {
-      console.warn('[CITATION] Clipboard write failed, falling back:', err);
-      prompt('Copy BibTeX Citation:', bibtex);
-    });
-  } else {
-    prompt('Copy BibTeX Citation:', bibtex);
-  }
-}

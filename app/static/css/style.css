@@ -1145,28 +1145,18 @@ select.input-select:focus {
 /* Footer & Citation */
 footer.app-footer, footer {
   text-align: center;
-  padding: 1.25rem 1.5rem;
+  padding: 1.1rem 1.5rem;
   background: #ffffff;
   border-top: 1px solid var(--border-subtle);
   font-size: 0.82rem;
   color: var(--text-secondary);
 }
 
-.footer-citation-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
 .footer-citation-meta {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
   font-size: 0.82rem;
   color: var(--text-secondary);
@@ -1178,22 +1168,22 @@ footer.app-footer, footer {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   color: var(--accent-blue, #2563eb);
-  padding: 0.15rem 0.5rem;
+  padding: 0.15rem 0.55rem;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
 .footer-separator {
   color: #cbd5e1;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
-.footer-item strong {
-  color: var(--text-primary);
-  font-weight: 600;
+.footer-item {
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .footer-license-badge {
@@ -1202,7 +1192,7 @@ footer.app-footer, footer {
   background: #ecfdf5;
   border: 1px solid #a7f3d0;
   color: #065f46;
-  padding: 0.12rem 0.45rem;
+  padding: 0.12rem 0.48rem;
   border-radius: var(--radius-sm);
   font-size: 0.74rem;
   font-weight: 600;
@@ -1214,41 +1204,6 @@ footer.app-footer, footer {
   background: #d1fae5;
   color: #047857;
   border-color: #6ee7b7;
-}
-
-.btn-copy-citation {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  color: var(--text-secondary);
-  font-size: 0.74rem;
-  font-weight: 600;
-  padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.btn-copy-citation:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-  color: var(--text-primary);
-  transform: translateY(-1px);
-}
-
-.btn-copy-citation.copied {
-  background: #ecfdf5;
-  border-color: #10b981;
-  color: #059669;
-}
-
-.footer-citation-title {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  max-width: 900px;
-  line-height: 1.4;
 }
 
 /* --------------------------------------------------------------------------
