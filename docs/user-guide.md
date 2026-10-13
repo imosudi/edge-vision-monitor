@@ -15,7 +15,7 @@ Welcome to the **Edge Vision Monitor** user guide. This document provides compre
 - Streams live, annotated video previews with low overhead.
 - Samples host thermals, RP1 temperatures, clock frequencies, power metrics, and firmware throttling states.
 - Persists historical telemetry and detection records into an embedded **SQLite** database using Write-Ahead Logging (`WAL`).
-- Exposes an interactive, dark-mode web dashboard with real-time **WebSocket** updates and **Chart.js** historical trends.
+- Exposes an interactive, modern web dashboard with real-time **WebSocket** updates and **Chart.js** historical trends.
 
 <p align="center">
   <img src="pipeline.svg" alt="Edge Vision Monitor Pipeline Data Flow" width="100%">

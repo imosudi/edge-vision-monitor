@@ -10,7 +10,7 @@
 [![Hailo-8L](https://img.shields.io/badge/NPU-Hailo--8L%20AI%20HAT%2B-blueviolet.svg)](https://hailo.ai/)
 [![Raspberry Pi 5](https://img.shields.io/badge/Platform-Raspberry%20Pi%205-C51A4A.svg)](https://www.raspberrypi.com/)
 
-Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic runtime switching between Hailo-8L NPU and CPU (ONNX Runtime), flexible video input selection and file uploading, real-time hardware thermal and throttling monitoring, non-blocking SQLite time-series persistence, an interactive cyber-dark FastAPI dashboard with live WebSockets, and least-privilege deployment.
+Production-grade YOLO11 edge AI inference and telemetry platform for the **Raspberry Pi 5** equipped with a **Hailo-8L AI HAT+**. Provides continuous hardware-accelerated object detection, dynamic runtime switching between Hailo-8L NPU and CPU (ONNX Runtime), flexible video input selection and file uploading, real-time hardware thermal and throttling monitoring, non-blocking SQLite time-series persistence, an interactive modern edge-AI FastAPI dashboard with live WebSockets, and least-privilege deployment.
 
 ---
 
