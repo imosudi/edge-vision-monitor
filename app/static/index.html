@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Edge Vision Monitor | YOLO11 on Raspberry Pi 5 + Hailo-8L</title>
-  <meta name="description" content="Production-grade YOLO11 edge AI inference, telemetry platform, and live monitoring dashboard for Raspberry Pi 5 and Hailo-8L AI HAT+.">
+  <meta name="description"
+    content="Production-grade YOLO11 edge AI inference, telemetry platform, and live monitoring dashboard for Raspberry Pi 5 and Hailo-8L AI HAT+.">
   <link rel="stylesheet" href="/static/css/style.css?v=2.2-allwaveforms">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <!-- Chart.js for real-time telemetry plots -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
+
 <body>
 
   <!-- Top Navigation & Global Hardware State -->
@@ -42,15 +45,18 @@
     <div class="header-actions">
       <!-- Backend Switcher Segmented Control -->
       <div class="backend-switch-group">
-        <button id="btn-backend-hailo" class="btn btn-backend active" onclick="switchBackend('hailo')" title="Hailo-8L NPU Accelerator">
+        <button id="btn-backend-hailo" class="btn btn-backend active" onclick="switchBackend('hailo')"
+          title="Hailo-8L NPU Accelerator">
           <span>🚀</span> Hailo-8L
         </button>
-        <button id="btn-backend-cpu" class="btn btn-backend" onclick="switchBackend('cpu')" title="CPU Inference (ONNX Runtime)">
+        <button id="btn-backend-cpu" class="btn btn-backend" onclick="switchBackend('cpu')"
+          title="CPU Inference (ONNX Runtime)">
           <span>💻</span> CPU (ONNX)
         </button>
       </div>
 
-      <button id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" title="Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider">
+      <button id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()"
+        title="Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider">
         <span>⚖️</span> Run Automated Dual Benchmark ▶
       </button>
 
@@ -76,10 +82,10 @@
   <!-- Main Dashboard Layout -->
   <main class="main-container">
     <div class="grid-dashboard">
-      
+
       <!-- Left Column: Video Viewport & Detections Feed -->
       <section style="display: flex; flex-direction: column; gap: 1.25rem;">
-        
+
         <!-- Live Video Viewport Card -->
         <div class="card viewport-card">
           <div class="card-header">
@@ -87,22 +93,26 @@
               <span>📹</span> Live Accelerated Inference Preview
             </div>
             <div style="display: flex; gap: 0.5rem;">
-              <button id="btn-snapshot" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="captureSnapshot()">
+              <button id="btn-snapshot" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;"
+                onclick="captureSnapshot()">
                 📸 Snapshot
               </button>
-              <button id="btn-fullscreen" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="toggleFullscreen()">
+              <button id="btn-fullscreen" class="btn btn-ghost" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;"
+                onclick="toggleFullscreen()">
                 ⛶ Fullscreen
               </button>
             </div>
           </div>
 
           <div id="video-container" class="video-wrapper">
-            <img id="video-stream-img" class="video-stream" src="/api/v1/video/stream" alt="Live YOLO11 Edge Inference Stream">
-            
+            <img id="video-stream-img" class="video-stream" src="/api/v1/video/stream"
+              alt="Live YOLO11 Edge Inference Stream">
+
             <!-- Overlay HUD -->
             <div class="video-hud">
               <div class="hud-pill">FPS: <span id="hud-fps" class="val">--</span></div>
-              <div class="hud-pill"><span id="hud-exec-label">Hailo</span>: <span id="hud-hailo-lat" class="val">--</span> ms</div>
+              <div class="hud-pill"><span id="hud-exec-label">Hailo</span>: <span id="hud-hailo-lat"
+                  class="val">--</span> ms</div>
               <div class="hud-pill">Objects: <span id="hud-objects" class="val">0</span></div>
             </div>
           </div>
@@ -111,19 +121,24 @@
           <div class="source-control-bar">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem;">
               <div class="source-tabs">
-                <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file')">Video File</button>
+                <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file')">Video
+                  File</button>
                 <button id="tab-source-usb" class="tab-btn" onclick="selectSourceTab('usb')">USB Camera</button>
-                <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera')">Pi Camera (CSI)</button>
+                <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera')">Pi Camera
+                  (CSI)</button>
               </div>
 
               <!-- Detection Time Range Slider (Extended up to 30 mins) -->
-              <div class="detection-timer-wrapper" title="Configure continuous or timed detection duration (0 = Continuous, 5s - 30 min)">
+              <div class="detection-timer-wrapper"
+                title="Configure continuous or timed detection duration (0 = Continuous, 5s - 30 min)">
                 <label for="slider-detection-duration" class="timer-label">
                   ⏱️ Detection Time:
                 </label>
-                <input type="range" id="slider-detection-duration" class="form-range slider-custom" min="0" max="1800" step="5" value="0" oninput="onDetectionDurationChange(this.value)">
+                <input type="range" id="slider-detection-duration" class="form-range slider-custom" min="0" max="1800"
+                  step="5" value="0" oninput="onDetectionDurationChange(this.value)">
                 <span id="badge-detection-duration" class="header-stat-pill timer-val-badge">Continuous (∞)</span>
-                <span id="badge-detection-countdown" class="badge badge-countdown-active" style="display: none;">--s left</span>
+                <span id="badge-detection-countdown" class="badge badge-countdown-active" style="display: none;">--s
+                  left</span>
               </div>
             </div>
 
@@ -132,13 +147,19 @@
               <select id="select-video-file" class="input-select" onchange="switchToFileSource()">
                 <option value="">Synthetic Edge Stream</option>
               </select>
-              <input type="file" id="input-upload-video" accept=".mp4,.avi,.mkv,.mov,.m4v,.webm" style="display: none;" onchange="handleVideoUpload(this)">
-              <button id="btn-upload-video" class="btn btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; white-space: nowrap;" onclick="triggerVideoUpload()">
+              <input type="file" id="input-upload-video" accept=".mp4,.avi,.mkv,.mov,.m4v,.webm" style="display: none;"
+                onchange="handleVideoUpload(this)">
+              <button id="btn-upload-video" class="btn btn-primary"
+                style="padding: 0.35rem 0.65rem; font-size: 0.75rem; white-space: nowrap;"
+                onclick="triggerVideoUpload()">
                 📤 Upload Video
               </button>
-              <button id="btn-playback-pause" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('pause')" title="Pause">⏸</button>
-              <button id="btn-playback-play" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('play')" title="Play">▶</button>
-              <button id="btn-playback-restart" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;" onclick="controlPlayback('restart')" title="Restart">↺</button>
+              <button id="btn-playback-pause" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;"
+                onclick="controlPlayback('pause')" title="Pause">⏸</button>
+              <button id="btn-playback-play" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;"
+                onclick="controlPlayback('play')" title="Play">▶</button>
+              <button id="btn-playback-restart" class="btn btn-ghost" style="padding: 0.35rem 0.6rem;"
+                onclick="controlPlayback('restart')" title="Restart">↺</button>
             </div>
 
             <div id="controls-usb" class="source-selectors" style="display: none;">
@@ -148,7 +169,8 @@
             </div>
 
             <div id="controls-picam" class="source-selectors" style="display: none;">
-              <button id="btn-activate-picam" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="switchToPiCamSource()">
+              <button id="btn-activate-picam" class="btn btn-primary"
+                style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="switchToPiCamSource()">
                 Activate CSI Camera
               </button>
             </div>
@@ -176,14 +198,14 @@
 
       <!-- Right Column: Hardware Health & Performance KPIs -->
       <aside class="telemetry-sidebar">
-        
+
         <!-- Hardware Thermals Card -->
         <div class="card">
           <div class="card-header">
             <div class="card-title"><span>🌡️</span> Hardware Thermals</div>
             <div id="thermal-status-pill" class="status-pill available">Nominal</div>
           </div>
-          
+
           <div class="metric-group">
             <div class="metric-row">
               <span class="metric-label">CPU Temperature</span>
@@ -248,9 +270,11 @@
             <div id="bar-lat-post" class="lat-post" style="width: 15%;" title="Postprocessing"></div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">
+          <div
+            style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">
             <span>Pre: <strong id="lbl-lat-prep" style="color: var(--accent-blue)">-- ms</strong></span>
-            <span><span id="lbl-backend-exec-title">NPU</span>: <strong id="lbl-lat-hailo" style="color: var(--accent-violet)">-- ms</strong></span>
+            <span><span id="lbl-backend-exec-title">NPU</span>: <strong id="lbl-lat-hailo"
+                style="color: var(--accent-violet)">-- ms</strong></span>
             <span>Post: <strong id="lbl-lat-post" style="color: var(--accent-fuchsia)">-- ms</strong></span>
           </div>
         </div>
@@ -297,24 +321,32 @@
       <div class="charts-header-title">
         <span style="font-size: 1.25rem;">📊</span>
         <div>
-          <h2 style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0;">Live System &amp; Hardware Telemetry Waveforms</h2>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time multi-channel sensor streaming &amp; historical trend analysis</span>
+          <h2 style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0;">Live System &amp;
+            Hardware Telemetry Waveforms</h2>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Real-time multi-channel sensor streaming &amp;
+            historical trend analysis</span>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
         <!-- Waveform Mode Switcher: Live vs Benchmark Overlay -->
         <div class="benchmark-view-switcher">
-          <button id="btn-view-live" class="view-switch-btn active" onclick="setWaveformViewMode('live')" title="Display real-time live sensor waveforms (Clock Time)">
+          <button id="btn-view-live" class="view-switch-btn active" onclick="setWaveformViewMode('live')"
+            title="Display real-time live sensor waveforms (Clock Time)">
             <span>📡</span> Live Telemetry
           </button>
-          <button id="btn-view-benchmark" class="view-switch-btn" onclick="setWaveformViewMode('benchmark')" title="Display dual benchmark overlay (Relative Time 0s...Ts)">
+          <button id="btn-view-benchmark" class="view-switch-btn" onclick="setWaveformViewMode('benchmark')"
+            title="Display dual benchmark overlay (Relative Time 0s...Ts)">
             <span>⚖️</span> Dual Benchmark Overlay
           </button>
         </div>
-        <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
-          ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
+        <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;"
+          onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
+          ⏸️ Waveforms Paused (Session Elapsed) &bull; <span
+            style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
         </span>
-        <button id="btn-export-complete-waveforms-csv" type="button" class="btn-chart-action btn-export-csv btn-export-all-waveforms" onclick="exportCompleteWaveformsCSV()" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+        <button id="btn-export-complete-waveforms-csv" type="button"
+          class="btn-chart-action btn-export-csv btn-export-all-waveforms" onclick="exportCompleteWaveformsCSV()"
+          title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
           <span class="icon-csv">📊</span> Export Complete Waveforms CSV
         </button>
         <div class="chart-filter-tabs">
@@ -330,21 +362,27 @@
     <div id="benchmark-waveforms-panel" class="benchmark-waveforms-panel">
       <div class="benchmark-panel-header">
         <div class="benchmark-panel-actions">
-          <div class="benchmark-control-group" title="Benchmark run duration is synchronised with the Detection Time slider close to Video File / USB Camera buttons">
+          <div class="benchmark-control-group"
+            title="Benchmark run duration is synchronised with the Detection Time slider close to Video File / USB Camera buttons">
             <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">⏱️ Detection Time:</span>
-            <span id="lbl-bench-target-val" class="header-stat-pill" style="font-size: 0.72rem; padding: 0.18rem 0.5rem; color: var(--accent-blue);">Continuous (30s)</span>
+            <span id="lbl-bench-target-val" class="header-stat-pill"
+              style="font-size: 0.72rem; padding: 0.18rem 0.5rem; color: var(--accent-blue);">Continuous (30s)</span>
           </div>
           <div class="btn-group-manual-bench">
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hailo" onclick="manualWaveformBenchmarkPhase('hailo')" title="Record baseline on Hailo-8L NPU">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hailo"
+              onclick="manualWaveformBenchmarkPhase('hailo')" title="Record baseline on Hailo-8L NPU">
               1. Record Hailo-8L
             </button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hold" onclick="manualWaveformHoldHailo()" title="Hold recorded Hailo-8L data in buffer">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-hold"
+              onclick="manualWaveformHoldHailo()" title="Hold recorded Hailo-8L data in buffer">
               2. Hold Hailo Data 📌
             </button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-cpu" onclick="manualWaveformBenchmarkPhase('cpu')" title="Record comparison on Host CPU and overlay">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-cpu"
+              onclick="manualWaveformBenchmarkPhase('cpu')" title="Record comparison on Host CPU and overlay">
               3. Record CPU &amp; Overlay 📈
             </button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-clear" onclick="clearWaveformBenchmark()" title="Reset benchmark overlay buffer">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-wb-manual-clear"
+              onclick="clearWaveformBenchmark()" title="Reset benchmark overlay buffer">
               ↺ Reset
             </button>
           </div>
@@ -412,7 +450,7 @@
     </div>
 
     <section class="charts-section">
-      
+
       <!-- Chart 1: Latency Breakdown -->
       <div class="card chart-card" data-cat="inference">
         <div class="card-header chart-card-header">
@@ -420,13 +458,16 @@
             <div class="card-title"><span>📈</span> Latency Breakdown History (ms)</div>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-latency')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-latency')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-latency')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-latency')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-latency')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-latency')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -444,13 +485,16 @@
             <span id="lbl-fps-stat" class="header-stat-pill">-- FPS</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fps')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fps')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fps')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fps')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fps')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fps')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -468,13 +512,16 @@
             <span id="lbl-inter-frame" class="header-stat-pill">-- ms</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-interframe')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-interframe')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-interframe')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-interframe')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-interframe')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-interframe')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -492,13 +539,16 @@
             <span id="lbl-detections-per-frame" class="header-stat-pill">-- Objects</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-detections-count')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge"
+              onclick="openEnlargeChart('chart-detections-count')" title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-detections-count')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img"
+              onclick="exportChartImage('chart-detections-count')" title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-detections-count')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv"
+              onclick="exportChartCSV('chart-detections-count')" title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -516,13 +566,16 @@
             <span id="lbl-conf-summary" class="header-stat-pill">--</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-conf-hist')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-conf-hist')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-conf-hist')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-conf-hist')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-conf-hist')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-conf-hist')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -539,13 +592,16 @@
             <div class="card-title"><span>🌡️</span> Thermal Profile History (°C)</div>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-thermal')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-thermal')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-thermal')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-thermal')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-thermal')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-thermal')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -562,13 +618,16 @@
             <div class="card-title"><span>💻</span> System Utilisation History (%)</div>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-resources')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-resources')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-resources')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-resources')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-resources')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-resources')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -586,13 +645,16 @@
             <span id="lbl-disk-utilisation" class="header-stat-pill">--%</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-disk')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-disk')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-disk')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-disk')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-disk')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-disk')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -610,13 +672,16 @@
             <span id="lbl-fan-speed" class="header-stat-pill">-- RPM</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fan')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-fan')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fan')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-fan')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fan')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-fan')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -634,13 +699,16 @@
             <span id="lbl-cpu-base-tag" class="header-stat-pill">2.4 GHz Base Target</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-cpufreq')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-cpufreq')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-cpufreq')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-cpufreq')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-cpufreq')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-cpufreq')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -657,13 +725,16 @@
             <div class="card-title"><span>🔋</span> RP1 I/O Controller Rail Voltages (V)</div>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-voltages')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-voltages')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-voltages')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-voltages')"
+              title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-voltages')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-voltages')"
+              title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -681,13 +752,16 @@
             <span id="lbl-proc-footprint" class="header-stat-pill">--</span>
           </div>
           <div class="chart-actions-group">
-            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-procfootprint')" title="Enlarge waveform view">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-procfootprint')"
+              title="Enlarge waveform view">
               <span>🔍</span> ENLARGE VIEW
             </button>
-            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-procfootprint')" title="Export chart as PNG image">
+            <button type="button" class="btn-chart-action btn-export-img"
+              onclick="exportChartImage('chart-procfootprint')" title="Export chart as PNG image">
               <span>📷</span> EXPORT IMAGE
             </button>
-            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-procfootprint')" title="Export waveform series to CSV">
+            <button type="button" class="btn-chart-action btn-export-csv"
+              onclick="exportChartCSV('chart-procfootprint')" title="Export waveform series to CSV">
               <span class="icon-csv">📊</span> CSV
             </button>
           </div>
@@ -701,7 +775,8 @@
   </main>
 
   <!-- CPU vs Hailo-8L NPU Benchmark Comparison Modal -->
-  <div id="modal-benchmark-suite" class="modal-overlay" style="display: none;" onclick="handleBenchmarkModalBackdrop(event)">
+  <div id="modal-benchmark-suite" class="modal-overlay" style="display: none;"
+    onclick="handleBenchmarkModalBackdrop(event)">
     <div class="modal-content modal-benchmark-content">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
@@ -717,25 +792,33 @@
       <div class="benchmark-toolbar">
         <div class="benchmark-config-row">
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);" title="Benchmark run duration is synchronised with the Detection Time slider close to Video File / USB Camera buttons">
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);"
+              title="Benchmark run duration is synchronised with the Detection Time slider close to Video File / USB Camera buttons">
               ⏱️ Duration: Linked to Detection Time Slider
             </span>
-            <button type="button" id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" style="padding: 0.38rem 0.9rem; font-size: 0.8rem;">
+            <button type="button" id="btn-run-auto-benchmark" class="btn btn-benchmark"
+              onclick="startAutomatedBenchmark()" style="padding: 0.38rem 0.9rem; font-size: 0.8rem;">
               <span>▶</span> Run Automated Dual-Phase Benchmark
             </button>
           </div>
 
           <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-            <button type="button" class="btn btn-ghost" id="btn-manual-record-hailo" onclick="manualRecordBenchmarkPhase('hailo')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Record baseline run on Hailo-8L">
+            <button type="button" class="btn btn-ghost" id="btn-manual-record-hailo"
+              onclick="manualRecordBenchmarkPhase('hailo')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;"
+              title="Record baseline run on Hailo-8L">
               <span>🚀</span> 1. Record Hailo-8L
             </button>
-            <button type="button" class="btn btn-ghost" id="btn-manual-hold-data" onclick="manualHoldBenchmarkData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Hold current Hailo data in buffer">
+            <button type="button" class="btn btn-ghost" id="btn-manual-hold-data" onclick="manualHoldBenchmarkData()"
+              style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Hold current Hailo data in buffer">
               <span>📌</span> 2. Hold Data
             </button>
-            <button type="button" class="btn btn-ghost" id="btn-manual-record-cpu" onclick="manualRecordBenchmarkPhase('cpu')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Record comparison run on CPU">
+            <button type="button" class="btn btn-ghost" id="btn-manual-record-cpu"
+              onclick="manualRecordBenchmarkPhase('cpu')" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;"
+              title="Record comparison run on CPU">
               <span>💻</span> 3. Record CPU
             </button>
-            <button type="button" class="btn btn-ghost" id="btn-manual-clear-bench" onclick="clearBenchmarkData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Clear benchmark buffer">
+            <button type="button" class="btn btn-ghost" id="btn-manual-clear-bench" onclick="clearBenchmarkData()"
+              style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Clear benchmark buffer">
               <span>🗑️</span> Reset
             </button>
           </div>
@@ -899,12 +982,15 @@
       </div>
 
       <!-- Modal Footer with Exports matching Snapshots -->
-      <div class="enlarge-modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+      <div class="enlarge-modal-footer"
+        style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" class="btn-chart-action btn-export-img" onclick="exportBenchmarkChartsPNG()" title="Export all overlaid comparison charts as image">
+          <button type="button" class="btn-chart-action btn-export-img" onclick="exportBenchmarkChartsPNG()"
+            title="Export all overlaid comparison charts as image">
             <span>📷</span> EXPORT COMPARISON CHARTS (PNG)
           </button>
-          <button type="button" class="btn-chart-action btn-export-csv" onclick="exportBenchmarkCSV()" title="Export benchmark data side-by-side to CSV">
+          <button type="button" class="btn-chart-action btn-export-csv" onclick="exportBenchmarkCSV()"
+            title="Export benchmark data side-by-side to CSV">
             <span class="icon-csv">📊</span> EXPORT BENCHMARK CSV
           </button>
         </div>
@@ -914,28 +1000,34 @@
   </div>
 
   <!-- Enlarge Waveform Modal (Snapshot 2 Inspiration) -->
-  <div id="modal-enlarge-waveform" class="modal-overlay" style="display: none;" onclick="handleEnlargeModalBackdrop(event)">
+  <div id="modal-enlarge-waveform" class="modal-overlay" style="display: none;"
+    onclick="handleEnlargeModalBackdrop(event)">
     <div class="modal-content modal-enlarge-content">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
           <div class="card-title" id="enlarge-modal-title" style="font-size: 1.05rem; font-weight: 700;">
-            <span id="enlarge-modal-icon">📈</span> <span id="enlarge-modal-heading">Latency Breakdown History (ms)</span>
+            <span id="enlarge-modal-icon">📈</span> <span id="enlarge-modal-heading">Latency Breakdown History
+              (ms)</span>
           </div>
           <span id="enlarge-modal-badge" class="badge-tag-amber">LIVE WAVEFORM</span>
         </div>
-        <button type="button" class="btn btn-ghost" onclick="closeEnlargeChartModal()" title="Close Large View (Esc)">✕</button>
+        <button type="button" class="btn btn-ghost" onclick="closeEnlargeChartModal()"
+          title="Close Large View (Esc)">✕</button>
       </div>
 
       <!-- Subheader / Toolbar matching Snapshot 2 -->
       <div class="enlarge-modal-toolbar">
         <div class="enlarge-modal-desc" id="enlarge-modal-desc">
-          <span>🔍</span> <span>Large Interactive View: High-resolution real-time sensor waveform inspection and trend analysis.</span>
+          <span>🔍</span> <span>Large Interactive View: High-resolution real-time sensor waveform inspection and trend
+            analysis.</span>
         </div>
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" class="btn-chart-action btn-export-img" id="btn-enlarge-export-png" onclick="exportEnlargedChartPNG()" title="Export high-resolution PNG image">
+          <button type="button" class="btn-chart-action btn-export-img" id="btn-enlarge-export-png"
+            onclick="exportEnlargedChartPNG()" title="Export high-resolution PNG image">
             <span>📷</span> EXPORT HIGH-RES PNG
           </button>
-          <button type="button" class="btn-chart-action btn-export-csv" id="btn-enlarge-export-csv" onclick="exportEnlargedChartCSV()" title="Export series to CSV">
+          <button type="button" class="btn-chart-action btn-export-csv" id="btn-enlarge-export-csv"
+            onclick="exportEnlargedChartCSV()" title="Export series to CSV">
             <span class="icon-csv">📊</span> CSV
           </button>
         </div>
@@ -966,32 +1058,56 @@
           <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--accent-indigo);">Target System Overview</h3>
           <table class="table-custom" id="table-sysinfo">
             <tbody>
-              <tr><td>Hostname</td><td id="diag-host">--</td></tr>
-              <tr><td>OS / Kernel</td><td id="diag-os">--</td></tr>
-              <tr><td>CPU Architecture</td><td id="diag-cpu">--</td></tr>
-              <tr><td>Hailo Device (/dev/hailo0)</td><td id="diag-hailo-dev">--</td></tr>
-              <tr><td>HailoRT Python Bindings</td><td id="diag-hailo-pkg">--</td></tr>
+              <tr>
+                <td>Hostname</td>
+                <td id="diag-host">--</td>
+              </tr>
+              <tr>
+                <td>OS / Kernel</td>
+                <td id="diag-os">--</td>
+              </tr>
+              <tr>
+                <td>CPU Architecture</td>
+                <td id="diag-cpu">--</td>
+              </tr>
+              <tr>
+                <td>Hailo Device (/dev/hailo0)</td>
+                <td id="diag-hailo-dev">--</td>
+              </tr>
+              <tr>
+                <td>HailoRT Python Bindings</td>
+                <td id="diag-hailo-pkg">--</td>
+              </tr>
             </tbody>
           </table>
         </div>
 
         <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <div>
-              <h3 style="font-size: 0.95rem; color: var(--accent-indigo); font-weight: 700; margin: 0;">Sensor Catalogue &amp; Live Data Provenance</h3>
-              <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Discovered hardware buses, sysfs sensors, and real-time streaming telemetry.</p>
+              <h3 style="font-size: 0.95rem; color: var(--accent-indigo); font-weight: 700; margin: 0;">Sensor Catalogue
+                &amp; Live Data Provenance</h3>
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">Discovered hardware buses, sysfs
+                sensors, and real-time streaming telemetry.</p>
             </div>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <a href="/api/v1/history/export/telemetry" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
+              <a href="/api/v1/history/export/telemetry" class="btn btn-ghost"
+                style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Telemetry CSV
               </a>
-              <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
+              <a href="/api/v1/history/export/detections" class="btn btn-ghost"
+                style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Detections CSV
               </a>
-              <button type="button" class="btn btn-ghost" onclick="exportCompleteWaveformsCSV()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+              <button type="button" class="btn btn-ghost" onclick="exportCompleteWaveformsCSV()"
+                style="font-size: 0.75rem; padding: 0.35rem 0.65rem;"
+                title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
                 📊 Export Waveforms CSV
               </button>
-              <button type="button" class="btn btn-ghost" onclick="resetTelemetryAndDetectionData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Reset sensor telemetry and detection session data">
+              <button type="button" class="btn btn-ghost" onclick="resetTelemetryAndDetectionData()"
+                style="font-size: 0.75rem; padding: 0.35rem 0.65rem;"
+                title="Reset sensor telemetry and detection session data">
                 🗑️ Reset Data
               </button>
             </div>
@@ -999,10 +1115,14 @@
 
           <!-- Interactive Sensor Plotter Box in Modal -->
           <div class="modal-sensor-plotter-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <label for="select-modal-sensor" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Select Sensor to Plot:</label>
-                <select id="select-modal-sensor" class="input-select" onchange="onModalSensorSelected(this.value)" style="min-width: 280px; padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+                <label for="select-modal-sensor"
+                  style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Select Sensor to
+                  Plot:</label>
+                <select id="select-modal-sensor" class="input-select" onchange="onModalSensorSelected(this.value)"
+                  style="min-width: 280px; padding: 0.35rem 0.6rem; font-size: 0.8rem;">
                   <option value="">Loading discovered sensors...</option>
                 </select>
               </div>
@@ -1031,7 +1151,9 @@
                 </tr>
               </thead>
               <tbody id="table-catalog-body">
-                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading catalogue...</td></tr>
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-muted);">Loading catalogue...</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1047,4 +1169,5 @@
   <script src="/static/js/charts.js?v=3.18-exactcitationfooter"></script>
   <script src="/static/js/app.js?v=3.18-exactcitationfooter"></script>
 </body>
+
 </html>

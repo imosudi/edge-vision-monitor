@@ -30,20 +30,32 @@ const chartOptionsBase = {
   plugins: {
     legend: {
       labels: {
-        color: '#475569',
+        color: '#cbd5e1',
         font: { family: 'Inter', size: 11, weight: '500' },
         boxWidth: 10
       }
+    },
+    tooltip: {
+      backgroundColor: 'rgba(10, 15, 29, 0.95)',
+      titleColor: '#38bdf8',
+      bodyColor: '#f1f5f9',
+      borderColor: 'rgba(56, 189, 248, 0.3)',
+      borderWidth: 1,
+      padding: 10,
+      boxPadding: 4,
+      usePointStyle: true,
+      titleFont: { family: 'Inter', size: 12, weight: '600' },
+      bodyFont: { family: 'JetBrains Mono', size: 11 }
     }
   },
   scales: {
     x: {
-      grid: { color: 'rgba(0, 0, 0, 0.04)' },
+      grid: { color: 'rgba(255, 255, 255, 0.06)' },
       ticks: { display: false }
     },
     y: {
-      grid: { color: 'rgba(0, 0, 0, 0.05)' },
-      ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+      grid: { color: 'rgba(255, 255, 255, 0.06)' },
+      ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
     }
   }
 };
@@ -243,6 +255,11 @@ function initCharts() {
         plugins: {
           legend: { display: false },
           tooltip: {
+            backgroundColor: 'rgba(10, 15, 29, 0.95)',
+            titleColor: '#38bdf8',
+            bodyColor: '#f1f5f9',
+            borderColor: 'rgba(56, 189, 248, 0.3)',
+            borderWidth: 1,
             callbacks: {
               title: (items) => `Confidence Range: ${items[0]?.label || ''}`,
               label: (ctx) => ` Count: ${ctx.parsed.y} boxes`
@@ -253,7 +270,7 @@ function initCharts() {
           x: {
             grid: { display: false },
             ticks: {
-              color: '#64748b',
+              color: '#94a3b8',
               font: { family: 'JetBrains Mono', size: 9 },
               maxRotation: 45,
               minRotation: 0
@@ -262,9 +279,9 @@ function initCharts() {
           y: {
             beginAtZero: true,
             suggestedMax: 10,
-            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
             ticks: {
-              color: '#64748b',
+              color: '#94a3b8',
               font: { family: 'JetBrains Mono', size: 10 },
               precision: 0
             }
@@ -440,7 +457,7 @@ function initCharts() {
           ...chartOptionsBase.plugins,
           legend: {
             labels: {
-              color: '#475569',
+              color: '#cbd5e1',
               font: { family: 'Inter', size: 11, weight: '500' },
               usePointStyle: true,
               pointStyleWidth: 11
@@ -525,14 +542,14 @@ function initCharts() {
         plugins: {
           legend: {
             labels: {
-              color: '#475569',
+              color: '#cbd5e1',
               font: { family: 'Inter', size: 11, weight: '500' },
               boxWidth: 10
             }
           },
           tooltip: {
             callbacks: {
-              label: function(context) {
+              label: function (context) {
                 let label = context.dataset.label || '';
                 if (label) label += ': ';
                 if (context.parsed.y !== null && context.parsed.y !== undefined) {
@@ -547,7 +564,7 @@ function initCharts() {
         },
         scales: {
           x: {
-            grid: { color: 'rgba(0, 0, 0, 0.04)' },
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
             ticks: { display: false }
           },
           y: {
@@ -555,15 +572,15 @@ function initCharts() {
             display: true,
             position: 'left',
             min: 0,
-            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
             ticks: {
-              color: '#64748b',
+              color: '#94a3b8',
               font: { family: 'JetBrains Mono', size: 10 }
             },
             title: {
               display: true,
               text: 'RAM (MB) / CPU (%)',
-              color: '#64748b',
+              color: '#94a3b8',
               font: { family: 'Inter', size: 9, weight: '600' }
             }
           },
@@ -574,13 +591,13 @@ function initCharts() {
             min: 0,
             grid: { drawOnChartArea: false },
             ticks: {
-              color: '#f59e0b',
+              color: '#fbbf24',
               font: { family: 'JetBrains Mono', size: 10 }
             },
             title: {
               display: true,
               text: 'System Load (1m)',
-              color: '#f59e0b',
+              color: '#fbbf24',
               font: { family: 'Inter', size: 9, weight: '600' }
             }
           }
@@ -1081,7 +1098,7 @@ function exportChartCSV(chartId) {
  */
 function exportCompleteWaveformsCSV() {
   const isBench = (typeof waveformViewMode !== 'undefined' && waveformViewMode === 'benchmark') ||
-                  (typeof isBenchmarkWaveformsMode !== 'undefined' && isBenchmarkWaveformsMode);
+    (typeof isBenchmarkWaveformsMode !== 'undefined' && isBenchmarkWaveformsMode);
 
   if (isBench) {
     exportCompleteBenchmarkWaveformsCSV();
