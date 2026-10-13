@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Edge Vision Monitor | YOLO11 on Raspberry Pi 5 + Hailo-8L</title>
   <meta name="description" content="Production-grade YOLO11 edge AI inference, telemetry platform, and live monitoring dashboard for Raspberry Pi 5 and Hailo-8L AI HAT+.">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.1-cleantitle">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.2-allwaveforms">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <!-- Chart.js for real-time telemetry plots -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -314,6 +314,9 @@
         <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
           ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
         </span>
+        <button id="btn-export-complete-waveforms-csv" type="button" class="btn-chart-action btn-export-csv btn-export-all-waveforms" onclick="exportCompleteWaveformsCSV()" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+          <span class="icon-csv">📊</span> Export Complete Waveforms CSV
+        </button>
         <div class="chart-filter-tabs">
           <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (12)</button>
           <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
@@ -985,6 +988,9 @@
               <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Detections CSV
               </a>
+              <button type="button" class="btn btn-ghost" onclick="exportCompleteWaveformsCSV()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+                📊 Export Waveforms CSV
+              </button>
               <button type="button" class="btn btn-ghost" onclick="resetTelemetryAndDetectionData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Reset sensor telemetry and detection session data">
                 🗑️ Reset Data
               </button>
@@ -1038,7 +1044,7 @@
     Edge Vision Monitor &bull; Raspberry Pi 5 &amp; Hailo-8L Edge AI &bull; Built for High-Efficiency Accelerated Computer Vision
   </footer>
 
-  <script src="/static/js/charts.js?v=3.14-benchcancel"></script>
-  <script src="/static/js/app.js?v=3.14-benchcancel"></script>
+  <script src="/static/js/charts.js?v=3.15-completecsvexport"></script>
+  <script src="/static/js/app.js?v=3.15-completecsvexport"></script>
 </body>
 </html>

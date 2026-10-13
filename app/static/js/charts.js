@@ -1072,6 +1072,365 @@ function exportChartCSV(chartId) {
   downloadBlob(csv, `${reg.defaultFilename}_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
 }
 
+/**
+ * Single complete CSV export covering all 12 Live System & Hardware Telemetry Waveforms.
+ * Intelligently exports:
+ * - Full multi-channel Live Telemetry session waveforms when in Live mode
+ * - Side-by-side Hailo-8L vs CPU comparative curves when in Dual Benchmark Overlay mode
+ * Includes time alignment across all channels and session Confidence Histogram distribution summary.
+ */
+function exportCompleteWaveformsCSV() {
+  const isBench = (typeof waveformViewMode !== 'undefined' && waveformViewMode === 'benchmark') ||
+                  (typeof isBenchmarkWaveformsMode !== 'undefined' && isBenchmarkWaveformsMode);
+
+  if (isBench) {
+    exportCompleteBenchmarkWaveformsCSV();
+  } else {
+    exportCompleteLiveWaveformsCSV();
+  }
+}
+
+function exportCompleteLiveWaveformsCSV() {
+  const lineChartKeys = [
+    'chart-latency',
+    'chart-fps',
+    'chart-interframe',
+    'chart-detections-count',
+    'chart-thermal',
+    'chart-resources',
+    'chart-disk',
+    'chart-fan',
+    'chart-cpufreq',
+    'chart-voltages',
+    'chart-procfootprint'
+  ];
+
+  // 1. Identify master timeline labels
+  let masterLabels = [];
+  for (const key of lineChartKeys) {
+    const chart = CHART_REGISTRY[key]?.getChart();
+    if (chart && chart.data && Array.isArray(chart.data.labels) && chart.data.labels.length > masterLabels.length) {
+      masterLabels = chart.data.labels;
+    }
+  }
+
+  // If no points in memory, offer backend historical waveforms fallback
+  if (!masterLabels || masterLabels.length === 0) {
+    if (confirm('No active in-memory telemetry waveform points found for this live session yet. Would you like to export persisted historical waveform records from the database?')) {
+      window.location.href = '/api/v1/history/export/waveforms';
+    }
+    return;
+  }
+
+  // Helper to extract a scalar from chart with length offset compensation
+  const getChartDataVal = (chart, datasetIdx, targetIdx, masterLen) => {
+    if (!chart || !chart.data || !chart.data.datasets || !chart.data.datasets[datasetIdx]) return '';
+    const ds = chart.data.datasets[datasetIdx];
+    const offset = masterLen - (chart.data.labels ? chart.data.labels.length : 0);
+    const actualIdx = targetIdx - offset;
+    if (actualIdx < 0 || actualIdx >= ds.data.length) return '';
+    const v = ds.data[actualIdx];
+    return (v !== null && v !== undefined && !isNaN(v)) ? v : '';
+  };
+
+  // 2. Define the exact columns for each of the 12 Live Waveforms
+  const colDefs = [
+    {
+      header: 'Timestamp',
+      getVal: (i) => `"${(masterLabels[i] || '').toString().replace(/"/g, '""')}"`
+    },
+    {
+      header: 'Elapsed_Seconds',
+      getVal: (i) => i
+    },
+    // 1. Latency Breakdown History (ms) (chart-latency: ds[0]=exec, ds[1]=prep, ds[2]=post)
+    {
+      header: 'Latency_Preprocess_ms',
+      getVal: (i) => getChartDataVal(latencyChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'Latency_Accelerator_Exec_ms',
+      getVal: (i) => getChartDataVal(latencyChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'Latency_Postprocess_ms',
+      getVal: (i) => getChartDataVal(latencyChart, 2, i, masterLabels.length)
+    },
+    {
+      header: 'Latency_Total_Pipeline_ms',
+      getVal: (i) => {
+        const prep = getChartDataVal(latencyChart, 1, i, masterLabels.length);
+        const exec = getChartDataVal(latencyChart, 0, i, masterLabels.length);
+        const post = getChartDataVal(latencyChart, 2, i, masterLabels.length);
+        if (prep === '' && exec === '' && post === '') return '';
+        const sum = (Number(prep) || 0) + (Number(exec) || 0) + (Number(post) || 0);
+        return sum > 0 ? sum.toFixed(2) : '';
+      }
+    },
+    // 2. Processed Frames Per Second (FPS) (chart-fps: ds[0]=fps)
+    {
+      header: 'Processed_FPS',
+      getVal: (i) => getChartDataVal(fpsChart, 0, i, masterLabels.length)
+    },
+    // 3. Inter-Frame Interval (ms) (chart-interframe: ds[0]=interval)
+    {
+      header: 'InterFrame_Interval_ms',
+      getVal: (i) => getChartDataVal(interFrameChart, 0, i, masterLabels.length)
+    },
+    // 4. Detections Per Frame (chart-detections-count: ds[0]=count)
+    {
+      header: 'Detections_Per_Frame',
+      getVal: (i) => getChartDataVal(detectionsCountChart, 0, i, masterLabels.length)
+    },
+    // 5. Thermal Profile History (°C) (chart-thermal: ds[0]=cpu, ds[1]=rp1, ds[2]=hailo)
+    {
+      header: 'Thermal_CPU_degC',
+      getVal: (i) => getChartDataVal(thermalChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'Thermal_RP1_degC',
+      getVal: (i) => getChartDataVal(thermalChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'Thermal_Hailo8L_NPU_degC',
+      getVal: (i) => getChartDataVal(thermalChart, 2, i, masterLabels.length)
+    },
+    // 6. System Utilisation History (%) (chart-resources: ds[0]=cpu, ds[1]=ram)
+    {
+      header: 'System_CPU_Utilisation_pct',
+      getVal: (i) => getChartDataVal(resourceChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'System_RAM_Utilisation_pct',
+      getVal: (i) => getChartDataVal(resourceChart, 1, i, masterLabels.length)
+    },
+    // 7. Disk Utilisation (%) (chart-disk: ds[0]=disk)
+    {
+      header: 'Disk_Utilisation_pct',
+      getVal: (i) => getChartDataVal(diskChart, 0, i, masterLabels.length)
+    },
+    // 8. Active Cooling & Fan Speed (chart-fan: ds[0]=rpm)
+    {
+      header: 'Active_Cooler_Fan_Speed_RPM',
+      getVal: (i) => getChartDataVal(fanChart, 0, i, masterLabels.length)
+    },
+    // 9. CPU Quad-Core Frequencies (MHz) (chart-cpufreq: ds[0]=c0, ds[1]=c1, ds[2]=c2, ds[3]=c3)
+    {
+      header: 'CPU_Freq_Core0_MHz',
+      getVal: (i) => getChartDataVal(cpuFreqChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'CPU_Freq_Core1_MHz',
+      getVal: (i) => getChartDataVal(cpuFreqChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'CPU_Freq_Core2_MHz',
+      getVal: (i) => getChartDataVal(cpuFreqChart, 2, i, masterLabels.length)
+    },
+    {
+      header: 'CPU_Freq_Core3_MHz',
+      getVal: (i) => getChartDataVal(cpuFreqChart, 3, i, masterLabels.length)
+    },
+    // 10. RP1 Southbridge Rail Voltages (V) (chart-voltages: ds[0]=0.8V, ds[1]=1.1V, ds[2]=1.8V, ds[3]=3.3V)
+    {
+      header: 'RP1_Rail_0v8_Voltage_V',
+      getVal: (i) => getChartDataVal(voltageChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'RP1_Rail_1v1_Voltage_V',
+      getVal: (i) => getChartDataVal(voltageChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'RP1_Rail_1v8_Voltage_V',
+      getVal: (i) => getChartDataVal(voltageChart, 2, i, masterLabels.length)
+    },
+    {
+      header: 'RP1_Rail_3v3_Voltage_V',
+      getVal: (i) => getChartDataVal(voltageChart, 3, i, masterLabels.length)
+    },
+    // 11. Process Footprint & System Load (chart-procfootprint: ds[0]=cpu, ds[1]=rss, ds[2]=load)
+    {
+      header: 'Process_CPU_pct',
+      getVal: (i) => getChartDataVal(procFootprintChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'Process_Memory_RSS_MB',
+      getVal: (i) => getChartDataVal(procFootprintChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'System_Load_Average_1m',
+      getVal: (i) => getChartDataVal(procFootprintChart, 2, i, masterLabels.length)
+    }
+  ];
+
+  // 3. Assemble data rows
+  const headerRow = colDefs.map(c => `"${c.header.replace(/"/g, '""')}"`).join(',');
+  const dataRows = [];
+  for (let i = 0; i < masterLabels.length; i++) {
+    const rowVals = colDefs.map(c => c.getVal(i));
+    dataRows.push(rowVals.join(','));
+  }
+
+  // 4. Append Confidence Distribution Histogram summary (Chart #5)
+  const confBins = (confHistChart && confHistChart.data && confHistChart.data.datasets && confHistChart.data.datasets[0])
+    ? confHistChart.data.datasets[0].data
+    : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+  const exportRows = [
+    headerRow,
+    ...dataRows,
+    '',
+    '# ==============================================================================',
+    '# CONFIDENCE DISTRIBUTION HISTOGRAM (Session Cumulative Binned Detections)',
+    '# ==============================================================================',
+    'Confidence Bin Range,Bin Lower,Bin Upper,Detection Count'
+  ];
+
+  for (let b = 0; b < 10; b++) {
+    const lower = (b * 0.1).toFixed(1);
+    const upper = ((b + 1) * 0.1).toFixed(1);
+    const count = confBins[b] || 0;
+    exportRows.push(`"${lower} - ${upper}",${lower},${upper},${count}`);
+  }
+
+  const csvContent = exportRows.join('\r\n');
+  downloadBlob(csvContent, `live_system_hardware_telemetry_waveforms_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
+}
+
+function exportCompleteBenchmarkWaveformsCSV() {
+  const hailoPts = (typeof benchmarkData !== 'undefined' && benchmarkData.hailo) ? benchmarkData.hailo : [];
+  const cpuPts = (typeof benchmarkData !== 'undefined' && benchmarkData.cpu) ? benchmarkData.cpu : [];
+  const maxLen = Math.max(hailoPts.length, cpuPts.length);
+
+  if (maxLen === 0) {
+    alert('No dual benchmark comparison data points available to export yet. Please execute a benchmark run first.');
+    return;
+  }
+
+  const header = [
+    'Relative_Time_s',
+    'Elapsed_Seconds',
+    // 1. Latency Breakdown
+    'Hailo8L_Latency_Exec_ms',
+    'CPU_Latency_Exec_ms',
+    'Hailo8L_Latency_Prep_ms',
+    'CPU_Latency_Prep_ms',
+    'Hailo8L_Latency_Post_ms',
+    'CPU_Latency_Post_ms',
+    'Hailo8L_Latency_Total_ms',
+    'CPU_Latency_Total_ms',
+    // 2. Processed FPS
+    'Hailo8L_Processed_FPS',
+    'CPU_Processed_FPS',
+    // 3. Inter-Frame Interval
+    'Hailo8L_InterFrame_Interval_ms',
+    'CPU_InterFrame_Interval_ms',
+    // 4. Detections Per Frame
+    'Hailo8L_Detections_Per_Frame',
+    'CPU_Detections_Per_Frame',
+    // 5. Thermals
+    'Hailo8L_CPU_Temp_degC',
+    'CPU_CPU_Temp_degC',
+    'Hailo8L_RP1_Temp_degC',
+    'CPU_RP1_Temp_degC',
+    'Hailo8L_NPU_Temp_degC',
+    'CPU_NPU_Temp_degC',
+    // 6. System Utilisation
+    'Hailo8L_Host_CPU_pct',
+    'CPU_Host_CPU_pct',
+    'Hailo8L_Host_RAM_pct',
+    'CPU_Host_RAM_pct',
+    // 7. Root Disk
+    'Hailo8L_Disk_Util_pct',
+    'CPU_Disk_Util_pct',
+    // 8. Active Cooling
+    'Hailo8L_Fan_Speed_RPM',
+    'CPU_Fan_Speed_RPM',
+    // 9. CPU Frequencies
+    'Hailo8L_CPU0_Freq_MHz',
+    'CPU_CPU0_Freq_MHz',
+    // 10. RP1 Southbridge Voltages
+    'Hailo8L_RP1_0v8_Rail_V',
+    'CPU_RP1_0v8_Rail_V',
+    // 11. Process Footprint
+    'Hailo8L_Process_CPU_pct',
+    'CPU_Process_CPU_pct',
+    'Hailo8L_Process_RSS_MB',
+    'CPU_Process_RSS_MB',
+    'Hailo8L_System_Load_1m',
+    'CPU_System_Load_1m'
+  ].map(h => `"${h}"`).join(',');
+
+  const rows = [];
+  const fmt = v => (v !== null && v !== undefined && !isNaN(v)) ? v : '';
+  for (let i = 0; i < maxLen; i++) {
+    const h = hailoPts[i] || {};
+    const c = cpuPts[i] || {};
+    rows.push([
+      `"${i}s"`,
+      i,
+      fmt(h.latency_exec), fmt(c.latency_exec),
+      fmt(h.latency_prep), fmt(c.latency_prep),
+      fmt(h.latency_post), fmt(c.latency_post),
+      fmt(h.latency_total), fmt(c.latency_total),
+      fmt(h.fps), fmt(c.fps),
+      fmt(h.interframe), fmt(c.interframe),
+      fmt(h.det_count), fmt(c.det_count),
+      fmt(h.cpu_temp), fmt(c.cpu_temp),
+      fmt(h.rp1_temp), fmt(c.rp1_temp),
+      fmt(h.hailo_temp), fmt(c.hailo_temp),
+      fmt(h.cpu_util), fmt(c.cpu_util),
+      fmt(h.mem_util), fmt(c.mem_util),
+      fmt(h.disk_util), fmt(c.disk_util),
+      fmt(h.fan_rpm), fmt(c.fan_rpm),
+      fmt(h.cpu0_freq), fmt(c.cpu0_freq),
+      fmt(h.v_in1), fmt(c.v_in1),
+      fmt(h.proc_cpu), fmt(c.proc_cpu),
+      fmt(h.proc_rss), fmt(c.proc_rss),
+      fmt(h.sys_load), fmt(c.sys_load)
+    ].join(','));
+  }
+
+  // Comparative Confidence Distribution
+  const hConfs = (typeof benchmarkConfList !== 'undefined' && benchmarkConfList.hailo) ? benchmarkConfList.hailo : [];
+  const cConfs = (typeof benchmarkConfList !== 'undefined' && benchmarkConfList.cpu) ? benchmarkConfList.cpu : [];
+  const computeBins = (confs) => {
+    const bins = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    if (Array.isArray(confs)) {
+      confs.forEach(c => {
+        if (typeof c === 'number' && !isNaN(c)) {
+          let idx = Math.floor(c * 10);
+          if (idx >= 10) idx = 9;
+          if (idx < 0) idx = 0;
+          bins[idx]++;
+        }
+      });
+    }
+    return bins;
+  };
+  const hBins = computeBins(hConfs);
+  const cBins = computeBins(cConfs);
+
+  const exportRows = [
+    header,
+    ...rows,
+    '',
+    '# ==============================================================================',
+    '# DUAL BENCHMARK CONFIDENCE HISTOGRAM COMPARISON (Hailo-8L vs Host CPU)',
+    '# ==============================================================================',
+    'Confidence Bin Range,Bin Lower,Bin Upper,Hailo-8L Detections,CPU Detections'
+  ];
+
+  for (let b = 0; b < 10; b++) {
+    const lower = (b * 0.1).toFixed(1);
+    const upper = ((b + 1) * 0.1).toFixed(1);
+    exportRows.push(`"${lower} - ${upper}",${lower},${upper},${hBins[b] || 0},${cBins[b] || 0}`);
+  }
+
+  const csv = exportRows.join('\r\n');
+  downloadBlob(csv, `dual_benchmark_telemetry_waveforms_${getTimestampStr()}.csv`, 'text/csv;charset=utf-8;');
+}
+
 function openEnlargeChart(chartId) {
   const reg = CHART_REGISTRY[chartId];
   if (!reg) return;

@@ -99,6 +99,8 @@ def test_inference_frame_and_detection_persistence(test_repo):
 def test_csv_export(test_repo):
     csv_str = test_repo.export_telemetry_csv()
     assert "timestamp_utc,metric_name,value,unit" in csv_str
+    wf_csv = test_repo.export_waveforms_csv()
+    assert "timestamp_utc" in wf_csv
 
 
 def test_reset_history(test_repo):

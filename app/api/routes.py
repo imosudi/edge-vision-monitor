@@ -498,3 +498,17 @@ def export_detections_csv():
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=detections_export.csv"},
     )
+
+
+@api_router.get("/history/export/waveforms")
+def export_waveforms_csv():
+    """Export unified multi-channel telemetry and inference waveforms as CSV dataset."""
+    mgr = get_lifecycle_manager()
+    if not mgr.repository:
+        raise HTTPException(status_code=500, detail="Repository not initialized")
+    csv_str = mgr.repository.export_waveforms_csv()
+    return PlainTextResponse(
+        csv_str,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=waveforms_telemetry_export.csv"},
+    )

@@ -503,3 +503,63 @@ class TelemetryRepository:
         writer.writeheader()
         writer.writerows(dets)
         return output.getvalue()
+
+    def export_waveforms_csv(self, limit: int = 5000) -> str:
+        """
+        Export complete multi-channel telemetry sensor and inference waveforms
+        as a unified time-series CSV dataset.
+        """
+        conn = get_connection(self._db_path)
+        try:
+            t_rows = conn.execute(
+                """
+                SELECT timestamp_utc, metric_name, value
+                FROM telemetry_samples
+                ORDER BY timestamp_utc ASC, id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+            inf_rows = conn.execute(
+                """
+                SELECT timestamp_utc, preprocessing_ms, hailo_exec_ms, postprocessing_ms, total_latency_ms, detections_count
+                FROM inference_frames
+                ORDER BY timestamp_utc ASC, id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        ts_map: Dict[str, Dict[str, Any]] = {}
+        for row in t_rows:
+            ts, m_name, val = row[0], row[1], row[2]
+            if ts not in ts_map:
+                ts_map[ts] = {}
+            ts_map[ts][m_name] = val
+
+        for row in inf_rows:
+            ts = row[0]
+            if ts not in ts_map:
+                ts_map[ts] = {}
+            ts_map[ts]["latency_prep_ms"] = row[1]
+            ts_map[ts]["latency_exec_ms"] = row[2]
+            ts_map[ts]["latency_post_ms"] = row[3]
+            ts_map[ts]["latency_total_ms"] = row[4]
+            ts_map[ts]["detections_count"] = row[5]
+
+        output = io.StringIO()
+        if not ts_map:
+            return "timestamp_utc,latency_prep_ms,latency_exec_ms,latency_post_ms,latency_total_ms,detections_count,cpu_temp,mem_util,cpu_util\n"
+
+        all_keys = sorted({k for data in ts_map.values() for k in data.keys()})
+        fieldnames = ["timestamp_utc"] + all_keys
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for ts, data in sorted(ts_map.items()):
+            row_dict = {"timestamp_utc": ts}
+            row_dict.update(data)
+            writer.writerow(row_dict)
+        return output.getvalue()
