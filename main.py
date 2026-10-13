@@ -337,7 +337,8 @@ def run_systemd(args: argparse.Namespace) -> int:
     action = getattr(args, "systemd_action", None) or "status"
 
     if action in ("generate", "show"):
-        user = getattr(args, "user", None) or getpass.getuser()
+        default_user = os.environ.get("SUDO_USER") or getpass.getuser()
+        user = getattr(args, "user", None) or default_user
         group = getattr(args, "group", None) or "video"
         workdir = PROJECT_ROOT
         custom_py = getattr(args, "python", None)
@@ -354,7 +355,8 @@ def run_systemd(args: argparse.Namespace) -> int:
 
     if action == "install":
         log_info(f"Target service file: {SYSTEMD_SERVICE_PATH}")
-        user = getattr(args, "user", None) or getpass.getuser()
+        default_user = os.environ.get("SUDO_USER") or getpass.getuser()
+        user = getattr(args, "user", None) or default_user
         group = getattr(args, "group", None) or "video"
         workdir = PROJECT_ROOT
         custom_py = getattr(args, "python", None)
