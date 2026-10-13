@@ -1,17 +1,17 @@
 # YOLO11 Model Provisioning & Multi-Backend Guide
 
-This directory holds model artifacts for **Edge Vision Monitor**, supporting both **Hailo-8L NPU hardware acceleration** and **CPU fallback/benchmarking via ONNX Runtime**.
+This directory holds model artefacts for **Edge Vision Monitor**, supporting both **Hailo-8L NPU hardware acceleration** and **CPU fallback/benchmarking via ONNX Runtime**.
 
 > [!TIP]
-> **Dedicated Training & Optimization Suite:**
-> An extensive and dedicated YOLO11 pipeline for dataset calibration, training, post-training quantization (PTQ), and Hailo DFC compilation is available at:
+> **Dedicated Training & Optimisation Suite:**
+> An extensive and dedicated YOLO11 pipeline for dataset calibration, training, post-training quantisation (PTQ), and Hailo DFC compilation is available at:
 > 🔗 **[https://github.com/imosudi/hailo-yolo11-compiler](https://github.com/imosudi/hailo-yolo11-compiler)**
 
 ---
 
 ## 1. Directory Structure
 
-Place your model artifacts in the structured subdirectories:
+Place your model artefacts in the structured subdirectories:
 
 ```text
 models/
@@ -53,7 +53,7 @@ cp yolo11n.onnx models/onnx/model.onnx
 ```
 
 ### Step 2: Compile with Hailo Dataflow Compiler (DFC)
-Compile the ONNX model into a quantized Hailo Executable Format (`.hef`) binary targeting the Hailo-8L:
+Compile the ONNX model into a quantised Hailo Executable Format (`.hef`) binary targeting the Hailo-8L:
 
 ```bash
 hailo-yolo11-compiler compile \

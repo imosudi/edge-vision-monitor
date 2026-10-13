@@ -334,7 +334,7 @@ class ONNXInferenceEngine(BaseInferenceEngine):
                     self._input_width = shape[3]
 
             self._is_ready = True
-            logger.info("CPU (ONNX Runtime) inference engine initialized with model: %s", self._onnx_path)
+            logger.info("CPU (ONNX Runtime) inference engine initialised with model: %s", self._onnx_path)
 
             self._validation = ModelValidationResult(
                 is_valid=True,

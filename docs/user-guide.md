@@ -2,7 +2,7 @@
   <img src="logo.svg" alt="Edge Vision Monitor Logo" width="550">
 </p>
 
-# Edge Vision Monitor — User Guide
+# Edge Vision Monitor: User Guide
 
 Welcome to the **Edge Vision Monitor** user guide. This document provides comprehensive operational instructions for interacting with the live dashboard, monitoring hardware thermals, configuring video inputs, and managing edge AI object detection workflows on the Raspberry Pi 5 equipped with a Hailo-8L AI HAT+.
 
@@ -126,8 +126,8 @@ Hardware metrics are sampled every second on an isolated thread:
 ### 5.1 Hardware Thermals
 - **CPU Temperature**: Primary SoC temperature in degrees Celsius with colour-coded thresholds:
   - `< 70°C`: Cyan (Nominal)
-  - `70°C – 79°C`: Amber (Elevated)
-  - `≥ 80°C`: Red (Critical — throttling imminent)
+  - `70°C - 79°C`: Amber (Elevated)
+  - `≥ 80°C`: Red (Critical: throttling imminent)
 - **RP1 I/O Controller**: Measures temperature of the Raspberry Pi 5 southbridge chip.
 - **Hailo-8L Die**: Silicon temperature of the accelerator co-processor.
 

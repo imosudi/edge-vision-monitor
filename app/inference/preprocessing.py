@@ -19,7 +19,7 @@ def letterbox_image(
 ) -> Tuple[np.ndarray, float, Tuple[int, int]]:
     """
     Resize image to target shape (height, width) with aspect ratio preservation
-    and centered padding.
+    and centred padding.
 
     Returns:
         padded_image: Resized and padded image.

@@ -1,4 +1,4 @@
-# Edge Vision Monitor — Deployment & Operations Guide
+# Edge Vision Monitor: Deployment & Operations Guide
 
 This guide covers physical hardware assembly, host OS configuration, least-privilege Podman containerisation, systemd service management, and operational maintenance for the **Edge Vision Monitor** platform.
 

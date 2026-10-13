@@ -1,4 +1,4 @@
-# Edge Vision Monitor — REST API & WebSocket Reference
+# Edge Vision Monitor: REST API & WebSocket Reference
 
 The Edge Vision Monitor platform provides a versioned REST API under `/api/v1/` and a real-time WebSocket endpoint for low-latency state distribution.
 

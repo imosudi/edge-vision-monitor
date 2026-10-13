@@ -1,5 +1,5 @@
 """
-Hailo YOLO11 model artifact validation, HEF header checking, and class labels loading.
+Hailo YOLO11 model artefact validation, HEF header checking, and class labels loading.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ COCO_80_CLASSES = [
 
 @dataclass
 class ModelValidationResult:
-    """Outcome of model artifact inspection and compatibility checks."""
+    """Outcome of model artefact inspection and compatibility checks."""
 
     is_valid: bool
     status: str  # READY, FILE_NOT_FOUND, INVALID_FORMAT, NO_RUNTIME, ERROR

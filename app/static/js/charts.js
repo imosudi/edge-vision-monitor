@@ -658,7 +658,7 @@ function filterCharts(category, btn) {
 }
 
 /**
- * Initialize or update the interactive sensor chart inside the diagnostics modal.
+ * Initialise or update the interactive sensor chart inside the diagnostics modal.
  */
 function initOrUpdateModalSensorChart(metricName, unit, initialHistory = []) {
   const ctx = document.getElementById('chart-modal-sensor');
@@ -840,7 +840,7 @@ const CHART_REGISTRY = {
     title: 'Latency Breakdown History (ms)',
     icon: '📈',
     badge: 'INFERENCE PIPELINE',
-    desc: 'High-resolution visualization of preprocessing, Hailo-8L neural processing unit (NPU) accelerator execution, and postprocessing pipeline latencies over time.',
+    desc: 'High-resolution visualisation of preprocessing, Hailo-8L neural processing unit (NPU) accelerator execution, and postprocessing pipeline latencies over time.',
     yUnit: 'ms',
     defaultFilename: 'latency_breakdown_history'
   },
@@ -1886,7 +1886,7 @@ function exportBenchmarkCSV() {
 function exportBenchmarkChartsPNG() {
   const charts = [benchFpsChart, benchLatencyChart, benchCpuChart, benchThermalChart].filter(Boolean);
   if (charts.length === 0 || !charts[0].canvas) {
-    alert('Benchmark charts are not initialized yet.');
+    alert('Benchmark charts are not initialised yet.');
     return;
   }
 
@@ -2362,7 +2362,7 @@ function renderDualBenchmarkOnLiveWaveforms(hailoPts, cpuPts, hailoConfs = [], c
     }
   }
 
-  // Also sync modal overlay charts if initialized
+  // Also sync modal overlay charts if initialised
   if (typeof renderBenchmarkOverlay === 'function') {
     renderBenchmarkOverlay(hailoPts, cpuPts);
   }

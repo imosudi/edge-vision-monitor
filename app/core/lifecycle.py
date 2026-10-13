@@ -134,7 +134,7 @@ class ApplicationLifecycleManager:
             st = self.inference_engine.get_status()
             current_backend = (st.get("backend") or "").lower()
             if current_backend == backend_lower and (not model_path or model_path == getattr(self.inference_engine, "onnx_path", None)):
-                logger.info("Inference backend '%s' is already active, skipping re-initialization", backend)
+                logger.info("Inference backend '%s' is already active, skipping re-initialisation", backend)
                 self.config.model.active_backend = backend_lower
                 return True
 

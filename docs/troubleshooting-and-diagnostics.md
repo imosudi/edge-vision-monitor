@@ -1,4 +1,4 @@
-# Edge Vision Monitor — Troubleshooting & Diagnostics Guide
+# Edge Vision Monitor: Troubleshooting & Diagnostics Guide
 
 This guide details fault-isolation procedures, common operational errors, and diagnostic techniques for the **Edge Vision Monitor** platform.
 

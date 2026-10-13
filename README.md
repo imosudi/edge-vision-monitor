@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="Edge Vision Monitor — YOLO11 &amp; Hardware Telemetry on Raspberry Pi 5" width="100%">
+  <img src="docs/banner.svg" alt="Edge Vision Monitor: YOLO11 &amp; Hardware Telemetry on Raspberry Pi 5" width="100%">
 </p>
 
 # edge-vision-monitor
@@ -100,7 +100,7 @@ The application does not fabricate or bundle uncompiled models. Real Hailo-8L ac
    ├── labels.txt          # Class names (one per line, COCO-80 default provided)
    └── README.md           # Model compilation reference guide
    ```
-2. To train, optimize, or compile YOLO11 targeting the Hailo-8L, utilise the companion repository [**hailo-yolo11-compiler**](https://github.com/imosudi/hailo-yolo11-compiler):
+2. To train, optimise, or compile YOLO11 targeting the Hailo-8L, utilise the companion repository [**hailo-yolo11-compiler**](https://github.com/imosudi/hailo-yolo11-compiler):
    ```bash
    yolo export model=yolo11n.pt format=onnx opset=11
    hailo-yolo11-compiler compile --onnx yolo11n.onnx --target hailo8l --output models/yolo11n.hef
@@ -163,7 +163,7 @@ The root `main.py` entry point serves as the single orchestration interface for 
 
 ### 6.1 Podman Compose Management
 ```bash
-# Start background containerized service
+# Start background containerised service
 python main.py podman up -d
 
 # Inspect running container status
@@ -258,7 +258,7 @@ Hardware monitoring is implemented through native Linux interfaces rather than s
 | `hwmon_*_rpm` | `RPM` | `/sys/class/hwmon/` | Cooling fan tachometer feedback |
 | `rpi_throttled_raw` | `flags` | `vcgencmd get_throttled` | Raw hexadecimal throttling bitfield |
 | `rpi_undervoltage_now` | `boolean` | `vcgencmd get_throttled` | Active under-voltage flag (Bit 0) |
-| `rpi_is_throttled` | `boolean` | `vcgencmd get_throttled` | Active throttling condition (Bits 0–3) |
+| `rpi_is_throttled` | `boolean` | `vcgencmd get_throttled` | Active throttling condition (Bits 0-3) |
 | `hailo_device_present` | `boolean` | `/dev/hailo0` | Hailo PCIe device node detection |
 | `hailo_temperature_c` | `°C` | HailoRT / driver | Accelerator silicon temperature (reported as `UNSUPPORTED` if driver does not expose it) |
 | `hailo_power_watts` | `Watts` | HailoRT / INA219 | Accelerator power consumption |

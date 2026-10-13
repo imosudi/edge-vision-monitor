@@ -4,7 +4,7 @@ Edge Vision Monitor - Main Application Entry Point & Deployment Manager.
 
 Unified orchestration interface for:
   1. On-Device Native Deployment: Direct Python/FastAPI/Uvicorn execution.
-  2. Podman Compose Deployment: Rootless, least-privilege containerization.
+  2. Podman Compose Deployment: Rootless, least-privilege containerisation.
   3. systemd Integration: Host service generation, installation, and lifecycle management.
 """
 
@@ -29,26 +29,26 @@ SYSTEMD_SERVICE_PATH = Path("/etc/systemd/system") / SYSTEMD_SERVICE_NAME
 # Helper / Terminal Formatting Utilities
 # ==============================================================================
 
-def _colorize(text: str, color_code: str) -> str:
+def _colourise(text: str, colour_code: str) -> str:
     if sys.stdout.isatty():
-        return f"\033[{color_code}m{text}\033[0m"
+        return f"\033[{colour_code}m{text}\033[0m"
     return text
 
 
 def log_info(msg: str):
-    print(f"{_colorize('[INFO]', '32;1')} {msg}")
+    print(f"{_colourise('[INFO]', '32;1')} {msg}")
 
 
 def log_warn(msg: str):
-    print(f"{_colorize('[WARN]', '33;1')} {msg}")
+    print(f"{_colourise('[WARN]', '33;1')} {msg}")
 
 
 def log_error(msg: str):
-    print(f"{_colorize('[ERROR]', '31;1')} {msg}", file=sys.stderr)
+    print(f"{_colourise('[ERROR]', '31;1')} {msg}", file=sys.stderr)
 
 
 def log_step(title: str):
-    print(f"\n{_colorize('===>', '36;1')} {_colorize(title, '1')}")
+    print(f"\n{_colourise('===>', '36;1')} {_colourise(title, '1')}")
 
 
 def print_banner():
@@ -62,7 +62,7 @@ def print_banner():
                __/ |                                                                          
               |___/      Raspberry Pi 5 + Hailo-8L Edge AI & Telemetry Platform
 """
-    print(_colorize(banner, "36"))
+    print(_colourise(banner, "36"))
 
 
 # ==============================================================================
@@ -205,7 +205,7 @@ def run_compose(args: argparse.Namespace) -> int:
         return 1
 
     engine_name = " ".join(compose_cmd)
-    log_info(f"Detected container engine: {_colorize(engine_name, '32')}")
+    log_info(f"Detected container engine: {_colourise(engine_name, '32')}")
     log_info(f"Using compose file:        {compose_file}")
 
     # Check hardware nodes
@@ -348,9 +348,9 @@ def run_systemd(args: argparse.Namespace) -> int:
         port = getattr(args, "port", 8000)
 
         unit_content = generate_systemd_unit(user, group, workdir, python_bin, config_path, host, port)
-        print(f"\n{_colorize('--- Generated systemd Service Configuration ---', '36')}")
+        print(f"\n{_colourise('--- Generated systemd Service Configuration ---', '36')}")
         print(unit_content)
-        print(_colorize("--------------------------------------------------", "36"))
+        print(_colourise("--------------------------------------------------", "36"))
         return 0
 
     if action == "install":
@@ -469,7 +469,7 @@ def run_systemd(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
-        description="Edge Vision Monitor — Unified Application Entry Point & Deployment Manager.",
+        description="Edge Vision Monitor: Unified Application Entry Point & Deployment Manager.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -555,7 +555,7 @@ Examples:
 
     # --- Subcommand: compose / podman ---
     compose_parser = subparsers.add_parser(
-        "compose", aliases=["podman"], help="Manage Podman / Docker Compose containerized deployment"
+        "compose", aliases=["podman"], help="Manage Podman / Docker Compose containerised deployment"
     )
     compose_parser.add_argument(
         "compose_action",

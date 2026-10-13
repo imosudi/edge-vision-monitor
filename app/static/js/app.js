@@ -1048,7 +1048,7 @@ async function openDiagnosticsModal() {
         </tr>
       `).join('');
 
-      // Initialize selected metric plot
+      // Initialise selected metric plot
       await onModalSensorSelected(activeModalMetric || cachedMetricsCatalog[0].metric_name);
     }
   } catch (e) {

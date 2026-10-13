@@ -63,7 +63,7 @@ def get_readiness() -> ReadinessResponse:
             model_status="UNINITIALIZED",
             model_path="",
             hef_path="",
-            error_message="Lifecycle manager not initialized",
+            error_message="Lifecycle manager not initialised",
         )
 
     st = mgr.inference_engine.get_status()
@@ -477,7 +477,7 @@ def export_telemetry_csv():
     """Export persisted telemetry records as CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
-        raise HTTPException(status_code=500, detail="Repository not initialized")
+        raise HTTPException(status_code=500, detail="Repository not initialised")
     csv_str = mgr.repository.export_telemetry_csv()
     return PlainTextResponse(
         csv_str,
@@ -491,7 +491,7 @@ def export_detections_csv():
     """Export persisted detections history as CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
-        raise HTTPException(status_code=500, detail="Repository not initialized")
+        raise HTTPException(status_code=500, detail="Repository not initialised")
     csv_str = mgr.repository.export_detections_csv()
     return PlainTextResponse(
         csv_str,
@@ -505,7 +505,7 @@ def export_waveforms_csv():
     """Export unified multi-channel telemetry and inference waveforms as CSV dataset."""
     mgr = get_lifecycle_manager()
     if not mgr.repository:
-        raise HTTPException(status_code=500, detail="Repository not initialized")
+        raise HTTPException(status_code=500, detail="Repository not initialised")
     csv_str = mgr.repository.export_waveforms_csv()
     return PlainTextResponse(
         csv_str,

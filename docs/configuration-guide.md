@@ -1,4 +1,4 @@
-# Edge Vision Monitor — Configuration Guide
+# Edge Vision Monitor: Configuration Guide
 
 This guide details the complete configuration hierarchy, schema attributes, environment variable overrides, and operational tuning parameters for the **Edge Vision Monitor** platform.
 

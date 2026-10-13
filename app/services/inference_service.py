@@ -152,10 +152,10 @@ class InferenceService:
                 except Exception as ce:
                     logger.warning("Error closing previous engine before switch: %s", ce)
 
-            logger.info("Initializing new engine: %s", type(new_engine).__name__)
+            logger.info("Initialising new engine: %s", type(new_engine).__name__)
             res = new_engine.initialize()
             if not res.is_valid:
-                logger.warning("New engine initialization failed: %s (%s)", res.error_message, res.status)
+                logger.warning("New engine initialisation failed: %s (%s)", res.error_message, res.status)
                 if old_engine is not None:
                     try:
                         old_engine.initialize()
