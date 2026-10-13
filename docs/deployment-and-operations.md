@@ -150,43 +150,63 @@ podman-compose logs -f
 
 For native host installations that run 24/7 automatically on boot:
 
-1. Create a service file at `/etc/systemd/system/edge-vision-monitor.service`:
-   ```ini
-   [Unit]
-   Description=Edge Vision Monitor Platform
-   After=network.target local-fs.target
-   Wants=network-online.target
+### 4.1 Automated systemd Setup via `main.py`
+The project provides automated systemd integration directly from the root entry point:
+```bash
+# Preview generated service unit
+python main.py systemd show
 
-   [Service]
-   Type=simple
-   User=mosud
-   Group=video
-   WorkingDirectory=/home/mosud/Documents/dev/edge-vision-monitor
-   Environment="PATH=/home/mosud/Documents/dev/edge-vision-monitor/.venv/bin:/usr/local/bin:/usr/bin"
-   Environment="EVM_SERVER__HOST=0.0.0.0"
-   Environment="EVM_SERVER__PORT=8000"
-   ExecStart=/home/mosud/Documents/dev/edge-vision-monitor/.venv/bin/python -m app.main
-   Restart=always
-   RestartSec=5s
-   TimeoutStopSec=15s
-   KillSignal=SIGTERM
+# Install service, reload daemon, and enable at boot
+python main.py systemd install --start-now
 
-   # Hardening
-   ProtectSystem=full
-   ProtectHome=read-only
-   ReadWritePaths=/home/mosud/Documents/dev/edge-vision-monitor/data
+# Manage service lifecycle
+python main.py systemd status
+python main.py systemd logs -n 50
+python main.py systemd restart
+python main.py systemd stop
 
-   [Install]
-   WantedBy=multi-user.target
-   ```
+# Uninstall service
+python main.py systemd uninstall
+```
 
-2. Enable and start the systemd unit:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable edge-vision-monitor
-   sudo systemctl start edge-vision-monitor
-   sudo systemctl status edge-vision-monitor
-   ```
+### 4.2 Manual Service Unit Specification
+Alternatively, create `/etc/systemd/system/edge-vision-monitor.service` manually:
+```ini
+[Unit]
+Description=Edge Vision Monitor Platform
+After=network.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mosud
+Group=video
+WorkingDirectory=/home/mosud/Documents/dev/edge-vision-monitor
+Environment="PATH=/home/mosud/Documents/dev/edge-vision-monitor/.venv/bin:/usr/local/bin:/usr/bin"
+Environment="EVM_CONFIG_PATH=/home/mosud/Documents/dev/edge-vision-monitor/config/config.yaml"
+Environment="EVM_SERVER__HOST=0.0.0.0"
+Environment="EVM_SERVER__PORT=8000"
+ExecStart=/home/mosud/Documents/dev/edge-vision-monitor/.venv/bin/python /home/mosud/Documents/dev/edge-vision-monitor/main.py run
+Restart=always
+RestartSec=5s
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+
+# Hardening
+ProtectSystem=full
+ReadWritePaths=/home/mosud/Documents/dev/edge-vision-monitor
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start manually:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable edge-vision-monitor
+sudo systemctl start edge-vision-monitor
+sudo systemctl status edge-vision-monitor
+```
 
 ---
 

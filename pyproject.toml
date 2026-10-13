@@ -36,8 +36,12 @@ hardware = [
 ]
 
 [project.scripts]
-edge-vision-monitor = "app.main:run"
+edge-vision-monitor = "main:main"
+evm = "main:main"
 evm-diagnose = "scripts.diagnose:main"
+
+[tool.setuptools]
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 where = ["."]

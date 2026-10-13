@@ -137,38 +137,67 @@ pip install --upgrade pip
 pip install -e ".[dev]"
 
 # 4. Execute hardware diagnostics
-python scripts/diagnose.py
+# 4. Execute hardware diagnostics
+python main.py diagnose
 
-# 5. Start the Edge Vision Monitor server
-python -m app.main
+# 5. Start the Edge Vision Monitor server (native on-device)
+python main.py
+# Or with options:
+# python main.py run --port 8000 --reload
 ```
 
 Navigate to **`http://localhost:8000`** in any modern web browser.
 
 ---
 
-## 6. Podman Container Deployment
+## 6. Unified Deployment Orchestration (`main.py`)
 
-Deployment via Podman adheres to **least-privilege host access**, avoiding `--privileged` and unrestricted root mounts.
+The root `main.py` entry point serves as the single orchestration interface for all deployment strategies:
 
-### 6.1 Building the Container
+| Deployment Mode | Command | Description |
+| :--- | :--- | :--- |
+| **On-Device Native** | `python main.py run` (or `python main.py`) | Runs Uvicorn directly in current host/venv environment. Supports `--host`, `--port`, `--reload`. |
+| **Podman Compose** | `python main.py podman up -d` | Deploys rootless container using `compose.yaml` with hardware device mapping (`/dev/hailo0`, `/dev/video0`). |
+| **systemd Service** | `python main.py systemd install --start-now` | Automatically configures, installs, enables, and manages `edge-vision-monitor.service`. |
+| **Diagnostics** | `python main.py diagnose` | Inspects Raspberry Pi model, Hailo-8L PCIe bus, thermal sensors, and camera inputs. |
+
+### 6.1 Podman Compose Management
 ```bash
-podman build -t edge-vision-monitor:latest -f Containerfile .
+# Start background containerized service
+python main.py podman up -d
+
+# Inspect running container status
+python main.py podman ps
+
+# Follow live operational container logs
+python main.py podman logs -f
+
+# Tear down container services
+python main.py podman down
 ```
 
-### 6.2 Running with Podman Compose
+### 6.2 Linux systemd Integration
 ```bash
-# Start background service
-podman-compose up -d
+# Preview generated service unit
+python main.py systemd show
 
-# Inspect running container and health status
-podman-compose ps
+# Install and start systemd unit automatically
+python main.py systemd install --start-now
 
-# View structured operational logs
-podman-compose logs -f
+# Check service status and operational logs
+python main.py systemd status
+python main.py systemd logs -n 50
+
+# Restart or stop service
+python main.py systemd restart
+python main.py systemd stop
 ```
 
-### 6.3 Direct Podman Command Line
+---
+
+## 7. Podman Container Direct Execution
+
+### 7.1 Direct Podman Command Line
 ```bash
 podman run -d \
   --name edge-vision-monitor \
@@ -185,7 +214,7 @@ podman run -d \
   edge-vision-monitor:latest
 ```
 
-### 6.4 Container Health Monitoring
+### 7.2 Container Health Monitoring
 The container health check distinguishes HTTP process liveness from accelerator readiness:
 - **Liveness** (`/api/v1/health`): Verifies the Uvicorn ASGI server and background telemetry threads are actively cycling.
 - **Readiness** (`/api/v1/ready`): Queries HailoRT VDevice state and model configuration.
