@@ -263,6 +263,21 @@ def run_compose(args: argparse.Namespace) -> int:
 # 3. systemd Service Integration
 # ==============================================================================
 
+def get_python_executable(workdir: Path) -> Path:
+    """Return the preferred Python executable, preserving virtual environments."""
+    # 1. Check if running inside an active virtualenv
+    if sys.prefix != sys.base_prefix:
+        return Path(sys.executable).absolute()
+
+    # 2. Check if a .venv directory exists in project root
+    local_venv_py = workdir / ".venv" / "bin" / "python"
+    if local_venv_py.exists():
+        return local_venv_py.absolute()
+
+    # 3. Fallback to current sys.executable
+    return Path(sys.executable).absolute()
+
+
 def generate_systemd_unit(
     user: str,
     group: str,
@@ -325,7 +340,8 @@ def run_systemd(args: argparse.Namespace) -> int:
         user = getattr(args, "user", None) or getpass.getuser()
         group = getattr(args, "group", None) or "video"
         workdir = PROJECT_ROOT
-        python_bin = Path(sys.executable).resolve()
+        custom_py = getattr(args, "python", None)
+        python_bin = Path(custom_py).absolute() if custom_py else get_python_executable(workdir)
         config_path = PROJECT_ROOT / "config" / "config.yaml"
         host = getattr(args, "host", "0.0.0.0")
         port = getattr(args, "port", 8000)
@@ -341,7 +357,8 @@ def run_systemd(args: argparse.Namespace) -> int:
         user = getattr(args, "user", None) or getpass.getuser()
         group = getattr(args, "group", None) or "video"
         workdir = PROJECT_ROOT
-        python_bin = Path(sys.executable).resolve()
+        custom_py = getattr(args, "python", None)
+        python_bin = Path(custom_py).absolute() if custom_py else get_python_executable(workdir)
         config_path = (PROJECT_ROOT / "config" / "config.yaml").resolve()
         host = getattr(args, "host", "0.0.0.0")
         port = getattr(args, "port", 8000)
@@ -566,6 +583,7 @@ Examples:
     )
     systemd_parser.add_argument("--user", type=str, help="Service execution user (default: current user)")
     systemd_parser.add_argument("--group", type=str, default="video", help="Service execution group (default: video)")
+    systemd_parser.add_argument("--python", type=str, help="Custom Python interpreter binary path")
     systemd_parser.add_argument("--host", type=str, default="0.0.0.0", help="Binding host in systemd service")
     systemd_parser.add_argument("--port", type=int, default=8000, help="Binding port in systemd service")
     systemd_parser.add_argument("--start-now", action="store_true", help="Start service immediately after install")

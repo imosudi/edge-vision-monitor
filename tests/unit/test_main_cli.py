@@ -131,14 +131,29 @@ def test_find_compose_command():
         assert cmd == ["docker", "compose"]
 
 
+def test_get_python_executable(tmp_path):
+    from main import get_python_executable
+
+    # When .venv/bin/python exists
+    fake_venv = tmp_path / ".venv" / "bin"
+    fake_venv.mkdir(parents=True)
+    fake_py = fake_venv / "python"
+    fake_py.touch()
+
+    with patch("sys.prefix", "/base"), patch("sys.base_prefix", "/base"):
+        py_bin = get_python_executable(tmp_path)
+        assert py_bin == fake_py.absolute()
+
+
 def test_run_systemd_show(capsys):
     parser = build_parser()
-    args = parser.parse_args(["systemd", "show", "--user", "myuser"])
+    args = parser.parse_args(["systemd", "show", "--user", "myuser", "--python", "/opt/custom/python"])
     with patch("shutil.which", return_value="/bin/systemctl"):
         ret = run_systemd(args)
         assert ret == 0
         captured = capsys.readouterr()
         assert "User=myuser" in captured.out
+        assert "/opt/custom/python" in captured.out
         assert "ExecStart=" in captured.out
 
 
