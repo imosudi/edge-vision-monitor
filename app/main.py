@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import __version__
 from app.api.routes import api_router
 from app.api.websocket import ws_router
 from app.core.config import load_config
@@ -22,8 +23,9 @@ from app.core.logging_config import setup_logging
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager controlling application startup and teardown."""
-    manager = get_lifecycle_manager()
-    manager.startup()
+    service_mode = os.getenv("EVM_SERVICE", "all").lower()
+    manager = get_lifecycle_manager(service_mode=service_mode)
+    manager.startup(service_mode=service_mode)
     try:
         yield
     finally:
@@ -38,7 +40,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Edge Vision Monitor",
         description="Production-grade YOLO11 edge AI inference and telemetry platform for Raspberry Pi 5 with Hailo-8L",
-        version="1.0.0",
+        version=__version__,
         lifespan=lifespan,
     )
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "edge-vision-monitor"
-version = "1.0.0"
+version = "1.1.0"
 description = "Production-grade YOLO11 edge AI inference and telemetry platform for Raspberry Pi 5 with Hailo-8L"
 readme = "README.md"
 authors = [{ name = "Mosudi I. O.", email = "imosudi@gmail.com" }]

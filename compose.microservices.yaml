@@ -1,0 +1,183 @@
+# ==============================================================================
+# Edge Vision Monitor - Microservices Decomposition (Podman / Docker Compose)
+# Least-privilege hardware segregation, shared memory IPC, and failure isolation
+# Reference: Section 4 - Least-Privilege Security & Hardware Access Matrix
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Video Ingress Service (Capture & Ingestion)
+  # Hardware: /dev/video*, /dev/media* (Camera sensors)
+  # Volumes: ./media (video files), /dev/shm (shared memory frame buffer)
+  # Failure Domain: Camera disconnects or V4L2 lock-ups do not crash inference or web UI
+  # ----------------------------------------------------------------------------
+  edge-vision-ingress:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-ingress
+    restart: unless-stopped
+    command: ["python3", "main.py", "run", "--service", "ingress"]
+    environment:
+      - EVM_SERVICE=ingress
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+    devices:
+      - "/dev/video0:/dev/video0:rwm"
+    volumes:
+      - "/dev/shm:/dev/shm"
+      - "./media:/app/media:ro,Z"
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge-net
+
+  # ----------------------------------------------------------------------------
+  # 2. Inference Service (YOLO11 NPU / CPU Neural Acceleration)
+  # Hardware: /dev/hailo0 (Hailo-8L NPU PCIe accelerator)
+  # Volumes: ./models (compiled HEF / ONNX models), /dev/shm (shared memory)
+  # Failure Domain: HailoRT runtime errors or memory spikes cannot terminate telemetry
+  # ----------------------------------------------------------------------------
+  edge-vision-inference:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-inference
+    restart: unless-stopped
+    command: ["python3", "main.py", "run", "--service", "inference"]
+    environment:
+      - EVM_SERVICE=inference
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+    devices:
+      - "/dev/hailo0:/dev/hailo0:rwm"
+    volumes:
+      - "/dev/shm:/dev/shm"
+      - "./models:/app/models:ro,Z"
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+    depends_on:
+      - edge-vision-ingress
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge-net
+
+  # ----------------------------------------------------------------------------
+  # 3. Telemetry Service (Hardware Observability & Sensor Metrics)
+  # Hardware: None (No device nodes)
+  # Volumes: /sys/class/hwmon:ro, /sys/class/thermal:ro (Read-only sysfs nodes)
+  # Failure Domain: Sysfs I/O stalls do not block video capture or drop network packets
+  # ----------------------------------------------------------------------------
+  edge-vision-telemetry:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-telemetry
+    restart: unless-stopped
+    command: ["python3", "main.py", "run", "--service", "telemetry"]
+    environment:
+      - EVM_SERVICE=telemetry
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+    volumes:
+      - "/sys/class/hwmon:/sys/class/hwmon:ro"
+      - "/sys/class/thermal:/sys/class/thermal:ro"
+      - "./data:/app/data:Z"
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge-net
+
+  # ----------------------------------------------------------------------------
+  # 4. Storage Service (SQLite WAL Time-Series & Downsampling Engine)
+  # Hardware: None (No device nodes)
+  # Volumes: ./data:/app/data:Z (Persistent database storage)
+  # Failure Domain: Disk write stalls and retention pruning do not induce video jitter
+  # ----------------------------------------------------------------------------
+  edge-vision-storage:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-storage
+    restart: unless-stopped
+    command: ["python3", "main.py", "run", "--service", "storage"]
+    environment:
+      - EVM_SERVICE=storage
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+    volumes:
+      - "./data:/app/data:Z"
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - edge-net
+
+  # ----------------------------------------------------------------------------
+  # 5. Gateway Service (FastAPI Server, WebSockets, MJPEG Broadcast & Web UI)
+  # Hardware: None (Completely unprivileged, no device or host sysfs access)
+  # Volumes: Stateless (Reads data / config read-only)
+  # Network: Exposes 8000:8000 for web clients and REST / WebSocket API
+  # Failure Domain: Web security vulnerabilities cannot compromise host hardware
+  # ----------------------------------------------------------------------------
+  edge-vision-gateway:
+    build:
+      context: .
+      file: Containerfile
+    image: edge-vision-monitor:latest
+    container_name: edge-vision-gateway
+    restart: unless-stopped
+    command: ["python3", "main.py", "run", "--service", "gateway", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - EVM_SERVICE=gateway
+      - EVM_SERVER__HOST=0.0.0.0
+      - EVM_SERVER__PORT=8000
+      - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_SERVER__LOG_LEVEL=INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - "/dev/shm:/dev/shm:ro"
+      - "./data:/app/data:ro,Z"
+      - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+    depends_on:
+      - edge-vision-ingress
+      - edge-vision-inference
+      - edge-vision-telemetry
+      - edge-vision-storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - edge-net
+
+networks:
+  edge-net:
+    driver: bridge

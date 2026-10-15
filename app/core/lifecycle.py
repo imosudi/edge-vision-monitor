@@ -23,8 +23,9 @@ logger = get_logger("CORE.LIFECYCLE")
 class ApplicationLifecycleManager:
     """Orchestrates initialisation, runtime coordination, and graceful teardown of all EVM subsystems."""
 
-    def __init__(self, config: Optional[AppConfig] = None):
+    def __init__(self, config: Optional[AppConfig] = None, service_mode: Optional[str] = None):
         self.config = config or load_config()
+        self.service_mode: str = (service_mode or os.getenv("EVM_SERVICE", "all")).lower()
         self.repository: Optional[TelemetryRepository] = None
         self.event_service: Optional[EventService] = None
         self.telemetry_service: Optional[TelemetryService] = None
@@ -33,76 +34,85 @@ class ApplicationLifecycleManager:
         self.inference_service: Optional[InferenceService] = None
         self._is_started = False
 
-    def startup(self) -> None:
-        """Sequential startup of all application subsystems."""
+    def startup(self, service_mode: Optional[str] = None) -> None:
+        """Selective or sequential startup of application subsystems based on service role."""
         if self._is_started:
             return
 
+        if service_mode:
+            self.service_mode = service_mode.lower()
+
         setup_logging(self.config.server.log_level)
-        logger.info("Starting Edge Vision Monitor platform...")
+        mode = self.service_mode
+        logger.info("Starting Edge Vision Monitor platform (role: %s)...", mode.upper())
 
-        # 1. Storage Repository
-        self.repository = TelemetryRepository(
-            db_path=self.config.storage.db_path,
-            batch_size=self.config.storage.batch_size,
-            flush_interval_seconds=self.config.storage.flush_interval_seconds,
-            max_queue_size=self.config.storage.max_queue_size,
-            retention_days=self.config.storage.retention_days,
-            retention_hours=self.config.storage.retention_hours,
-            prune_interval_seconds=self.config.storage.prune_interval_seconds,
-            max_db_size_mb=self.config.storage.max_db_size_mb,
-        )
-        self.repository.start()
+        # 1. Storage Repository (Needed by storage, telemetry, gateway, and all)
+        if mode in ("all", "storage", "telemetry", "gateway"):
+            self.repository = TelemetryRepository(
+                db_path=self.config.storage.db_path,
+                batch_size=self.config.storage.batch_size,
+                flush_interval_seconds=self.config.storage.flush_interval_seconds,
+                max_queue_size=self.config.storage.max_queue_size,
+                retention_days=self.config.storage.retention_days,
+                retention_hours=self.config.storage.retention_hours,
+                prune_interval_seconds=self.config.storage.prune_interval_seconds,
+                max_db_size_mb=self.config.storage.max_db_size_mb,
+            )
+            self.repository.start()
 
-        # 2. Event Service
-        self.event_service = EventService(self.repository)
+        # 2. Event Service (Needed by event emitters and consumers)
+        if mode in ("all", "storage", "telemetry", "gateway", "inference"):
+            self.event_service = EventService(self.repository)
 
-        # 3. Telemetry Service
-        self.telemetry_service = TelemetryService(
-            config=self.config.telemetry,
-            repository=self.repository,
-            event_service=self.event_service,
-        )
-        self.telemetry_service.start()
+        # 3. Telemetry Service (Only for telemetry and all)
+        if mode in ("all", "telemetry"):
+            self.telemetry_service = TelemetryService(
+                config=self.config.telemetry,
+                repository=self.repository,
+                event_service=self.event_service,
+            )
+            self.telemetry_service.start()
 
-        # 4. Video Source Manager
-        self.source_manager = VideoSourceManager(self.config.video)
-        self.source_manager.start_default_source()
+        # 4. Video Source Manager (For ingress, inference, and all)
+        if mode in ("all", "ingress", "inference"):
+            self.source_manager = VideoSourceManager(self.config.video)
+            self.source_manager.start_default_source()
 
-        # 5. Inference Engine
-        self.inference_engine = create_inference_engine(self.config.model)
-        self.inference_engine.initialize()
+        # 5. Inference Engine & Inference Service (For inference and all)
+        if mode in ("all", "inference"):
+            self.inference_engine = create_inference_engine(self.config.model)
+            self.inference_engine.initialize()
 
-        # 6. Inference Service
-        self.inference_service = InferenceService(
-            engine=self.inference_engine,
-            source_manager=self.source_manager,
-            repository=self.repository,
-            event_service=self.event_service,
-            server_config=self.config.server,
-        )
-        self.inference_service.start()
+            self.inference_service = InferenceService(
+                engine=self.inference_engine,
+                source_manager=self.source_manager,
+                repository=self.repository,
+                event_service=self.event_service,
+                server_config=self.config.server,
+            )
+            self.inference_service.start()
 
-        self.event_service.emit(
-            event_type="SYSTEM_STARTUP",
-            message="Edge Vision Monitor platform started successfully",
-            severity="INFO",
-            component="CORE",
-        )
+        if self.event_service:
+            self.event_service.emit(
+                event_type="SYSTEM_STARTUP",
+                message=f"Edge Vision Monitor subsystem ({mode}) started successfully",
+                severity="INFO",
+                component="CORE",
+            )
         self._is_started = True
-        logger.info("Application lifecycle startup completed")
+        logger.info("Application lifecycle startup completed for role '%s'", mode)
 
     def shutdown(self) -> None:
-        """Graceful sequential teardown of all application subsystems."""
+        """Graceful sequential teardown of active application subsystems."""
         if not self._is_started:
             return
 
-        logger.info("Shutting down Edge Vision Monitor platform...")
+        logger.info("Shutting down Edge Vision Monitor platform (role: %s)...", self.service_mode)
 
         if self.event_service:
             self.event_service.emit(
                 event_type="SYSTEM_SHUTDOWN",
-                message="Application shutdown initiated",
+                message=f"Subsystem ({self.service_mode}) shutdown initiated",
                 severity="INFO",
                 component="CORE",
             )
@@ -128,7 +138,7 @@ class ApplicationLifecycleManager:
             self.repository.stop(timeout=3.0)
 
         self._is_started = False
-        logger.info("Application shutdown completed cleanly")
+        logger.info("Application shutdown completed cleanly for role '%s'", self.service_mode)
 
     def switch_inference_backend(self, backend: str, model_path: Optional[str] = None) -> bool:
         """
@@ -216,9 +226,42 @@ class ApplicationLifecycleManager:
 _lifecycle_instance: Optional[ApplicationLifecycleManager] = None
 
 
-def get_lifecycle_manager() -> ApplicationLifecycleManager:
+def get_lifecycle_manager(config: Optional[AppConfig] = None, service_mode: Optional[str] = None) -> ApplicationLifecycleManager:
     """Global singleton accessor for ApplicationLifecycleManager."""
     global _lifecycle_instance
     if _lifecycle_instance is None:
-        _lifecycle_instance = ApplicationLifecycleManager()
+        _lifecycle_instance = ApplicationLifecycleManager(config=config, service_mode=service_mode)
     return _lifecycle_instance
+
+
+def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) -> int:
+    """
+    Run a standalone microservice worker loop with signal handling.
+    Used by ingress, inference, telemetry, and storage microservices.
+    """
+    import signal
+    import threading
+    import time
+
+    manager = get_lifecycle_manager(config=config, service_mode=service_mode)
+    manager.startup(service_mode=service_mode)
+
+    shutdown_event = threading.Event()
+
+    def handle_signal(sig, frame):
+        logger.info("Service worker received signal %s, initiating graceful teardown...", sig)
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    logger.info("Microservice worker '%s' is running (PID: %s)", service_mode.upper(), os.getpid())
+    try:
+        while not shutdown_event.is_set():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user, terminating worker '%s'...", service_mode)
+    finally:
+        manager.shutdown()
+
+    return 0

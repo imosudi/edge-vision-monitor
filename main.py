@@ -24,6 +24,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 SYSTEMD_SERVICE_NAME = "edge-vision-monitor.service"
 SYSTEMD_SERVICE_PATH = Path("/etc/systemd/system") / SYSTEMD_SERVICE_NAME
 
+# Service name aliases for microservices decomposition
+SERVICE_NAME_ALIASES = {
+    "ingress": "edge-vision-ingress",
+    "inference": "edge-vision-inference",
+    "telemetry": "edge-vision-telemetry",
+    "storage": "edge-vision-storage",
+    "gateway": "edge-vision-gateway",
+}
+
 
 # ==============================================================================
 # Helper / Terminal Formatting Utilities
@@ -65,12 +74,88 @@ def print_banner():
     print(_colourise(banner, "36"))
 
 
+def print_service_matrix():
+    """Display the Least-Privilege Service Comparison Matrix and deployment options."""
+    log_step("Service Comparison Matrix & Microservices Decomposition")
+    print(f"\n{_colourise('=' * 104, '36')}")
+    print(_colourise("               EDGE VISION MONITOR: LEAST-PRIVILEGE SERVICE COMPARISON MATRIX", "1;36"))
+    print(_colourise("=" * 104, "36"))
+    print(f"{_colourise('Service Name', '1;37'):<24} {_colourise('Hardware Devices', '1;37'):<22} {_colourise('Volume Mounts', '1;37'):<25} {_colourise('Network / IPC Segregation', '1;37'):<30}")
+    print("-" * 104)
+
+    matrix = [
+        (
+            "edge-vision-ingress",
+            "Video Ingestion",
+            "/dev/video*\n/dev/media*",
+            "./media:/app/media:ro,Z\n/dev/shm:/dev/shm",
+            "Zero-Copy IPC (/dev/shm)\nIsolation: V4L2 lock-ups do not crash UI",
+            "34",
+        ),
+        (
+            "edge-vision-inference",
+            "YOLO11 NPU/CPU",
+            "/dev/hailo0",
+            "./models:/app/models:ro,Z\n/dev/shm:/dev/shm",
+            "Zero-Copy IPC (/dev/shm)\nIsolation: NPU errors do not halt metrics",
+            "35",
+        ),
+        (
+            "edge-vision-telemetry",
+            "Sensors & Metrics",
+            "None (sysfs only)",
+            "/sys/class/hwmon:ro\n/sys/class/thermal:ro\n./data:/app/data:Z",
+            "Internal PubSub Bus\nIsolation: Sysfs I/O stalls do not drop video",
+            "32",
+        ),
+        (
+            "edge-vision-storage",
+            "SQLite WAL DB",
+            "None (Storage only)",
+            "./data:/app/data:Z",
+            "Internal SQL / RPC Endpoint\nIsolation: Disk writes do not cause jitter",
+            "33",
+        ),
+        (
+            "edge-vision-gateway",
+            "Web UI & FastAPIs",
+            "None (Unprivileged)",
+            "None (Stateless)\n/dev/shm:ro",
+            "Port 8000:8000 (HTTP / WS)\nIsolation: Web exploits cannot access nodes",
+            "31",
+        ),
+    ]
+
+    for name, role, devs, vols, net, colour in matrix:
+        name_str = _colourise(f"{name}", f"1;{colour}")
+        role_str = _colourise(f"({role})", "90")
+        print(f"{name_str:<33} {role_str}")
+
+        dev_lines = devs.split("\n")
+        vol_lines = vols.split("\n")
+        net_lines = net.split("\n")
+        max_sub = max(len(dev_lines), len(vol_lines), len(net_lines))
+        for i in range(max_sub):
+            d = dev_lines[i] if i < len(dev_lines) else ""
+            v = vol_lines[i] if i < len(vol_lines) else ""
+            n = net_lines[i] if i < len(net_lines) else ""
+            print(f"  {d:<22} {v:<27} {n}")
+        print("-" * 104)
+
+    print(f"\n{_colourise('Container Service Deployment Options:', '1;36')}")
+    print(f"  {_colourise('1. Monolithic Container (compose.yaml):', '1')} Single unified container (~195 MB RSS), simple orchestration.")
+    print(f"     Command: {_colourise('python main.py compose up -d', '32')}")
+    print(f"  {_colourise('2. Microservices Decomposition (compose.microservices.yaml):', '1')} 5 decomposed least-privilege containers (~260-290 MB RSS), isolated failure domains, zero-copy /dev/shm IPC.")
+    print(f"     Command: {_colourise('python main.py compose --microservices up -d', '32')}")
+    print(f"     Target:  {_colourise('python main.py compose up -m ingress', '32')} (or inference, telemetry, storage, gateway)\n")
+
+
 # ==============================================================================
 # 1. On-Device Native Deployment
 # ==============================================================================
 
 def run_native(args: argparse.Namespace) -> int:
-    """Start Edge Vision Monitor natively using Uvicorn."""
+    """Start Edge Vision Monitor natively using Uvicorn or dedicated microservice worker."""
     log_step("Starting On-Device Native Deployment")
 
     # Set custom config file path if specified
@@ -82,6 +167,9 @@ def run_native(args: argparse.Namespace) -> int:
         os.environ["EVM_CONFIG_PATH"] = str(cfg_path)
         log_info(f"Using configuration file: {cfg_path}")
 
+    service_mode = (getattr(args, "service", None) or os.getenv("EVM_SERVICE", "all")).lower()
+    os.environ["EVM_SERVICE"] = service_mode
+
     # Run optional hardware diagnostics first
     if getattr(args, "diagnose", False):
         log_step("Running Pre-flight Hardware Diagnostics")
@@ -90,6 +178,12 @@ def run_native(args: argparse.Namespace) -> int:
             run_diagnostics()
         except ImportError:
             log_warn("Diagnostic script 'scripts.diagnose' could not be imported. Skipping diagnostics.")
+
+    # If a standalone non-web microservice worker is requested, launch worker loop directly
+    if service_mode in ("ingress", "inference", "telemetry", "storage"):
+        log_step(f"Starting Standalone Microservice Worker: {service_mode.upper()}")
+        from app.core.lifecycle import run_service_worker
+        return run_service_worker(service_mode)
 
     # Load configuration
     try:
@@ -105,6 +199,7 @@ def run_native(args: argparse.Namespace) -> int:
     workers = getattr(args, "workers", 1)
     log_level = (getattr(args, "log_level", None) or (config.server.log_level if config else "INFO")).lower()
 
+    log_info(f"Subsystem Role:    {service_mode.upper()}")
     log_info(f"Target Host:       {host}")
     log_info(f"Target Port:       {port}")
     log_info(f"Log Level:         {log_level.upper()}")
@@ -185,11 +280,25 @@ def find_compose_command(preferred_engine: Optional[str] = None) -> Optional[Lis
 
 
 def run_compose(args: argparse.Namespace) -> int:
-    """Manage Podman/Docker Compose deployment."""
+    """Manage Podman/Docker Compose deployment (Monolithic or Microservices Decomposition)."""
+    # Check for matrix or services review action first
+    action = getattr(args, "compose_action", None) or "up"
+    if action in ("matrix", "services"):
+        print_service_matrix()
+        return 0
+
     log_step("Managing Container Compose Deployment")
 
-    compose_file = getattr(args, "file", None) or (PROJECT_ROOT / "compose.yaml")
-    compose_file = Path(compose_file).resolve()
+    # Determine architecture deployment option (Monolithic vs Microservices)
+    is_microservices = getattr(args, "microservices", False) or getattr(args, "type", None) == "microservices"
+    custom_file = getattr(args, "file", None)
+
+    if custom_file:
+        compose_file = Path(custom_file).resolve()
+    elif is_microservices:
+        compose_file = (PROJECT_ROOT / "compose.microservices.yaml").resolve()
+    else:
+        compose_file = (PROJECT_ROOT / "compose.yaml").resolve()
 
     if not compose_file.exists():
         log_error(f"Compose file does not exist: {compose_file}")
@@ -205,6 +314,8 @@ def run_compose(args: argparse.Namespace) -> int:
         return 1
 
     engine_name = " ".join(compose_cmd)
+    arch_type = "Microservices Decomposition" if is_microservices else "Monolithic Container"
+    log_info(f"Deployment Architecture:   {_colourise(arch_type, '36;1')}")
     log_info(f"Detected container engine: {_colourise(engine_name, '32')}")
     log_info(f"Using compose file:        {compose_file}")
 
@@ -213,9 +324,6 @@ def run_compose(args: argparse.Namespace) -> int:
         log_warn("Hardware node /dev/hailo0 not detected on host. Container inference will operate in Mock/CPU mode.")
     if not Path("/dev/video0").exists():
         log_warn("Video device /dev/video0 not detected on host. Video file playback will be required.")
-
-    # Determine action (default: 'up')
-    action = getattr(args, "compose_action", None) or "up"
 
     cmd = list(compose_cmd)
     cmd.extend(["-f", str(compose_file)])
@@ -246,6 +354,14 @@ def run_compose(args: argparse.Namespace) -> int:
         cmd.append("ps")
     else:
         cmd.append(action)
+
+    # Append any targeted service names
+    target_services = getattr(args, "services", []) or []
+    if target_services:
+        mapped_targets = []
+        for s in target_services:
+            mapped_targets.append(SERVICE_NAME_ALIASES.get(s, s) if is_microservices else s)
+        cmd.extend(mapped_targets)
 
     log_info(f"Executing: {' '.join(cmd)}")
     try:
@@ -500,8 +616,8 @@ Examples:
     # Top-level global flags
     parser.add_argument(
         "--mode",
-        choices=["native", "compose", "podman", "systemd", "run", "diagnose"],
-        help="Explicit deployment mode selection (native | compose | systemd | diagnose)",
+        choices=["native", "compose", "podman", "microservices", "systemd", "run", "diagnose"],
+        help="Explicit deployment mode selection (native | compose | microservices | systemd | diagnose)",
     )
     parser.add_argument(
         "--config",
@@ -545,6 +661,12 @@ Examples:
 
     # --- Subcommand: run / native ---
     run_parser = subparsers.add_parser("run", aliases=["native"], help="Start application natively on host/device")
+    run_parser.add_argument(
+        "--service",
+        choices=["all", "gateway", "ingress", "inference", "telemetry", "storage"],
+        default="all",
+        help="Target microservice subsystem to execute (default: all)",
+    )
     run_parser.add_argument("--host", type=str, help="Server host/IP binding interface (default: 0.0.0.0)")
     run_parser.add_argument("--port", type=int, help="Server HTTP port (default: 8000)")
     run_parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
@@ -561,8 +683,24 @@ Examples:
         "compose_action",
         nargs="?",
         default="up",
-        choices=["up", "down", "restart", "build", "logs", "ps", "status"],
-        help="Compose operation to perform (default: up)",
+        choices=["up", "down", "restart", "build", "logs", "ps", "status", "matrix", "services"],
+        help="Compose operation to perform (default: up, or view matrix / services)",
+    )
+    compose_parser.add_argument(
+        "-m", "--microservices",
+        action="store_true",
+        help="Deploy decomposed microservices architecture using compose.microservices.yaml",
+    )
+    compose_parser.add_argument(
+        "--type",
+        choices=["monolith", "microservices"],
+        default=None,
+        help="Container architecture deployment option (monolith | microservices)",
+    )
+    compose_parser.add_argument(
+        "services",
+        nargs="*",
+        help="Optional specific service names to target (e.g. ingress, inference, telemetry, storage, gateway)",
     )
     compose_parser.add_argument("-f", "--file", type=str, help="Path to compose.yaml file")
     compose_parser.add_argument("-d", "--detach", action="store_true", default=True, help="Run containers in background")
@@ -613,6 +751,9 @@ def main() -> int:
             command = "run"
         elif mode in ("compose", "podman"):
             command = "compose"
+        elif mode == "microservices":
+            command = "compose"
+            args.microservices = True
         elif mode == "systemd":
             command = "systemd"
         elif mode == "diagnose":

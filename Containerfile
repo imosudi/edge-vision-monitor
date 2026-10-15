@@ -50,6 +50,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         websockets
 
 # Copy application source code
+COPY --chown=appuser:appuser main.py /app/main.py
 COPY --chown=appuser:appuser app/ /app/app/
 COPY --chown=appuser:appuser config/ /app/config/
 COPY --chown=appuser:appuser scripts/ /app/scripts/
@@ -68,4 +69,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
 # Drop to non-root user
 USER appuser
 
-CMD ["python3", "-m", "app.main"]
+CMD ["python3", "main.py", "run"]

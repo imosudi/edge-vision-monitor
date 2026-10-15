@@ -5,6 +5,7 @@ Integration tests for FastAPI REST routes using TestClient.
 import pytest
 from fastapi.testclient import TestClient
 
+from app import __version__
 from app.core.lifecycle import get_lifecycle_manager
 from app.main import create_app
 
@@ -22,7 +23,7 @@ def test_health_endpoint(client):
     data = res.json()
     assert "status" in data
     assert "uptime_seconds" in data
-    assert data["version"] == "1.0.0"
+    assert data["version"] == __version__
 
 
 def test_ready_endpoint(client):
@@ -65,7 +66,7 @@ def test_inference_endpoints(client):
     assert stop_res.status_code == 200
     assert stop_res.json()["running"] is False
 
-    start_res = client.post("/api/v1/inference/start")
+    start_res = client.post("/api/v1/inference/start?reset_history=false")
     assert start_res.status_code == 200
     assert start_res.json()["running"] is True
 

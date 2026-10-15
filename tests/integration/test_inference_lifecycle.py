@@ -33,8 +33,11 @@ def test_full_application_lifecycle_execution(temp_dir):
     lifecycle = ApplicationLifecycleManager(config=cfg)
     lifecycle.startup()
 
-    # Allow workers to run and process several frames
-    time.sleep(0.5)
+    # Allow workers to run and process several frames (up to 2s for CPU ONNX initialisation)
+    for _ in range(20):
+        if lifecycle.inference_service.get_stats()["total_frames_processed"] > 0:
+            break
+        time.sleep(0.1)
 
     assert lifecycle.telemetry_service.get_status()["active"] is True
     assert lifecycle.inference_service.is_running() is True

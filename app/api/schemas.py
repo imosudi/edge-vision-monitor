@@ -7,13 +7,15 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+from app import __version__
+
 
 class HealthResponse(BaseModel):
     status: Literal["healthy", "degraded", "unhealthy"]
     uptime_seconds: float
     telemetry_active: bool
     inference_active: bool
-    version: str = "1.0.0"
+    version: str = __version__
 
 
 class ReadinessResponse(BaseModel):

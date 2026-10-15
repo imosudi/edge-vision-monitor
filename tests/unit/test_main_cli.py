@@ -6,6 +6,7 @@ Tests argument parsing, mode resolution, compose engine discovery, and systemd u
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -162,3 +163,104 @@ def test_run_native_nonexistent_config():
     args = parser.parse_args(["run", "--config", "/nonexistent/config.yaml"])
     ret = run_native(args)
     assert ret == 1
+
+
+def test_parser_microservices_flags():
+    parser = build_parser()
+
+    # Test -m / --microservices flag
+    args_m = parser.parse_args(["compose", "-m", "up"])
+    assert args_m.microservices is True
+    assert args_m.compose_action == "up"
+
+    args_ms = parser.parse_args(["compose", "--microservices", "down"])
+    assert args_ms.microservices is True
+    assert args_ms.compose_action == "down"
+
+    # Test --type flag
+    args_type_ms = parser.parse_args(["compose", "--type", "microservices", "ps"])
+    assert args_type_ms.type == "microservices"
+
+    args_type_mono = parser.parse_args(["compose", "--type", "monolith", "ps"])
+    assert args_type_mono.type == "monolith"
+
+
+def test_parser_compose_services_and_matrix_actions():
+    parser = build_parser()
+
+    args_mat = parser.parse_args(["compose", "matrix"])
+    assert args_mat.compose_action == "matrix"
+
+    args_srv = parser.parse_args(["compose", "services"])
+    assert args_srv.compose_action == "services"
+
+
+def test_parser_run_service_flag():
+    parser = build_parser()
+
+    args_tel = parser.parse_args(["run", "--service", "telemetry"])
+    assert args_tel.service == "telemetry"
+
+    args_ing = parser.parse_args(["run", "--service", "ingress"])
+    assert args_ing.service == "ingress"
+
+    args_inf = parser.parse_args(["run", "--service", "inference"])
+    assert args_inf.service == "inference"
+
+    args_sto = parser.parse_args(["run", "--service", "storage"])
+    assert args_sto.service == "storage"
+
+    args_gw = parser.parse_args(["run", "--service", "gateway"])
+    assert args_gw.service == "gateway"
+
+    args_all = parser.parse_args(["run", "--service", "all"])
+    assert args_all.service == "all"
+
+
+def test_print_service_matrix(capsys):
+    from main import print_service_matrix
+
+    print_service_matrix()
+    captured = capsys.readouterr()
+    assert "EDGE VISION MONITOR: LEAST-PRIVILEGE SERVICE COMPARISON MATRIX" in captured.out
+    assert "edge-vision-ingress" in captured.out
+    assert "edge-vision-inference" in captured.out
+    assert "edge-vision-telemetry" in captured.out
+    assert "edge-vision-storage" in captured.out
+    assert "edge-vision-gateway" in captured.out
+    assert "compose.microservices.yaml" in captured.out
+
+
+def test_run_compose_microservices_invokes_correct_file_and_service_mapping():
+    from main import run_compose
+
+    parser = build_parser()
+    args = parser.parse_args(["compose", "-m", "up", "ingress"])
+
+    with patch("main.find_compose_command", return_value=["docker", "compose"]), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+
+        ret = run_compose(args)
+        assert ret == 0
+        mock_run.assert_called_once()
+        called_cmd = mock_run.call_args[0][0]
+
+        # Verify compose.microservices.yaml is specified
+        assert any("compose.microservices.yaml" in part for part in called_cmd)
+        # Verify alias 'ingress' was mapped to 'edge-vision-ingress'
+        assert "edge-vision-ingress" in called_cmd
+
+
+def test_run_native_standalone_service_worker():
+    parser = build_parser()
+    args = parser.parse_args(["run", "--service", "telemetry"])
+
+    try:
+        with patch("app.core.lifecycle.run_service_worker", return_value=0) as mock_worker:
+            ret = run_native(args)
+            assert ret == 0
+            mock_worker.assert_called_once_with("telemetry")
+    finally:
+        os.environ.pop("EVM_SERVICE", None)
+

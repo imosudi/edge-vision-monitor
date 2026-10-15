@@ -61,3 +61,10 @@ def test_repo(test_config):
     repo.start()
     yield repo
     repo.stop()
+
+
+@pytest.fixture(autouse=True)
+def clean_test_environment():
+    """Ensure clean test environment by resetting environment variables."""
+    yield
+    os.environ.pop("EVM_SERVICE", None)

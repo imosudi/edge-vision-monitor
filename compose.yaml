@@ -1,6 +1,21 @@
 # ==============================================================================
-# Edge Vision Monitor - Podman Compose Deployment
-# Least-privilege host hardware device mapping and persistent volume mounts
+# Edge Vision Monitor - Container Service Deployment (Podman / Docker Compose)
+#
+# Container Architecture Options:
+#   Option 1: Monolithic Container (compose.yaml - Current File)
+#             Single unified container, ~195 MB RSS footprint, simple deployment.
+#             Command: python3 main.py compose up -d
+#
+#   Option 2: Microservices Decomposition (compose.microservices.yaml)
+#             5 decomposed least-privilege containers, segmented failure domains,
+#             zero-copy shared memory (/dev/shm), and isolated hardware permissions:
+#               - edge-vision-ingress   (/dev/video*, /dev/media*, /dev/shm)
+#               - edge-vision-inference (/dev/hailo0, /dev/shm)
+#               - edge-vision-telemetry (/sys/class/hwmon:ro, /sys/class/thermal:ro)
+#               - edge-vision-storage   (./data:/app/data:Z)
+#               - edge-vision-gateway   (Port 8000:8000, unprivileged web & API)
+#             Command: python3 main.py compose --microservices up -d
+#             Matrix:  python3 main.py compose matrix
 # ==============================================================================
 
 version: "3.8"
