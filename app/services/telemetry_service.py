@@ -24,8 +24,8 @@ class TelemetryService:
     def __init__(
         self,
         config: TelemetryConfig,
-        repository: TelemetryRepository,
-        event_service: EventService,
+        repository: Optional[TelemetryRepository] = None,
+        event_service: Optional[EventService] = None,
     ):
         self._config = config
         self._repository = repository
@@ -66,8 +66,9 @@ class TelemetryService:
                 self._sample_count += 1
                 self._last_sample_time = t_start
 
-                # Persist asynchronously
-                self._repository.enqueue_telemetry(samples)
+                # Persist asynchronously if repository is available
+                if self._repository is not None:
+                    self._repository.enqueue_telemetry(samples)
 
                 # Check alarms / thresholds
                 self._check_alarms(samples)
@@ -178,12 +179,13 @@ class TelemetryService:
     def _trigger_alarm(self, key: str, msg: str, severity: str = "WARNING") -> None:
         if self._active_alarms.get(key) != severity:
             self._active_alarms[key] = severity
-            self._event_service.emit(
-                event_type="HARDWARE_ALARM",
-                message=msg,
-                severity=severity,
-                component="TELEMETRY",
-            )
+            if self._event_service is not None:
+                self._event_service.emit(
+                    event_type="HARDWARE_ALARM",
+                    message=msg,
+                    severity=severity,
+                    component="TELEMETRY",
+                )
 
     def _clear_alarm(self, key: str) -> None:
         if key in self._active_alarms:

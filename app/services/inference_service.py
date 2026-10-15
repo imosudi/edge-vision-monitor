@@ -64,15 +64,15 @@ class InferenceService:
         self,
         engine: BaseInferenceEngine,
         source_manager: VideoSourceManager,
-        repository: TelemetryRepository,
-        event_service: EventService,
-        server_config: ServerConfig,
+        repository: Optional[TelemetryRepository] = None,
+        event_service: Optional[EventService] = None,
+        server_config: Optional[ServerConfig] = None,
     ):
         self._engine = engine
         self._source_manager = source_manager
         self._repository = repository
         self._event_service = event_service
-        self._server_config = server_config
+        self._server_config = server_config or ServerConfig()
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -118,7 +118,8 @@ class InferenceService:
             target=self._worker_loop, name="InferenceWorkerThread", daemon=True
         )
         self._thread.start()
-        self._event_service.emit("INFERENCE_STARTED", "Continuous object detection inference started", component="INFERENCE")
+        if self._event_service:
+            self._event_service.emit("INFERENCE_STARTED", "Continuous object detection inference started", component="INFERENCE")
         logger.info("Inference worker service started")
         return True
 
@@ -129,7 +130,8 @@ class InferenceService:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._thread = None
-        self._event_service.emit("INFERENCE_STOPPED", "Inference execution stopped safely", component="INFERENCE")
+        if self._event_service:
+            self._event_service.emit("INFERENCE_STOPPED", "Inference execution stopped safely", component="INFERENCE")
         logger.info("Inference worker service stopped")
 
     def is_running(self) -> bool:
@@ -274,7 +276,8 @@ class InferenceService:
                     )
                     for d in result.detections
                 ]
-                self._repository.enqueue_inference(frame_rec, det_recs)
+                if self._repository is not None:
+                    self._repository.enqueue_inference(frame_rec, det_recs)
 
             except Exception as e:
                 self._total_errors += 1

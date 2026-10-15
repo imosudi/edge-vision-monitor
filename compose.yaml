@@ -18,13 +18,11 @@
 #             Matrix:  python3 main.py compose matrix
 # ==============================================================================
 
-version: "3.8"
-
 services:
   edge-vision-monitor:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-monitor
     restart: unless-stopped

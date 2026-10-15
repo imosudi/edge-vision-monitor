@@ -4,8 +4,6 @@
 # Reference: Section 4 - Least-Privilege Security & Hardware Access Matrix
 # ==============================================================================
 
-version: "3.8"
-
 services:
   # ----------------------------------------------------------------------------
   # 1. Video Ingress Service (Capture & Ingestion)
@@ -16,7 +14,7 @@ services:
   edge-vision-ingress:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-ingress
     restart: unless-stopped
@@ -49,7 +47,7 @@ services:
   edge-vision-inference:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-inference
     restart: unless-stopped
@@ -84,7 +82,7 @@ services:
   edge-vision-telemetry:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-telemetry
     restart: unless-stopped
@@ -116,7 +114,7 @@ services:
   edge-vision-storage:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-storage
     restart: unless-stopped
@@ -147,7 +145,7 @@ services:
   edge-vision-gateway:
     build:
       context: .
-      file: Containerfile
+      dockerfile: Containerfile
     image: edge-vision-monitor:latest
     container_name: edge-vision-gateway
     restart: unless-stopped

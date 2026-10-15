@@ -16,7 +16,7 @@ logger = get_logger("SERVICE.EVENT")
 class EventService:
     """Publishes and persists operational, lifecycle, and hardware warning events."""
 
-    def __init__(self, repository: TelemetryRepository):
+    def __init__(self, repository: Optional[TelemetryRepository] = None):
         self._repository = repository
         self._listeners: List[Callable[[SystemEventRecord], None]] = []
 
@@ -46,8 +46,9 @@ class EventService:
             details_json=details_str,
         )
 
-        # Persist asynchronously
-        self._repository.enqueue_event(event)
+        # Persist asynchronously if repository is available
+        if self._repository is not None:
+            self._repository.enqueue_event(event)
 
         # Notify active listeners (e.g. WebSocket clients)
         for listener in list(self._listeners):

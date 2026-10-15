@@ -319,41 +319,72 @@ def run_compose(args: argparse.Namespace) -> int:
     log_info(f"Detected container engine: {_colourise(engine_name, '32')}")
     log_info(f"Using compose file:        {compose_file}")
 
-    # Check hardware nodes
-    if not Path("/dev/hailo0").exists():
-        log_warn("Hardware node /dev/hailo0 not detected on host. Container inference will operate in Mock/CPU mode.")
-    if not Path("/dev/video0").exists():
-        log_warn("Video device /dev/video0 not detected on host. Video file playback will be required.")
+    remote_host = getattr(args, "remote_host", None)
+    remote_user = getattr(args, "remote_user", None)
+    remote_port = getattr(args, "remote_port", None) or 22
+    remote_key = getattr(args, "remote_key", None)
+    remote_dir = getattr(args, "remote_dir", None) or "~/edge-vision-monitor"
+    remote_method = getattr(args, "remote_method", "ssh")
 
-    cmd = list(compose_cmd)
-    cmd.extend(["-f", str(compose_file)])
+    # If remote_host was passed as user@host or host:port, normalise
+    if remote_host:
+        clean_host = remote_host.strip()
+        if clean_host.startswith("ssh://"):
+            clean_host = clean_host[6:]
+        elif clean_host.startswith("tcp://"):
+            clean_host = clean_host[6:]
+        if "@" in clean_host:
+            parsed_user, clean_host = clean_host.split("@", 1)
+            remote_user = remote_user or parsed_user
+        if ":" in clean_host:
+            clean_host, parsed_port = clean_host.split(":", 1)
+            if parsed_port.isdigit():
+                remote_port = int(parsed_port)
+        remote_host = clean_host
 
-    if action == "up":
-        cmd.append("up")
-        if not getattr(args, "no_detach", False):
-            cmd.append("-d")
-        if getattr(args, "build", False):
-            cmd.append("--build")
-    elif action == "down":
-        cmd.append("down")
-        if getattr(args, "volumes", False):
-            cmd.append("-v")
-    elif action == "restart":
-        cmd.append("restart")
-    elif action == "build":
-        cmd.append("build")
-        if getattr(args, "no_cache", False):
-            cmd.append("--no-cache")
-    elif action == "logs":
-        cmd.append("logs")
-        if getattr(args, "follow", True):
-            cmd.append("-f")
-        if getattr(args, "tail", None):
-            cmd.extend(["--tail", str(args.tail)])
-    elif action in ("ps", "status"):
-        cmd.append("ps")
+    if remote_host:
+        log_info(f"Target Remote Host:        {_colourise(remote_host, '35;1')}")
+        if remote_user:
+            log_info(f"Privileged Login User:     {_colourise(remote_user, '33;1')}")
+        log_info(f"Remote SSH Port:           {remote_port}")
+        log_info(f"Remote Project Directory:  {remote_dir}")
+        log_info("Hardware node verification (/dev/hailo0, /dev/video0) deferred to remote host environment.")
     else:
-        cmd.append(action)
+        log_info("Deployment Target:         Local Host")
+        # Check hardware nodes on local host
+        if not Path("/dev/hailo0").exists():
+            log_warn("Hardware node /dev/hailo0 not detected on host. Container inference will operate in Mock/CPU mode.")
+        if not Path("/dev/video0").exists():
+            log_warn("Video device /dev/video0 not detected on host. Video file playback will be required.")
+
+    # Build compose action arguments
+    action_args: List[str] = []
+    if action == "up":
+        action_args.append("up")
+        if not getattr(args, "no_detach", False):
+            action_args.append("-d")
+        if getattr(args, "build", False):
+            action_args.append("--build")
+    elif action == "down":
+        action_args.append("down")
+        if getattr(args, "volumes", False):
+            action_args.append("-v")
+    elif action == "restart":
+        action_args.append("restart")
+    elif action == "build":
+        action_args.append("build")
+        if getattr(args, "no_cache", False):
+            action_args.append("--no-cache")
+    elif action == "logs":
+        action_args.append("logs")
+        if getattr(args, "follow", True):
+            action_args.append("-f")
+        if getattr(args, "tail", None):
+            action_args.extend(["--tail", str(args.tail)])
+    elif action in ("ps", "status"):
+        action_args.append("ps")
+    else:
+        action_args.append(action)
 
     # Append any targeted service names
     target_services = getattr(args, "services", []) or []
@@ -361,11 +392,59 @@ def run_compose(args: argparse.Namespace) -> int:
         mapped_targets = []
         for s in target_services:
             mapped_targets.append(SERVICE_NAME_ALIASES.get(s, s) if is_microservices else s)
-        cmd.extend(mapped_targets)
+        action_args.extend(mapped_targets)
+
+    env = os.environ.copy()
+
+    # Route 1: Direct SSH execution to remote edge host
+    if remote_host and remote_method == "ssh" and shutil.which("ssh"):
+        compose_filename = "compose.microservices.yaml" if is_microservices else "compose.yaml"
+        action_str = " ".join(action_args)
+        remote_exec = f"cd {remote_dir} && (podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
+
+        cmd = ["ssh"]
+        if sys.stdin.isatty():
+            cmd.append("-t")
+
+        # Prevent host verification stalls and agent key flooding ('Too many authentication failures')
+        cmd.extend(["-o", "StrictHostKeyChecking=accept-new"])
+        remote_auth = getattr(args, "remote_auth", None)
+        if remote_auth == "password" or (not remote_key and remote_auth != "key"):
+            cmd.extend([
+                "-o", "PubkeyAuthentication=no",
+                "-o", "PreferredAuthentications=password,keyboard-interactive",
+            ])
+        else:
+            if remote_key:
+                cmd.extend(["-i", str(remote_key), "-o", "IdentitiesOnly=yes"])
+            else:
+                cmd.extend(["-o", "PubkeyAuthentication=yes"])
+
+        if remote_port and str(remote_port) != "22":
+            cmd.extend(["-p", str(remote_port)])
+
+        login_target = f"{remote_user}@{remote_host}" if remote_user else remote_host
+        cmd.extend([login_target, remote_exec])
+
+    # Route 2: Local container engine or remote daemon socket connection
+    else:
+        cmd = list(compose_cmd)
+        if remote_host:
+            login_target = f"{remote_user}@{remote_host}" if remote_user else remote_host
+            endpoint = f"ssh://{login_target}:{remote_port}" if (remote_port and str(remote_port) != "22") else f"ssh://{login_target}"
+            if cmd[0] == "docker":
+                cmd[1:1] = ["-H", endpoint]
+            elif cmd[0] == "podman" and len(cmd) > 1 and cmd[1] == "compose":
+                cmd[1:1] = ["--url", endpoint]
+            env["DOCKER_HOST"] = endpoint
+            env["CONTAINER_HOST"] = endpoint
+
+        cmd.extend(["-f", str(compose_file)])
+        cmd.extend(action_args)
 
     log_info(f"Executing: {' '.join(cmd)}")
     try:
-        proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+        proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env)
         return proc.returncode
     except KeyboardInterrupt:
         log_info("Execution interrupted by user.")
@@ -649,6 +728,75 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
     elif choice == "4":
         # Microservices Decomposition Deployment
+        print("\nSelect deployment host for Microservices Decomposition:")
+        print("  [1] Local host [default]")
+        print("  [2] Remote host")
+        try:
+            host_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
+            return 0
+
+        remote_host = None
+        remote_user = None
+        remote_port = 22
+        remote_auth = "password"
+        remote_key = None
+        remote_dir = "~/edge-vision-monitor"
+
+        if host_choice == "2":
+            print()
+            try:
+                host_input = input(_colourise("Enter remote host IP address or hostname: ", "1;33")).strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nOperation cancelled.")
+                return 0
+            if not host_input:
+                log_error("Remote host IP address or hostname is required.")
+                return 1
+
+            parsed_user = None
+            parsed_port = None
+            if "@" in host_input:
+                parsed_user, host_input = host_input.split("@", 1)
+            if ":" in host_input:
+                host_input, port_str = host_input.split(":", 1)
+                if port_str.isdigit():
+                    parsed_port = int(port_str)
+
+            remote_host = host_input
+            default_user = parsed_user or os.getenv("USER") or "root"
+
+            try:
+                user_prompt = f"Enter privileged login user (e.g. root, docker-enabled user) [default: {default_user}]: "
+                user_input = input(_colourise(user_prompt, "1;33")).strip()
+                remote_user = user_input or default_user
+
+                default_port = str(parsed_port or 22)
+                port_prompt = f"Enter remote SSH port [default: {default_port}]: "
+                port_input = input(_colourise(port_prompt, "1;33")).strip()
+                remote_port = int(port_input) if (port_input and port_input.isdigit()) else int(default_port)
+
+                print("Select SSH authentication method:")
+                print("  [1] Password authentication [default]")
+                print("  [2] SSH identity key / agent")
+                auth_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
+                if auth_choice == "2":
+                    remote_auth = "key"
+                    key_prompt = "Enter SSH identity key file path (optional, press Enter for default agent/keys): "
+                    key_input = input(_colourise(key_prompt, "1;33")).strip()
+                    remote_key = key_input or None
+                else:
+                    remote_auth = "password"
+                    remote_key = None
+
+                dir_prompt = "Enter remote project directory [default: ~/edge-vision-monitor]: "
+                dir_input = input(_colourise(dir_prompt, "1;33")).strip()
+                remote_dir = dir_input or "~/edge-vision-monitor"
+            except (KeyboardInterrupt, EOFError):
+                print("\nOperation cancelled.")
+                return 0
+
         print("\nSelect Compose action for Microservices Decomposition:")
         print("  [1] Start all 5 microservices in background (up -d) [default]")
         print("  [2] Stop all microservices (down)")
@@ -663,6 +811,12 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.command = "compose"
         args.microservices = True
         args.type = "microservices"
+        args.remote_host = remote_host
+        args.remote_user = remote_user
+        args.remote_port = remote_port
+        args.remote_auth = remote_auth
+        args.remote_key = remote_key
+        args.remote_dir = remote_dir
         if act_choice == "5":
             try:
                 target = input(_colourise("Enter microservice name [ingress/inference/telemetry/storage/gateway]: ", "1;33")).strip()
@@ -786,6 +940,48 @@ Examples:
         help="Server host/IP binding interface (default: 0.0.0.0)",
     )
     parser.add_argument(
+        "-H", "--remote-host",
+        type=str,
+        default=None,
+        help="Target remote host IP address or hostname for remote container compose execution (e.g. 192.168.1.100 or user@host)",
+    )
+    parser.add_argument(
+        "-u", "--remote-user",
+        type=str,
+        default=None,
+        help="Remote privileged login username (e.g. root, iotgwai)",
+    )
+    parser.add_argument(
+        "--remote-port",
+        type=int,
+        default=22,
+        help="Remote SSH port (default: 22)",
+    )
+    parser.add_argument(
+        "-k", "--remote-key",
+        type=str,
+        default=None,
+        help="Path to SSH identity private key file",
+    )
+    parser.add_argument(
+        "--remote-dir",
+        type=str,
+        default="~/edge-vision-monitor",
+        help="Working directory of project on remote host (default: ~/edge-vision-monitor)",
+    )
+    parser.add_argument(
+        "--remote-method",
+        choices=["ssh", "daemon"],
+        default="ssh",
+        help="Remote execution method: direct ssh execution (default) or container daemon connection (daemon)",
+    )
+    parser.add_argument(
+        "--remote-auth",
+        choices=["password", "key"],
+        default="password",
+        help="SSH authentication method: password (default, prevents auth failure) or key",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         help="Server HTTP port (default: 8000)",
@@ -852,6 +1048,48 @@ Examples:
         choices=["monolith", "microservices"],
         default=None,
         help="Container architecture deployment option (monolith | microservices)",
+    )
+    compose_parser.add_argument(
+        "-H", "--remote-host",
+        type=str,
+        default=None,
+        help="Target remote host IP address or hostname for remote container compose execution (e.g. 192.168.1.100 or user@host)",
+    )
+    compose_parser.add_argument(
+        "-u", "--remote-user",
+        type=str,
+        default=None,
+        help="Remote privileged login username (e.g. root, iotgwai)",
+    )
+    compose_parser.add_argument(
+        "--remote-port",
+        type=int,
+        default=22,
+        help="Remote SSH port (default: 22)",
+    )
+    compose_parser.add_argument(
+        "-k", "--remote-key",
+        type=str,
+        default=None,
+        help="Path to SSH identity private key file",
+    )
+    compose_parser.add_argument(
+        "--remote-dir",
+        type=str,
+        default="~/edge-vision-monitor",
+        help="Working directory of project on remote host (default: ~/edge-vision-monitor)",
+    )
+    compose_parser.add_argument(
+        "--remote-method",
+        choices=["ssh", "daemon"],
+        default="ssh",
+        help="Remote execution method: direct ssh execution (default) or container daemon connection (daemon)",
+    )
+    compose_parser.add_argument(
+        "--remote-auth",
+        choices=["password", "key"],
+        default="password",
+        help="SSH authentication method: password (default, prevents auth failure) or key",
     )
     compose_parser.add_argument(
         "services",

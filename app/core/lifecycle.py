@@ -58,11 +58,15 @@ class ApplicationLifecycleManager:
                 prune_interval_seconds=self.config.storage.prune_interval_seconds,
                 max_db_size_mb=self.config.storage.max_db_size_mb,
             )
-            self.repository.start()
+            # Gateway has a read-only volume mount (:ro); dedicated storage service handles writes
+            if mode != "gateway":
+                self.repository.start()
 
         # 2. Event Service (Needed by event emitters and consumers)
         if mode in ("all", "storage", "telemetry", "gateway", "inference"):
-            self.event_service = EventService(self.repository)
+            # Gateway is read-only; operational persistence is handled by storage service
+            repo_for_events = None if mode == "gateway" else self.repository
+            self.event_service = EventService(repo_for_events)
 
         # 3. Telemetry Service (Only for telemetry and all)
         if mode in ("all", "telemetry"):

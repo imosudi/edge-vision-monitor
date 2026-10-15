@@ -315,17 +315,117 @@ def test_prompt_deployment_menu_native():
         mock_native.assert_called_once()
 
 
-def test_prompt_deployment_menu_microservices():
+def test_prompt_deployment_menu_microservices_local():
     from main import prompt_deployment_menu
 
     parser = build_parser()
     args = parser.parse_args([])
 
-    with patch("builtins.input", side_effect=["4", "1"]), \
+    with patch("builtins.input", side_effect=["4", "1", "1"]), \
          patch("main.run_compose", return_value=0) as mock_compose:
         ret = prompt_deployment_menu(args)
         assert ret == 0
         mock_compose.assert_called_once()
         assert args.microservices is True
+        assert args.remote_host is None
         assert args.compose_action == "up"
+
+
+def test_prompt_deployment_menu_microservices_remote():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    # Inputs: choice 4, target 2, host, privileged user, port, auth (1=password), dir, action 1
+    with patch("builtins.input", side_effect=["4", "2", "192.168.1.100", "iotgwai", "2222", "1", "~/edge-vision-monitor", "1"]), \
+         patch("main.run_compose", return_value=0) as mock_compose:
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+        mock_compose.assert_called_once()
+        assert args.microservices is True
+        assert args.remote_host == "192.168.1.100"
+        assert args.remote_user == "iotgwai"
+        assert args.remote_port == 2222
+        assert args.remote_auth == "password"
+        assert args.remote_dir == "~/edge-vision-monitor"
+        assert args.compose_action == "up"
+
+
+def test_prompt_deployment_menu_microservices_remote_empty_host_aborts():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", side_effect=["4", "2", ""]), \
+         patch("main.run_compose") as mock_compose:
+        ret = prompt_deployment_menu(args)
+        assert ret == 1
+        mock_compose.assert_not_called()
+
+
+def test_run_compose_with_remote_ssh_execution():
+    from main import run_compose
+
+    parser = build_parser()
+    args = parser.parse_args(["compose", "-m", "-H", "192.168.1.100", "-u", "iotgwai", "--remote-port", "22", "up"])
+
+    with patch("main.find_compose_command", return_value=["docker", "compose"]), \
+         patch("shutil.which", return_value="/usr/bin/ssh"), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+
+        ret = run_compose(args)
+        assert ret == 0
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+
+        assert cmd[0] == "ssh"
+        assert "-o" in cmd
+        assert "StrictHostKeyChecking=accept-new" in cmd
+        assert "PubkeyAuthentication=no" in cmd
+        assert "iotgwai@192.168.1.100" in cmd
+        assert any("compose.microservices.yaml" in part for part in cmd)
+        assert any("up -d" in part for part in cmd)
+
+
+def test_run_compose_with_remote_daemon_connection():
+    from main import run_compose
+
+    parser = build_parser()
+    args = parser.parse_args(["compose", "-m", "-H", "192.168.1.100", "--remote-method", "daemon", "up"])
+
+    with patch("main.find_compose_command", return_value=["docker", "compose"]), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+
+        ret = run_compose(args)
+        assert ret == 0
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        env = mock_run.call_args[1]["env"]
+
+        assert cmd[0] == "docker"
+        assert cmd[1:3] == ["-H", "ssh://192.168.1.100"]
+        assert "compose" in cmd
+        assert env.get("DOCKER_HOST") == "ssh://192.168.1.100"
+
+
+def test_parser_remote_host_flags():
+    parser = build_parser()
+
+    args_h = parser.parse_args(["compose", "-H", "10.0.0.5", "-u", "root", "--remote-port", "2222", "-k", "/path/to/key", "--remote-dir", "/app"])
+    assert args_h.remote_host == "10.0.0.5"
+    assert args_h.remote_user == "root"
+    assert args_h.remote_port == 2222
+    assert args_h.remote_key == "/path/to/key"
+    assert args_h.remote_dir == "/app"
+
+    args_rh = parser.parse_args(["compose", "--remote-host", "user@pi.local"])
+    assert args_rh.remote_host == "user@pi.local"
+
+    args_top = parser.parse_args(["-H", "10.0.0.9", "-u", "pi"])
+    assert args_top.remote_host == "10.0.0.9"
+    assert args_top.remote_user == "pi"
 

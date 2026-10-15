@@ -12,7 +12,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1
 
 # Install runtime dependencies, libcamera / v4l2 tools, and system libraries
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Tolerate clock skew on edge devices by allowing future release dates
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
+    echo 'Acquire::Max-Future-Time "864000";' >> /etc/apt/apt.conf.d/99no-check-valid-until && \
+    apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
@@ -36,18 +39,9 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python requirements
-COPY pyproject.toml /app/
+COPY requirements.txt pyproject.toml /app/
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-        fastapi \
-        "uvicorn[standard]" \
-        pydantic \
-        pydantic-settings \
-        pyyaml \
-        numpy \
-        opencv-python-headless \
-        aiofiles \
-        websockets
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
 COPY --chown=appuser:appuser main.py /app/main.py

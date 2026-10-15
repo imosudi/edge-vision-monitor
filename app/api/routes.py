@@ -41,7 +41,10 @@ def get_health() -> HealthResponse:
     telemetry_ok = mgr.telemetry_service.get_status()["active"] if mgr.telemetry_service else False
     inference_ok = mgr.inference_service.is_running() if mgr.inference_service else False
 
-    status = "healthy" if (telemetry_ok and inference_ok) else ("degraded" if telemetry_ok else "unhealthy")
+    if mgr.service_mode == "gateway":
+        status = "healthy"
+    else:
+        status = "healthy" if (telemetry_ok and inference_ok) else ("degraded" if telemetry_ok else "unhealthy")
 
     return HealthResponse(
         status=status,
