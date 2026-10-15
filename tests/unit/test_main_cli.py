@@ -264,3 +264,68 @@ def test_run_native_standalone_service_worker():
     finally:
         os.environ.pop("EVM_SERVICE", None)
 
+
+def test_parser_prompt_flags():
+    parser = build_parser()
+
+    args_p = parser.parse_args(["--prompt"])
+    assert args_p.prompt is True
+
+    args_i = parser.parse_args(["-i"])
+    assert args_i.prompt is True
+
+    args_np = parser.parse_args(["--no-prompt"])
+    assert args_np.no_prompt is True
+
+
+def test_prompt_deployment_menu_exit():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", return_value="0"):
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+
+
+def test_prompt_deployment_menu_matrix():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", return_value="7"), \
+         patch("main.print_service_matrix") as mock_matrix:
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+        mock_matrix.assert_called_once()
+
+
+def test_prompt_deployment_menu_native():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", return_value="1"), \
+         patch("main.run_native", return_value=0) as mock_native:
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+        mock_native.assert_called_once()
+
+
+def test_prompt_deployment_menu_microservices():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", side_effect=["4", "1"]), \
+         patch("main.run_compose", return_value=0) as mock_compose:
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+        mock_compose.assert_called_once()
+        assert args.microservices is True
+        assert args.compose_action == "up"
+

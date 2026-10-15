@@ -579,7 +579,149 @@ def run_systemd(args: argparse.Namespace) -> int:
 
 
 # ==============================================================================
-# 4. CLI Argument Parser & Orchestrator
+# 4. Interactive Deployment Selection Prompt
+# ==============================================================================
+
+def prompt_deployment_menu(args: argparse.Namespace) -> int:
+    """Prompt the user with an interactive deployment selection menu."""
+    log_step("Interactive Deployment Selection")
+    print("\nPlease choose an execution or deployment option:\n")
+    print(f"  {_colourise('[1]', '36;1')} Native On-Device Execution (Uvicorn + FastAPI + Hailo/ONNX + Telemetry)")
+    print(f"  {_colourise('[2]', '36;1')} Standalone Microservice Worker (Ingress, Inference, Telemetry, Storage, or Gateway)")
+    print(f"  {_colourise('[3]', '36;1')} Monolithic Container Deployment (compose.yaml, single unified container)")
+    print(f"  {_colourise('[4]', '36;1')} Microservices Decomposition Deployment (compose.microservices.yaml, 5 containers)")
+    print(f"  {_colourise('[5]', '36;1')} systemd Host Service Management (Install, Status, Logs, Restart)")
+    print(f"  {_colourise('[6]', '36;1')} Pre-flight Hardware Diagnostics Check (Hailo PCIe, V4L2, sysfs)")
+    print(f"  {_colourise('[7]', '36;1')} Display Least-Privilege Service Comparison Matrix")
+    print(f"  {_colourise('[0]', '31;1')} Exit\n")
+
+    try:
+        choice = input(_colourise("Enter selection [1-7, 0 to exit] (default: 1): ", "1;33")).strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperation cancelled.")
+        return 0
+
+    if not choice:
+        choice = "1"
+
+    if choice == "1":
+        # Native On-Device Execution
+        args.command = "run"
+        args.service = getattr(args, "service", "all") or "all"
+        return run_native(args)
+
+    elif choice == "2":
+        # Standalone Microservice Worker
+        print("\nSelect standalone microservice role:")
+        print("  [1] Ingress (Video capture and ingestion)")
+        print("  [2] Inference (YOLO11 Hailo NPU / CPU ONNX engine)")
+        print("  [3] Telemetry (Hardware sensors and metrics collector)")
+        print("  [4] Storage (SQLite WAL time-series persistence)")
+        print("  [5] Gateway (FastAPI server, WebSockets, preview stream)")
+        try:
+            sub = input(_colourise("Enter role [1-5] (default: 1): ", "1;33")).strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
+            return 0
+        roles = {"1": "ingress", "2": "inference", "3": "telemetry", "4": "storage", "5": "gateway"}
+        args.command = "run"
+        args.service = roles.get(sub, "all")
+        return run_native(args)
+
+    elif choice == "3":
+        # Monolithic Container Deployment
+        print("\nSelect Compose action for Monolithic Container:")
+        print("  [1] Start container in background (up -d) [default]")
+        print("  [2] Stop container (down)")
+        print("  [3] View container logs (logs -f)")
+        print("  [4] Inspect container status (ps)")
+        try:
+            act_choice = input(_colourise("Enter action [1-4] (default: 1): ", "1;33")).strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
+            return 0
+        act_map = {"1": "up", "2": "down", "3": "logs", "4": "ps"}
+        args.command = "compose"
+        args.compose_action = act_map.get(act_choice, "up")
+        args.microservices = False
+        args.type = "monolith"
+        return run_compose(args)
+
+    elif choice == "4":
+        # Microservices Decomposition Deployment
+        print("\nSelect Compose action for Microservices Decomposition:")
+        print("  [1] Start all 5 microservices in background (up -d) [default]")
+        print("  [2] Stop all microservices (down)")
+        print("  [3] View microservices logs (logs -f)")
+        print("  [4] Inspect microservices status (ps)")
+        print("  [5] Target specific microservice (ingress, inference, telemetry, storage, gateway)")
+        try:
+            act_choice = input(_colourise("Enter action [1-5] (default: 1): ", "1;33")).strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
+            return 0
+        args.command = "compose"
+        args.microservices = True
+        args.type = "microservices"
+        if act_choice == "5":
+            try:
+                target = input(_colourise("Enter microservice name [ingress/inference/telemetry/storage/gateway]: ", "1;33")).strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nOperation cancelled.")
+                return 0
+            args.compose_action = "up"
+            args.services = [target] if target else []
+        else:
+            act_map = {"1": "up", "2": "down", "3": "logs", "4": "ps"}
+            args.compose_action = act_map.get(act_choice, "up")
+        return run_compose(args)
+
+    elif choice == "5":
+        # systemd Service Management
+        print("\nSelect systemd action:")
+        print("  [1] Inspect service status [default]")
+        print("  [2] Install and enable service at boot")
+        print("  [3] View journal logs (journalctl -u edge-vision-monitor -f)")
+        print("  [4] Restart service")
+        print("  [5] Stop service")
+        try:
+            sys_choice = input(_colourise("Enter action [1-5] (default: 1): ", "1;33")).strip() or "1"
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
+            return 0
+        sys_map = {"1": "status", "2": "install", "3": "logs", "4": "restart", "5": "stop"}
+        args.command = "systemd"
+        args.systemd_action = sys_map.get(sys_choice, "status")
+        if args.systemd_action == "install":
+            args.start_now = True
+        return run_systemd(args)
+
+    elif choice == "6":
+        # Pre-flight Hardware Diagnostics Check
+        log_step("Executing Hardware Diagnostic Tool")
+        try:
+            from scripts.diagnose import main as run_diagnostics
+            return run_diagnostics() or 0
+        except Exception as exc:
+            log_error(f"Failed to run diagnostics: {exc}")
+            return 1
+
+    elif choice == "7":
+        # Service Comparison Matrix
+        print_service_matrix()
+        return 0
+
+    elif choice == "0":
+        print("Exiting.")
+        return 0
+
+    else:
+        log_error(f"Invalid option selected: '{choice}'")
+        return 1
+
+
+# ==============================================================================
+# 5. CLI Argument Parser & Orchestrator
 # ==============================================================================
 
 def build_parser() -> argparse.ArgumentParser:
@@ -589,17 +731,21 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Native on-device deployment (default)
+  # Interactive deployment selection menu (prompt)
   python main.py
+  python main.py --prompt
+
+  # Native on-device deployment
   python main.py run --port 8000 --reload
+  python main.py run --service telemetry
   python main.py --mode native
 
-  # Podman Compose deployment
+  # Container Compose deployment
   python main.py compose up -d
-  python main.py podman up --build
-  python main.py podman down
-  python main.py podman logs -f
-  python main.py --mode compose
+  python main.py compose -m up -d
+  python main.py compose up -m ingress
+  python main.py compose matrix
+  python main.py --mode microservices
 
   # systemd deployment
   python main.py systemd install --start-now
@@ -614,6 +760,16 @@ Examples:
     )
 
     # Top-level global flags
+    parser.add_argument(
+        "-i", "--prompt", "--interactive",
+        action="store_true",
+        help="Prompt interactive deployment selection menu",
+    )
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="Disable interactive deployment selection prompt and execute default",
+    )
     parser.add_argument(
         "--mode",
         choices=["native", "compose", "podman", "microservices", "systemd", "run", "diagnose"],
@@ -758,6 +914,12 @@ def main() -> int:
             command = "systemd"
         elif mode == "diagnose":
             command = "diagnose"
+
+    # Interactive deployment menu prompt if explicitly requested or running without subcommands in an interactive TTY
+    prompt_requested = getattr(args, "prompt", False)
+    no_prompt = getattr(args, "no_prompt", False)
+    if not command and (prompt_requested or (sys.stdin.isatty() and not no_prompt)):
+        return prompt_deployment_menu(args)
 
     # Default action: run native on-device
     if not command:
