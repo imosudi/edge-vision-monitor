@@ -16,26 +16,42 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
     echo 'Acquire::Max-Future-Time "864000";' >> /etc/apt/apt.conf.d/99no-check-valid-until && \
     apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-yaml \
-    libgl1 \
-    libglib2.0-0 \
-    libgomp1 \
-    v4l-utils \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    gnupg \
+    && curl -fsSL https://archive.raspberrypi.com/debian/raspberrypi.gpg.key -o /etc/apt/trusted.gpg.d/raspberrypi.asc && \
+    echo "deb [arch=arm64] http://archive.raspberrypi.com/debian/ bookworm main" > /etc/apt/sources.list.d/raspi.list && \
+    apt-get update && \
+    (apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-yaml \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        v4l-utils \
+        python3-picamera2 \
+        libcamera-ipa \
+     || apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-yaml \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        v4l-utils) && \
+    rm -rf /var/lib/apt/lists/*
 
-# Create application user and setup directories
-RUN useradd -m -u 1000 -s /bin/bash appuser && \
+# Create application user and setup directories with video hardware group access
+RUN useradd -m -u 1000 -G video,render -s /bin/bash appuser && \
     mkdir -p /app/data /app/models /app/media /app/config && \
     chown -R appuser:appuser /app
 
 WORKDIR /app
 
-# Setup Python virtual environment
-RUN python3 -m venv /opt/venv
+# Setup Python virtual environment with system site-packages for Picamera2 / libcamera
+RUN python3 -m venv --system-site-packages /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python requirements

@@ -308,13 +308,20 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
     import time
     from app.core.ipc import get_ipc_source_catalog, get_ipc_source_status, send_ipc_source_command
     send_ipc_source_command("switch_source", source_type=req.source_type, **kwargs)
-    time.sleep(0.15)
-    st = get_ipc_source_status()
+    deadline = time.time() + 3.0
+    st: Dict[str, Any] = {}
+    while time.time() < deadline:
+        time.sleep(0.1)
+        st = get_ipc_source_status()
+        if st.get("active_type") == req.source_type:
+            break
+        if st.get("error_status"):
+            break
     if st.get("active_type") != req.source_type:
         detail = st.get("error_status")
         if not detail:
             if req.source_type == "picamera":
-                detail = "Picamera2 is not installed or accessible in this container environment. (Raspberry Pi OS with libcamera required. Run Native Deployment Option 1 on Raspberry Pi 5 for hardware CSI camera access)."
+                detail = "Picamera2 is not installed or accessible in this container environment. Ensure libcamera, python3-picamera2, and Raspberry Pi camera device mappings (/dev, /run/udev, /sys) are present."
             else:
                 detail = f"Failed to switch to {req.source_type}. Verify hardware connection or file format."
         raise HTTPException(status_code=400, detail=detail)

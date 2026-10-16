@@ -172,7 +172,7 @@ class VideoSourceManager:
                     err_msg = getattr(new_source, "_error_status", None)
                     if not err_msg:
                         if source_type == "picamera":
-                            err_msg = "Picamera2 is not installed or accessible in this environment. (Raspberry Pi OS with libcamera required. Run Native Deployment Option 1 on Raspberry Pi 5 for CSI camera)."
+                            err_msg = "Picamera2 is not installed or accessible in this environment. Ensure libcamera, python3-picamera2, and Raspberry Pi camera device mappings (/dev, /run/udev, /sys) are present."
                         else:
                             err_msg = f"Failed to start new video source '{source_type}'"
                     self._last_error = err_msg

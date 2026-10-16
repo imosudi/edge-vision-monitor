@@ -51,7 +51,7 @@ class PiCameraSource(BaseVideoSource):
 
     def start(self) -> bool:
         if not self.is_available():
-            self._error_status = "Picamera2 is not installed or accessible in this environment. (Raspberry Pi OS with libcamera required. Run Native Deployment Option 1 on Raspberry Pi 5 for CSI camera)."
+            self._error_status = "Picamera2 is not installed or accessible in this environment. Ensure libcamera, python3-picamera2, and Raspberry Pi camera device mappings (/dev, /run/udev, /sys) are present."
             logger.warning(self._error_status)
             return False
 
