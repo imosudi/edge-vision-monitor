@@ -298,19 +298,27 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
 
     if mgr.source_manager:
         success = mgr.source_manager.switch_source(req.source_type, **kwargs)
-        if not success:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to switch to {req.source_type}. Verify hardware connection or file format.",
-            )
-        return {"status": "ok", "source_info": mgr.source_manager.get_status()}
+        st = mgr.source_manager.get_status()
+        if not success or st.get("active_type") != req.source_type:
+            detail = st.get("error_status") or f"Failed to switch to {req.source_type}. Verify hardware connection or system permissions."
+            raise HTTPException(status_code=400, detail=detail)
+        return {"status": "ok", "source_info": st}
 
     # Microservices decomposition fallback via shared-memory IPC
     import time
-    from app.core.ipc import get_ipc_source_status, send_ipc_source_command
+    from app.core.ipc import get_ipc_source_catalog, get_ipc_source_status, send_ipc_source_command
     send_ipc_source_command("switch_source", source_type=req.source_type, **kwargs)
-    time.sleep(0.05)
-    return {"status": "ok", "source_info": get_ipc_source_status()}
+    time.sleep(0.15)
+    st = get_ipc_source_status()
+    if st.get("active_type") != req.source_type:
+        detail = st.get("error_status")
+        if not detail:
+            if req.source_type == "picamera":
+                detail = "Picamera2 is not installed or accessible in this container environment. (Raspberry Pi OS with libcamera required. Run Native Deployment Option 1 on Raspberry Pi 5 for hardware CSI camera access)."
+            else:
+                detail = f"Failed to switch to {req.source_type}. Verify hardware connection or file format."
+        raise HTTPException(status_code=400, detail=detail)
+    return {"status": "ok", "source_info": st}
 
 
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm"}
@@ -355,21 +363,32 @@ async def upload_video_file(file: UploadFile = File(...)) -> Dict[str, Any]:
     logger.info("Uploaded video file '%s' (%d bytes) saved to '%s'", name_clean, total_bytes, target_path)
 
     # Automatically switch video source to newly uploaded video file
+    target_fps = mgr.config.video.capture_fps if (mgr.config and mgr.config.video) else 30
     if mgr.source_manager:
         mgr.source_manager.switch_source(
             "file",
             file_path=target_path,
             loop=True,
-            target_fps=mgr.config.video.capture_fps if mgr.config else 30,
+            target_fps=target_fps,
+        )
+    else:
+        from app.core.ipc import send_ipc_source_command
+        send_ipc_source_command(
+            "switch_source",
+            source_type="file",
+            file_path=target_path,
+            loop=True,
+            target_fps=target_fps,
         )
 
+    from app.core.ipc import get_ipc_source_catalog, get_ipc_source_status
     return {
         "status": "ok",
         "filename": name_clean,
         "file_path": target_path,
         "size_bytes": total_bytes,
-        "media_files": mgr.source_manager.enumerate_sources().get("media_files", []) if mgr.source_manager else [name_clean],
-        "active_source": mgr.source_manager.get_status() if mgr.source_manager else {},
+        "media_files": mgr.source_manager.enumerate_sources().get("media_files", []) if mgr.source_manager else get_ipc_source_catalog().get("media_files", [name_clean]),
+        "active_source": mgr.source_manager.get_status() if mgr.source_manager else get_ipc_source_status(),
     }
 
 

@@ -848,6 +848,14 @@ async function loadDiscoveredSources() {
     if (data.current_source_type && data.current_source_type !== 'none') {
       selectSourceTab(data.current_source_type);
     }
+
+    // Reflect currently active video file in dropdown
+    if (data.current_source_id && data.current_source_id.startsWith('file:')) {
+      const activeFile = data.current_source_id.replace(/^file:/, '');
+      if (activeFile && fileSel.querySelector(`option[value="${activeFile}"]`)) {
+        fileSel.value = activeFile;
+      }
+    }
   } catch (e) {
     console.error('Failed to load video sources', e);
   }
@@ -856,7 +864,7 @@ async function loadDiscoveredSources() {
 async function switchToFileSource() {
   const fileVal = document.getElementById('select-video-file').value;
   try {
-    await fetch('/api/v1/video/source', {
+    const res = await fetch('/api/v1/video/source', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -865,6 +873,10 @@ async function switchToFileSource() {
         loop: true
       })
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to switch to video file' }));
+      alert(`Video file error: ${err.detail}`);
+    }
   } catch (e) {
     console.error('Failed to switch to file source', e);
   }
@@ -948,6 +960,12 @@ async function switchToUsbSource() {
 }
 
 async function switchToPiCamSource() {
+  const btn = document.getElementById('btn-activate-picam');
+  const originalText = btn ? btn.textContent : 'Activate CSI Camera';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Activating...';
+  }
   try {
     const res = await fetch('/api/v1/video/source', {
       method: 'POST',
@@ -961,11 +979,23 @@ async function switchToPiCamSource() {
       })
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert(`Pi Camera error: ${err.detail}`);
+      const err = await res.json().catch(() => ({ detail: 'Failed to activate CSI camera' }));
+      alert(`Pi Camera Notice: ${err.detail}`);
+    } else {
+      const data = await res.json();
+      if (data.source_info && data.source_info.active_type !== 'picamera') {
+        const msg = data.source_info.error_status || 'CSI Camera could not be activated.';
+        alert(`Pi Camera Notice: ${msg}`);
+      }
     }
   } catch (e) {
     console.error('Failed to activate CSI camera', e);
+    alert(`Failed to activate CSI camera: ${e.message || e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   }
 }
 

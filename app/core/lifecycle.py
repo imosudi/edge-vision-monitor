@@ -77,8 +77,8 @@ class ApplicationLifecycleManager:
             )
             self.telemetry_service.start()
 
-        # 4. Video Source Manager (For ingress, inference, and all)
-        if mode in ("all", "ingress", "inference"):
+        # 4. Video Source Manager (Only for ingress and monolithic 'all')
+        if mode in ("all", "ingress"):
             self.source_manager = VideoSourceManager(self.config.video)
             self.source_manager.start_default_source()
 
@@ -98,7 +98,7 @@ class ApplicationLifecycleManager:
 
             self.inference_service = InferenceService(
                 engine=self.inference_engine,
-                source_manager=self.source_manager,
+                source_manager=self.source_manager if mode == "all" else None,
                 repository=self.repository,
                 event_service=self.event_service,
                 server_config=self.config.server,

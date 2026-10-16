@@ -30,6 +30,7 @@ class VideoSourceManager:
         self._active_source: Optional[BaseVideoSource] = None
         self._active_type: str = "none"
         self._source_id: str = "none"
+        self._last_error: Optional[str] = None
 
     def enumerate_sources(self) -> Dict[str, Any]:
         """Discover available video sources across CSI, USB, and media directories."""
@@ -66,28 +67,44 @@ class VideoSourceManager:
         """Start the source configured in VideoSourceConfig."""
         target_type = self._config.default_source_type
         if target_type == "picamera":
-            return self.switch_source(
+            res = self.switch_source(
                 "picamera",
                 camera_num=self._config.picamera_camera_num,
                 width=self._config.capture_width,
                 height=self._config.capture_height,
                 fps=self._config.capture_fps,
             )
-        elif target_type == "usb":
-            return self.switch_source(
+            if res:
+                return True
+            logger.warning("Default source 'picamera' could not be started; falling back to video file source...")
+            target_type = "file"
+
+        if target_type == "usb":
+            res = self.switch_source(
                 "usb",
                 device=self._config.usb_device_path,
                 width=self._config.capture_width,
                 height=self._config.capture_height,
                 fps=self._config.capture_fps,
             )
-        else:
-            return self.switch_source(
-                "file",
-                file_path=self._config.video_file_path,
-                loop=self._config.loop_playback,
-                target_fps=self._config.capture_fps,
-            )
+            if res:
+                return True
+            logger.warning("Default source 'usb' could not be started; falling back to video file source...")
+            target_type = "file"
+
+        # Auto-discover video file if default path does not exist
+        fpath = self._config.video_file_path
+        if not fpath or not os.path.exists(fpath):
+            discovered = self.enumerate_sources().get("media_files", [])
+            if discovered:
+                fpath = os.path.join(self._config.media_dir, discovered[0])
+
+        return self.switch_source(
+            "file",
+            file_path=fpath,
+            loop=self._config.loop_playback,
+            target_fps=self._config.capture_fps,
+        )
 
     def switch_source(self, source_type: str, **kwargs) -> bool:
         """
@@ -147,16 +164,27 @@ class VideoSourceManager:
                     self._active_source = new_source
                     self._active_type = source_type
                     self._source_id = new_id
+                    self._last_error = None
                     logger.info("Successfully switched video source to '%s'", self._source_id)
                     publish_source_status(self.get_status(), self.enumerate_sources())
                     return True
                 else:
-                    logger.error("Failed to start new video source '%s'", source_type)
-                    # If camera fails, fallback to synthetic video file source to prevent service deadlock
+                    err_msg = getattr(new_source, "_error_status", None)
+                    if not err_msg:
+                        if source_type == "picamera":
+                            err_msg = "Picamera2 is not installed or accessible in this environment. (Raspberry Pi OS with libcamera required. Run Native Deployment Option 1 on Raspberry Pi 5 for CSI camera)."
+                        else:
+                            err_msg = f"Failed to start new video source '{source_type}'"
+                    self._last_error = err_msg
+                    logger.error("Failed to start new video source '%s': %s", source_type, err_msg)
+
+                    # If camera fails, fallback to video file or synthetic to prevent service deadlock
                     if source_type != "file":
-                        logger.info("Attempting automatic fallback to synthetic video source...")
+                        logger.info("Attempting automatic fallback to video file or synthetic source...")
+                        discovered = self.enumerate_sources().get("media_files", [])
+                        fallback_path = os.path.join(self._config.media_dir, discovered[0]) if discovered else None
                         fallback = VideoFileSource(
-                            file_path=None,
+                            file_path=fallback_path,
                             media_dir=self._config.media_dir,
                             loop=True,
                             target_fps=30,
@@ -164,9 +192,8 @@ class VideoSourceManager:
                         if fallback.start():
                             self._active_source = fallback
                             self._active_type = "file"
-                            self._source_id = "file:synthetic_fallback"
+                            self._source_id = f"file:{os.path.basename(fallback_path or 'synthetic_fallback')}"
                             publish_source_status(self.get_status(), self.enumerate_sources())
-                            return True
                     return False
 
             except Exception as e:
@@ -218,6 +245,7 @@ class VideoSourceManager:
             "active_type": self._active_type,
             "source_id": self._source_id,
             "is_active": self._active_source.is_active() if self._active_source else False,
+            "error_status": getattr(self, "_last_error", None),
         }
         if self._active_source:
             status["source_details"] = self._active_source.get_status()
