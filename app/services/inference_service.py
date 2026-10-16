@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from app.core.config import ServerConfig
+from app.core.ipc import publish_engine_status, publish_inference_frame
 from app.core.logging_config import get_logger
 from app.inference.detection import Detection, DetectionResult
 from app.inference.engine import BaseInferenceEngine
@@ -118,6 +119,7 @@ class InferenceService:
             target=self._worker_loop, name="InferenceWorkerThread", daemon=True
         )
         self._thread.start()
+        publish_engine_status(self._engine.get_status())
         if self._event_service:
             self._event_service.emit("INFERENCE_STARTED", "Continuous object detection inference started", component="INFERENCE")
         logger.info("Inference worker service started")
@@ -197,10 +199,38 @@ class InferenceService:
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             t_acq_start = time.monotonic()
-            vframe = self._source_manager.get_frame(timeout=0.2)
+            vframe = None
+            if self._source_manager is not None:
+                vframe = self._source_manager.get_frame(timeout=0.05)
 
-            if vframe is None:
-                # No frame available from source right now
+            # Fallback to shared memory IPC raw frame buffer from ingress service
+            if vframe is None or vframe.data is None:
+                try:
+                    from app.core.ipc import get_ipc_raw_frame
+                    raw_frame = get_ipc_raw_frame()
+                    if raw_frame is not None:
+                        raw_bytes, meta = raw_frame
+                        seq = meta.get("frame_seq", 0)
+                        if seq != getattr(self, "_last_ipc_seq", -1):
+                            self._last_ipc_seq = seq
+                            w = meta.get("width", 640)
+                            h = meta.get("height", 480)
+                            c = meta.get("channels", 3)
+                            frame_data = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((h, w, c))
+                            from app.sources.base import VideoFrame
+                            vframe = VideoFrame(
+                                data=frame_data,
+                                frame_seq=seq,
+                                timestamp_monotonic=meta.get("timestamp", time.monotonic()),
+                                source_id=meta.get("source_id", "ipc:ingress"),
+                                width=w,
+                                height=h,
+                            )
+                except Exception as e:
+                    logger.debug("Error reading raw frame from IPC: %s", e)
+
+            if vframe is None or vframe.data is None:
+                # No frame available from source or IPC right now
                 time.sleep(0.01)
                 continue
 
@@ -244,10 +274,19 @@ class InferenceService:
                             self._latest_jpeg = jpeg_bytes.tobytes()
                     self._last_preview_time = now
 
-                # 4. Cache structured detections
+                # 4. Cache structured detections and publish to shared-memory IPC
                 with self._lock:
                     self._latest_detections = [d.to_dict() for d in result.detections]
                     self._latest_result = result
+                    publish_inference_frame(
+                        jpeg_bytes=self._latest_jpeg,
+                        detections=self._latest_detections,
+                        stats=self.get_stats(),
+                        frame_seq=result.frame_seq,
+                        timestamp_utc=result.timestamp_utc,
+                        image_width=vframe.data.shape[1] if vframe.data is not None else 640,
+                        image_height=vframe.data.shape[0] if vframe.data is not None else 480,
+                    )
 
                 # 5. Enqueue Persistence Records
                 frame_rec = InferenceFrameRecord(

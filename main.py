@@ -661,6 +661,118 @@ def run_systemd(args: argparse.Namespace) -> int:
 # 4. Interactive Deployment Selection Prompt
 # ==============================================================================
 
+def build_ssh_command(
+    remote_host: str,
+    remote_user: Optional[str] = None,
+    remote_port: int = 22,
+    remote_auth: str = "password",
+    remote_key: Optional[str] = None,
+    remote_command: str = "",
+) -> List[str]:
+    """Construct an SSH invocation command with strict security and authentication flags."""
+    cmd = ["ssh"]
+    if sys.stdin.isatty():
+        cmd.append("-t")
+
+    cmd.extend(["-o", "StrictHostKeyChecking=accept-new"])
+    if remote_auth == "password" or (not remote_key and remote_auth != "key"):
+        cmd.extend([
+            "-o", "PubkeyAuthentication=no",
+            "-o", "PreferredAuthentications=password,keyboard-interactive",
+        ])
+    else:
+        if remote_key:
+            cmd.extend(["-i", str(remote_key), "-o", "IdentitiesOnly=yes"])
+        else:
+            cmd.extend(["-o", "PubkeyAuthentication=yes"])
+
+    if remote_port and str(remote_port) != "22":
+        cmd.extend(["-p", str(remote_port)])
+
+    login_target = f"{remote_user}@{remote_host}" if remote_user else remote_host
+    cmd.extend([login_target, remote_command])
+    return cmd
+
+
+def prompt_remote_host_options(deployment_name: str) -> Tuple[int, Optional[Dict[str, Any]]]:
+    """
+    Prompt user for target host (local vs remote) and login details.
+    Returns a tuple of (status_code, remote_info_dict).
+    """
+    print(f"\nSelect deployment host for {deployment_name}:")
+    print("  [1] Local host [default]")
+    print("  [2] Remote host")
+    try:
+        host_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperation cancelled.")
+        return 0, None
+
+    if host_choice != "2":
+        return 0, {}
+
+    print()
+    try:
+        host_input = input(_colourise("Enter remote host IP address or hostname: ", "1;33")).strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperation cancelled.")
+        return 0, None
+    if not host_input:
+        log_error("Remote host IP address or hostname is required.")
+        return 1, None
+
+    parsed_user = None
+    parsed_port = None
+    if "@" in host_input:
+        parsed_user, host_input = host_input.split("@", 1)
+    if ":" in host_input:
+        host_input, port_str = host_input.split(":", 1)
+        if port_str.isdigit():
+            parsed_port = int(port_str)
+
+    remote_host = host_input
+    default_user = parsed_user or os.getenv("USER") or "root"
+
+    try:
+        user_prompt = f"Enter privileged login user (e.g. root, docker-enabled user) [default: {default_user}]: "
+        user_input = input(_colourise(user_prompt, "1;33")).strip()
+        remote_user = user_input or default_user
+
+        default_port = str(parsed_port or 22)
+        port_prompt = f"Enter remote SSH port [default: {default_port}]: "
+        port_input = input(_colourise(port_prompt, "1;33")).strip()
+        remote_port = int(port_input) if (port_input and port_input.isdigit()) else int(default_port)
+
+        print("Select SSH authentication method:")
+        print("  [1] Password authentication [default]")
+        print("  [2] SSH identity key / agent")
+        auth_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
+        if auth_choice == "2":
+            remote_auth = "key"
+            key_prompt = "Enter SSH identity key file path (optional, press Enter for default agent/keys): "
+            key_input = input(_colourise(key_prompt, "1;33")).strip()
+            remote_key = key_input or None
+        else:
+            remote_auth = "password"
+            remote_key = None
+
+        dir_prompt = "Enter remote project directory [default: ~/edge-vision-monitor]: "
+        dir_input = input(_colourise(dir_prompt, "1;33")).strip()
+        remote_dir = dir_input or "~/edge-vision-monitor"
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperation cancelled.")
+        return 0, None
+
+    return 0, {
+        "remote_host": remote_host,
+        "remote_user": remote_user,
+        "remote_port": remote_port,
+        "remote_auth": remote_auth,
+        "remote_key": remote_key,
+        "remote_dir": remote_dir,
+    }
+
+
 def prompt_deployment_menu(args: argparse.Namespace) -> int:
     """Prompt the user with an interactive deployment selection menu."""
     log_step("Interactive Deployment Selection")
@@ -685,6 +797,24 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
     if choice == "1":
         # Native On-Device Execution
+        ret_code, remote_info = prompt_remote_host_options("Native On-Device Execution")
+        if remote_info is None:
+            return ret_code
+        if remote_info:
+            rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
+            remote_cmd = f"cd {rdir} && (test -d .venv && source .venv/bin/activate; python3 main.py run)"
+            ssh_cmd = build_ssh_command(
+                remote_host=remote_info["remote_host"],
+                remote_user=remote_info["remote_user"],
+                remote_port=remote_info["remote_port"],
+                remote_auth=remote_info["remote_auth"],
+                remote_key=remote_info["remote_key"],
+                remote_command=remote_cmd,
+            )
+            log_info(f"Target Remote Host:        {_colourise(remote_info['remote_host'], '35;1')}")
+            log_info(f"Executing: {' '.join(ssh_cmd)}")
+            return subprocess.run(ssh_cmd).returncode
+
         args.command = "run"
         args.service = getattr(args, "service", "all") or "all"
         return run_native(args)
@@ -703,12 +833,36 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             print("\nOperation cancelled.")
             return 0
         roles = {"1": "ingress", "2": "inference", "3": "telemetry", "4": "storage", "5": "gateway"}
+        selected_role = roles.get(sub, "all")
+
+        ret_code, remote_info = prompt_remote_host_options(f"Standalone Microservice Worker ({selected_role.upper()})")
+        if remote_info is None:
+            return ret_code
+        if remote_info:
+            rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
+            remote_cmd = f"cd {rdir} && (test -d .venv && source .venv/bin/activate; python3 main.py run --service {selected_role})"
+            ssh_cmd = build_ssh_command(
+                remote_host=remote_info["remote_host"],
+                remote_user=remote_info["remote_user"],
+                remote_port=remote_info["remote_port"],
+                remote_auth=remote_info["remote_auth"],
+                remote_key=remote_info["remote_key"],
+                remote_command=remote_cmd,
+            )
+            log_info(f"Target Remote Host:        {_colourise(remote_info['remote_host'], '35;1')}")
+            log_info(f"Executing: {' '.join(ssh_cmd)}")
+            return subprocess.run(ssh_cmd).returncode
+
         args.command = "run"
-        args.service = roles.get(sub, "all")
+        args.service = selected_role
         return run_native(args)
 
     elif choice == "3":
         # Monolithic Container Deployment
+        ret_code, remote_info = prompt_remote_host_options("Monolithic Container Deployment")
+        if remote_info is None:
+            return ret_code
+
         print("\nSelect Compose action for Monolithic Container:")
         print("  [1] Start container in background (up -d) [default]")
         print("  [2] Stop container (down)")
@@ -724,78 +878,15 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.compose_action = act_map.get(act_choice, "up")
         args.microservices = False
         args.type = "monolith"
+        for k, v in remote_info.items():
+            setattr(args, k, v)
         return run_compose(args)
 
     elif choice == "4":
         # Microservices Decomposition Deployment
-        print("\nSelect deployment host for Microservices Decomposition:")
-        print("  [1] Local host [default]")
-        print("  [2] Remote host")
-        try:
-            host_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
-        except (KeyboardInterrupt, EOFError):
-            print("\nOperation cancelled.")
-            return 0
-
-        remote_host = None
-        remote_user = None
-        remote_port = 22
-        remote_auth = "password"
-        remote_key = None
-        remote_dir = "~/edge-vision-monitor"
-
-        if host_choice == "2":
-            print()
-            try:
-                host_input = input(_colourise("Enter remote host IP address or hostname: ", "1;33")).strip()
-            except (KeyboardInterrupt, EOFError):
-                print("\nOperation cancelled.")
-                return 0
-            if not host_input:
-                log_error("Remote host IP address or hostname is required.")
-                return 1
-
-            parsed_user = None
-            parsed_port = None
-            if "@" in host_input:
-                parsed_user, host_input = host_input.split("@", 1)
-            if ":" in host_input:
-                host_input, port_str = host_input.split(":", 1)
-                if port_str.isdigit():
-                    parsed_port = int(port_str)
-
-            remote_host = host_input
-            default_user = parsed_user or os.getenv("USER") or "root"
-
-            try:
-                user_prompt = f"Enter privileged login user (e.g. root, docker-enabled user) [default: {default_user}]: "
-                user_input = input(_colourise(user_prompt, "1;33")).strip()
-                remote_user = user_input or default_user
-
-                default_port = str(parsed_port or 22)
-                port_prompt = f"Enter remote SSH port [default: {default_port}]: "
-                port_input = input(_colourise(port_prompt, "1;33")).strip()
-                remote_port = int(port_input) if (port_input and port_input.isdigit()) else int(default_port)
-
-                print("Select SSH authentication method:")
-                print("  [1] Password authentication [default]")
-                print("  [2] SSH identity key / agent")
-                auth_choice = input(_colourise("Enter choice [1-2] (default: 1): ", "1;33")).strip() or "1"
-                if auth_choice == "2":
-                    remote_auth = "key"
-                    key_prompt = "Enter SSH identity key file path (optional, press Enter for default agent/keys): "
-                    key_input = input(_colourise(key_prompt, "1;33")).strip()
-                    remote_key = key_input or None
-                else:
-                    remote_auth = "password"
-                    remote_key = None
-
-                dir_prompt = "Enter remote project directory [default: ~/edge-vision-monitor]: "
-                dir_input = input(_colourise(dir_prompt, "1;33")).strip()
-                remote_dir = dir_input or "~/edge-vision-monitor"
-            except (KeyboardInterrupt, EOFError):
-                print("\nOperation cancelled.")
-                return 0
+        ret_code, remote_info = prompt_remote_host_options("Microservices Decomposition")
+        if remote_info is None:
+            return ret_code
 
         print("\nSelect Compose action for Microservices Decomposition:")
         print("  [1] Start all 5 microservices in background (up -d) [default]")
@@ -811,12 +902,9 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.command = "compose"
         args.microservices = True
         args.type = "microservices"
-        args.remote_host = remote_host
-        args.remote_user = remote_user
-        args.remote_port = remote_port
-        args.remote_auth = remote_auth
-        args.remote_key = remote_key
-        args.remote_dir = remote_dir
+        for k, v in remote_info.items():
+            setattr(args, k, v)
+
         if act_choice == "5":
             try:
                 target = input(_colourise("Enter microservice name [ingress/inference/telemetry/storage/gateway]: ", "1;33")).strip()
@@ -832,6 +920,10 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
     elif choice == "5":
         # systemd Service Management
+        ret_code, remote_info = prompt_remote_host_options("systemd Service Management")
+        if remote_info is None:
+            return ret_code
+
         print("\nSelect systemd action:")
         print("  [1] Inspect service status [default]")
         print("  [2] Install and enable service at boot")
@@ -848,10 +940,46 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.systemd_action = sys_map.get(sys_choice, "status")
         if args.systemd_action == "install":
             args.start_now = True
+
+        if remote_info:
+            rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
+            install_flag = " --start-now" if getattr(args, "start_now", False) else ""
+            remote_cmd = f"cd {rdir} && sudo python3 main.py systemd {args.systemd_action}{install_flag}"
+            ssh_cmd = build_ssh_command(
+                remote_host=remote_info["remote_host"],
+                remote_user=remote_info["remote_user"],
+                remote_port=remote_info["remote_port"],
+                remote_auth=remote_info["remote_auth"],
+                remote_key=remote_info["remote_key"],
+                remote_command=remote_cmd,
+            )
+            log_info(f"Target Remote Host:        {_colourise(remote_info['remote_host'], '35;1')}")
+            log_info(f"Executing: {' '.join(ssh_cmd)}")
+            return subprocess.run(ssh_cmd).returncode
+
         return run_systemd(args)
 
     elif choice == "6":
         # Pre-flight Hardware Diagnostics Check
+        ret_code, remote_info = prompt_remote_host_options("Pre-flight Hardware Diagnostics Check")
+        if remote_info is None:
+            return ret_code
+
+        if remote_info:
+            rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
+            remote_cmd = f"cd {rdir} && (test -d .venv && source .venv/bin/activate; python3 main.py diagnose)"
+            ssh_cmd = build_ssh_command(
+                remote_host=remote_info["remote_host"],
+                remote_user=remote_info["remote_user"],
+                remote_port=remote_info["remote_port"],
+                remote_auth=remote_info["remote_auth"],
+                remote_key=remote_info["remote_key"],
+                remote_command=remote_cmd,
+            )
+            log_info(f"Target Remote Host:        {_colourise(remote_info['remote_host'], '35;1')}")
+            log_info(f"Executing: {' '.join(ssh_cmd)}")
+            return subprocess.run(ssh_cmd).returncode
+
         log_step("Executing Hardware Diagnostic Tool")
         try:
             from scripts.diagnose import main as run_diagnostics

@@ -50,6 +50,9 @@ services:
       - "./media:/app/media:ro,Z"
       # Application configuration override
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      # Application source code
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
 
     environment:
       - EVM_SERVER__HOST=0.0.0.0

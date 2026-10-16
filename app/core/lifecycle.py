@@ -260,9 +260,51 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
     signal.signal(signal.SIGTERM, handle_signal)
 
     logger.info("Microservice worker '%s' is running (PID: %s)", service_mode.upper(), os.getpid())
+    if service_mode == "ingress" and manager.source_manager:
+        try:
+            from app.core.ipc import publish_source_status
+            publish_source_status(manager.source_manager.get_status(), manager.source_manager.enumerate_sources())
+        except Exception as e:
+            logger.debug("Failed initial source status IPC publish: %s", e)
+
     try:
         while not shutdown_event.is_set():
-            time.sleep(0.5)
+            if service_mode == "ingress" and manager.source_manager:
+                try:
+                    from app.core.ipc import consume_ipc_source_command, publish_source_status, publish_raw_frame
+                    cmd = consume_ipc_source_command()
+                    if cmd:
+                        action = cmd.get("command")
+                        kwargs = cmd.get("kwargs", {})
+                        logger.info("Ingress worker received IPC command '%s': %s", action, kwargs)
+                        if action == "switch_source":
+                            stype = kwargs.get("source_type", "file")
+                            call_kwargs = {k: v for k, v in kwargs.items() if k != "source_type"}
+                            manager.source_manager.switch_source(stype, **call_kwargs)
+                        elif action == "pause":
+                            manager.source_manager.pause_playback()
+                        elif action == "resume":
+                            manager.source_manager.resume_playback()
+                        elif action == "restart":
+                            manager.source_manager.restart_playback()
+                        publish_source_status(manager.source_manager.get_status(), manager.source_manager.enumerate_sources())
+
+                    # Capture and publish raw frame for decoupled inference worker
+                    vframe = manager.source_manager.get_frame(timeout=0.03)
+                    if vframe is not None and vframe.data is not None:
+                        publish_raw_frame(
+                            vframe.data.tobytes(),
+                            vframe.width,
+                            vframe.height,
+                            3,
+                            vframe.frame_seq,
+                            vframe.source_id,
+                        )
+                except Exception as ipc_err:
+                    logger.debug("Error in ingress worker loop: %s", ipc_err)
+                time.sleep(0.01)
+            else:
+                time.sleep(0.1)
     except KeyboardInterrupt:
         logger.info("Interrupted by user, terminating worker '%s'...", service_mode)
     finally:

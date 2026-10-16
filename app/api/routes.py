@@ -59,14 +59,29 @@ def get_readiness() -> ReadinessResponse:
     """Readiness check: validates Hailo hardware, model compilation and runtime status."""
     mgr = get_lifecycle_manager()
     if not mgr.inference_engine:
+        from app.core.ipc import get_ipc_engine_status
+        ipc_st = get_ipc_engine_status()
+        if ipc_st:
+            current_backend = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+            return ReadinessResponse(
+                ready=bool(ipc_st.get("ready", False)),
+                active_backend=current_backend,
+                hailo_ready=os.path.exists("/dev/hailo0") or bool(ipc_st.get("hailo_ready", False)),
+                model_status=str(ipc_st.get("status", "UNKNOWN")),
+                model_path=str(ipc_st.get("model_path", ipc_st.get("hef_path", ""))),
+                hef_path=str(ipc_st.get("hef_path", "")),
+                error_message=ipc_st.get("error_message"),
+                is_mock=bool(ipc_st.get("is_mock", False)),
+            )
         return ReadinessResponse(
             ready=False,
-            active_backend="hailo",
-            hailo_ready=False,
+            active_backend="none",
+            hailo_ready=os.path.exists("/dev/hailo0"),
             model_status="UNINITIALIZED",
             model_path="",
             hef_path="",
-            error_message="Lifecycle manager not initialised",
+            error_message="Lifecycle manager or inference engine not initialised",
+            is_mock=False,
         )
 
     st = mgr.inference_engine.get_status()
@@ -87,16 +102,19 @@ def get_readiness() -> ReadinessResponse:
 def get_status() -> StatusResponse:
     """High-level status overview of active source, inference loop, and hardware alarms."""
     mgr = get_lifecycle_manager()
-    src_st = mgr.source_manager.get_status() if mgr.source_manager else {}
-    inf_st = mgr.inference_service.get_stats() if mgr.inference_service else {}
-    tel_st = mgr.telemetry_service.get_status() if mgr.telemetry_service else {}
+    from app.core.ipc import get_ipc_inference_stats, get_ipc_source_status, get_ipc_telemetry_status
+    src_st = mgr.source_manager.get_status() if mgr.source_manager else get_ipc_source_status()
+    inf_st = mgr.inference_service.get_stats() if mgr.inference_service else get_ipc_inference_stats()
+    tel_st = mgr.telemetry_service.get_status() if mgr.telemetry_service else get_ipc_telemetry_status()
+
+    is_running = (mgr.inference_service and mgr.inference_service.is_running()) or bool(inf_st.get("is_running", False))
 
     return StatusResponse(
-        application_state="RUNNING" if (mgr.inference_service and mgr.inference_service.is_running()) else "IDLE",
+        application_state="RUNNING" if is_running else "IDLE",
         active_source=src_st.get("source_id", "none"),
         active_source_type=src_st.get("active_type", "none"),
         active_backend=inf_st.get("active_backend", "hailo"),
-        inference_running=bool(inf_st.get("is_running", False)),
+        inference_running=is_running,
         current_fps=float(inf_st.get("current_fps", 0.0)),
         alarms_count=int(tel_st.get("active_alarms_count", 0)),
     )
@@ -106,9 +124,10 @@ def get_status() -> StatusResponse:
 def get_current_metrics() -> Dict[str, Any]:
     """Latest snapshot of all collected hardware and system metrics."""
     mgr = get_lifecycle_manager()
-    if not mgr.telemetry_service:
-        return {}
-    return mgr.telemetry_service.get_current_metrics()
+    if mgr.telemetry_service:
+        return mgr.telemetry_service.get_current_metrics()
+    from app.core.ipc import get_ipc_telemetry_metrics
+    return get_ipc_telemetry_metrics()
 
 
 @api_router.get("/metrics/history")
@@ -161,9 +180,10 @@ def get_downsampled_metrics(
 def get_metrics_catalog() -> List[Dict[str, Any]]:
     """Catalogue of discovered telemetry sensors, units, and interfaces."""
     mgr = get_lifecycle_manager()
-    if not mgr.telemetry_service:
-        return []
-    return mgr.telemetry_service.get_catalog()
+    if mgr.telemetry_service:
+        return mgr.telemetry_service.get_catalog()
+    from app.core.ipc import get_ipc_telemetry_catalog
+    return get_ipc_telemetry_catalog()
 
 
 @api_router.get("/inference/history")
@@ -206,45 +226,45 @@ def get_detections_history(
 def get_inference_stats() -> Dict[str, Any]:
     """Rolling inference latencies (mean, p95, p99), frame counts, and FPS."""
     mgr = get_lifecycle_manager()
-    if not mgr.inference_service:
-        return {}
-    return mgr.inference_service.get_stats()
+    if mgr.inference_service:
+        return mgr.inference_service.get_stats()
+    from app.core.ipc import get_ipc_inference_stats
+    return get_ipc_inference_stats()
 
 
 @api_router.get("/detections/latest")
 def get_latest_detections() -> Dict[str, Any]:
     """Structured detection records for the most recently processed frame."""
     mgr = get_lifecycle_manager()
-    if not mgr.inference_service:
-        return {"count": 0, "detections": []}
+    if mgr.inference_service:
+        dets = mgr.inference_service.get_latest_detections()
+        res = mgr.inference_service.get_latest_result()
+        return {
+            "count": len(dets),
+            "detections": dets,
+            "timestamp_utc": res.timestamp_utc if res else None,
+            "image_width": res.image_width if res else 640,
+            "image_height": res.image_height if res else 480,
+        }
 
-    dets = mgr.inference_service.get_latest_detections()
-    res = mgr.inference_service.get_latest_result()
-
-    return {
-        "count": len(dets),
-        "detections": dets,
-        "timestamp_utc": res.timestamp_utc if res else None,
-        "image_width": res.image_width if res else 640,
-        "image_height": res.image_height if res else 480,
-    }
+    from app.core.ipc import get_ipc_latest_detections
+    return get_ipc_latest_detections()
 
 
 @api_router.get("/video/sources")
 def get_video_sources() -> Dict[str, Any]:
     """Enumerate discovered video inputs (Pi CSI cameras, USB webcams, media files)."""
     mgr = get_lifecycle_manager()
-    if not mgr.source_manager:
-        return {}
-    return mgr.source_manager.enumerate_sources()
+    if mgr.source_manager:
+        return mgr.source_manager.enumerate_sources()
+    from app.core.ipc import get_ipc_source_catalog
+    return get_ipc_source_catalog()
 
 
 @api_router.post("/video/source")
 def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
     """Controlled source transition to Raspberry Pi CSI camera, USB webcam, or file."""
     mgr = get_lifecycle_manager()
-    if not mgr.source_manager:
-        raise HTTPException(status_code=500, detail="Video source manager unavailable")
 
     kwargs: Dict[str, Any] = {}
     if req.source_type == "picamera":
@@ -266,14 +286,21 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
     if req.fps:
         kwargs["fps"] = req.fps
 
-    success = mgr.source_manager.switch_source(req.source_type, **kwargs)
-    if not success:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to switch to {req.source_type}. Verify hardware connection or file format.",
-        )
+    if mgr.source_manager:
+        success = mgr.source_manager.switch_source(req.source_type, **kwargs)
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to switch to {req.source_type}. Verify hardware connection or file format.",
+            )
+        return {"status": "ok", "source_info": mgr.source_manager.get_status()}
 
-    return {"status": "ok", "source_info": mgr.source_manager.get_status()}
+    # Microservices decomposition fallback via shared-memory IPC
+    import time
+    from app.core.ipc import get_ipc_source_status, send_ipc_source_command
+    send_ipc_source_command("switch_source", source_type=req.source_type, **kwargs)
+    time.sleep(0.05)
+    return {"status": "ok", "source_info": get_ipc_source_status()}
 
 
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm"}
@@ -340,19 +367,20 @@ async def upload_video_file(file: UploadFile = File(...)) -> Dict[str, Any]:
 def control_playback(req: PlaybackControlRequest) -> Dict[str, Any]:
     """Playback controls (play, pause, restart) for prerecorded video files."""
     mgr = get_lifecycle_manager()
-    if not mgr.source_manager:
-        raise HTTPException(status_code=500, detail="Source manager not ready")
+    if mgr.source_manager:
+        if req.action == "pause":
+            ok = mgr.source_manager.pause_playback()
+        elif req.action == "play":
+            ok = mgr.source_manager.resume_playback()
+        elif req.action == "restart":
+            ok = mgr.source_manager.restart_playback()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid action")
+        return {"status": "ok" if ok else "unsupported", "action": req.action}
 
-    if req.action == "pause":
-        ok = mgr.source_manager.pause_playback()
-    elif req.action == "play":
-        ok = mgr.source_manager.resume_playback()
-    elif req.action == "restart":
-        ok = mgr.source_manager.restart_playback()
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action")
-
-    return {"status": "ok" if ok else "unsupported", "action": req.action}
+    from app.core.ipc import send_ipc_source_command
+    send_ipc_source_command(req.action)
+    return {"status": "ok", "action": req.action}
 
 
 @api_router.post("/inference/start")
@@ -404,6 +432,12 @@ def get_backends() -> BackendsResponse:
     """Check hardware and model file availability for Hailo, CPU, and Mock backends."""
     mgr = get_lifecycle_manager()
     data = mgr.get_available_backends()
+    if not mgr.inference_engine:
+        from app.core.ipc import get_ipc_engine_status
+        ipc_st = get_ipc_engine_status()
+        if ipc_st:
+            current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+            data["current_backend"] = current
     return BackendsResponse(**data)
 
 
@@ -430,10 +464,13 @@ def switch_backend(req: BackendSelectionRequest) -> Dict[str, Any]:
 def get_latest_frame_jpeg():
     """Returns single JPEG snapshot of annotated video preview."""
     mgr = get_lifecycle_manager()
-    if not mgr.inference_service:
-        raise HTTPException(status_code=503, detail="Inference service not ready")
+    jpeg_data = None
+    if mgr.inference_service:
+        jpeg_data = mgr.inference_service.get_latest_jpeg()
+    else:
+        from app.core.ipc import get_ipc_latest_jpeg
+        jpeg_data = get_ipc_latest_jpeg()
 
-    jpeg_data = mgr.inference_service.get_latest_jpeg()
     if not jpeg_data:
         raise HTTPException(status_code=404, detail="No preview frame available yet")
 
@@ -444,16 +481,21 @@ def get_latest_frame_jpeg():
 async def get_mjpeg_stream():
     """Live multipart MJPEG preview stream with bounding box annotations."""
     mgr = get_lifecycle_manager()
+    from app.core.ipc import get_ipc_latest_jpeg
 
     async def frame_generator():
         while True:
+            jpeg_data = None
             if mgr.inference_service:
                 jpeg_data = mgr.inference_service.get_latest_jpeg()
-                if jpeg_data:
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + jpeg_data + b"\r\n"
-                    )
+            else:
+                jpeg_data = get_ipc_latest_jpeg()
+
+            if jpeg_data:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg_data + b"\r\n"
+                )
             await asyncio.sleep(0.066)  # ~15 fps preview delivery rate
 
     return StreamingResponse(

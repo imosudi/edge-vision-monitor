@@ -10,6 +10,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from app.core.config import TelemetryConfig
+from app.core.ipc import publish_telemetry_snapshot
 from app.core.logging_config import get_logger
 from app.services.event_service import EventService
 from app.storage.repository import TelemetryRepository
@@ -72,6 +73,14 @@ class TelemetryService:
 
                 # Check alarms / thresholds
                 self._check_alarms(samples)
+
+                # Publish latest snapshot to shared-memory IPC for decoupled gateway
+                publish_telemetry_snapshot(
+                    metrics=self._collector.get_latest_snapshot(),
+                    catalog=self._collector.get_metric_catalog(),
+                    alarms=self._active_alarms,
+                    status=self.get_status(),
+                )
 
             except Exception as e:
                 logger.error("Exception during telemetry sampling: %s", e, exc_info=True)

@@ -11,6 +11,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from app.core.config import VideoSourceConfig
+from app.core.ipc import publish_source_status
 from app.core.logging_config import get_logger
 from app.sources.base import BaseVideoSource, VideoFrame
 from app.sources.picamera_source import PiCameraSource
@@ -147,6 +148,7 @@ class VideoSourceManager:
                     self._active_type = source_type
                     self._source_id = new_id
                     logger.info("Successfully switched video source to '%s'", self._source_id)
+                    publish_source_status(self.get_status(), self.enumerate_sources())
                     return True
                 else:
                     logger.error("Failed to start new video source '%s'", source_type)
@@ -163,6 +165,7 @@ class VideoSourceManager:
                             self._active_source = fallback
                             self._active_type = "file"
                             self._source_id = "file:synthetic_fallback"
+                            publish_source_status(self.get_status(), self.enumerate_sources())
                             return True
                     return False
 

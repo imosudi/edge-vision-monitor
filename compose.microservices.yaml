@@ -29,6 +29,8 @@ services:
       - "/dev/shm:/dev/shm"
       - "./media:/app/media:ro,Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
     healthcheck:
       test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
       interval: 15s
@@ -62,6 +64,8 @@ services:
       - "/dev/shm:/dev/shm"
       - "./models:/app/models:ro,Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
     depends_on:
       - edge-vision-ingress
     healthcheck:
@@ -92,10 +96,13 @@ services:
       - EVM_CONFIG_PATH=/app/config/config.yaml
       - EVM_SERVER__LOG_LEVEL=INFO
     volumes:
+      - "/dev/shm:/dev/shm"
       - "/sys/class/hwmon:/sys/class/hwmon:ro"
       - "/sys/class/thermal:/sys/class/thermal:ro"
       - "./data:/app/data:Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
     healthcheck:
       test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
       interval: 15s
@@ -124,8 +131,11 @@ services:
       - EVM_CONFIG_PATH=/app/config/config.yaml
       - EVM_SERVER__LOG_LEVEL=INFO
     volumes:
+      - "/dev/shm:/dev/shm"
       - "./data:/app/data:Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
     healthcheck:
       test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
       interval: 15s
@@ -138,7 +148,7 @@ services:
   # ----------------------------------------------------------------------------
   # 5. Gateway Service (FastAPI Server, WebSockets, MJPEG Broadcast & Web UI)
   # Hardware: None (Completely unprivileged, no device or host sysfs access)
-  # Volumes: Stateless (Reads data / config read-only)
+  # Volumes: Stateless (Reads data / config read-only, shared memory IPC)
   # Network: Exposes 8000:8000 for web clients and REST / WebSocket API
   # Failure Domain: Web security vulnerabilities cannot compromise host hardware
   # ----------------------------------------------------------------------------
@@ -159,9 +169,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - "/dev/shm:/dev/shm:ro"
+      - "/dev/shm:/dev/shm"
       - "./data:/app/data:ro,Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
+      - "./app:/app/app:ro"
+      - "./main.py:/app/main.py:ro"
     depends_on:
       - edge-vision-ingress
       - edge-vision-inference

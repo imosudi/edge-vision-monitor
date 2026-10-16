@@ -63,16 +63,37 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Prepare combined snapshot
             now_utc = datetime.now(timezone.utc).isoformat()
-            metrics_snapshot = mgr.telemetry_service.get_current_metrics() if mgr.telemetry_service else {}
-            inf_stats = mgr.inference_service.get_stats() if mgr.inference_service else {}
-            detections = mgr.inference_service.get_latest_detections() if mgr.inference_service else []
-            src_st = mgr.source_manager.get_status() if mgr.source_manager else {}
+            if mgr.telemetry_service:
+                metrics_snapshot = mgr.telemetry_service.get_current_metrics()
+            else:
+                from app.core.ipc import get_ipc_telemetry_metrics
+                metrics_snapshot = get_ipc_telemetry_metrics()
+
+            if mgr.inference_service:
+                inf_stats = mgr.inference_service.get_stats()
+                detections = mgr.inference_service.get_latest_detections()
+            else:
+                from app.core.ipc import get_ipc_inference_stats, get_ipc_latest_detections, get_ipc_engine_status
+                inf_stats = get_ipc_inference_stats()
+                det_data = get_ipc_latest_detections()
+                detections = det_data.get("detections", [])
+                if "engine_status" not in inf_stats:
+                    eng_st = get_ipc_engine_status()
+                    if eng_st:
+                        inf_stats["engine_status"] = eng_st
+                        inf_stats["active_backend"] = eng_st.get("backend", "hailo" if "Hailo" in eng_st.get("type", "") else "cpu")
+
+            if mgr.source_manager:
+                src_st = mgr.source_manager.get_status()
+            else:
+                from app.core.ipc import get_ipc_source_status
+                src_st = get_ipc_source_status()
 
             payload = {
                 "type": "telemetry_update",
                 "timestamp_utc": now_utc,
                 "status": {
-                    "inference_running": inf_stats.get("is_running", False),
+                    "inference_running": bool(inf_stats.get("is_running", False)),
                     "active_source": src_st.get("source_id", "none"),
                     "source_type": src_st.get("active_type", "none"),
                     "active_backend": inf_stats.get("active_backend", "hailo"),
