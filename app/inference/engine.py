@@ -253,6 +253,7 @@ class HailoInferenceEngine(BaseInferenceEngine):
             "type": "Hailo-8L",
             "backend": "hailo",
             "ready": self._is_ready,
+            "hailo_ready": self._is_ready,
             "status": self._validation.status if self._validation else "UNINITIALIZED",
             "hef_path": self._config.hef_path,
             "error_message": self._validation.error_message if self._validation else None,

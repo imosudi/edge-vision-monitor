@@ -73,12 +73,22 @@ def load_class_labels(labels_path: Optional[str]) -> List[str]:
 
 
 def check_hailo_runtime_installed() -> Tuple[bool, Optional[str]]:
-    """Check if HailoRT Python bindings are installed."""
+    """Check if HailoRT Python bindings are installed and driver-compatible."""
     try:
         import hailo_platform  # type: ignore
         version = getattr(hailo_platform, "__version__", "unknown")
+        if os.path.exists("/dev/hailo0"):
+            try:
+                vdev = hailo_platform.VDevice()
+                del vdev
+            except Exception as v_err:
+                logger.warning("HailoRT runtime detected (%s), but VDevice initialisation failed: %s", version, v_err)
+                return False, f"Driver incompatible ({v_err})"
         return True, version
     except ImportError:
+        return False, None
+    except Exception as exc:
+        logger.warning("HailoRT runtime check error: %s", exc)
         return False, None
 
 

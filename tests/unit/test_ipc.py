@@ -97,3 +97,39 @@ def test_ipc_raw_frame_buffer(tmp_path: Path):
         assert data == raw_bytes
         assert meta["frame_seq"] == 7
         assert meta["width"] == 2
+
+
+def test_ipc_inference_commands_and_backends_catalog(tmp_path: Path):
+    with patch.object(ipc, "SHM_DIR", tmp_path), \
+         patch.object(ipc, "INFERENCE_COMMAND_FILE", tmp_path / "evm_inference_command.json"), \
+         patch.object(ipc, "BACKENDS_CATALOG_FILE", tmp_path / "evm_backends_catalog.json"), \
+         patch.object(ipc, "INFERENCE_LATEST_FILE", tmp_path / "evm_inference_latest.json"):
+
+        backends_data = {
+            "current_backend": "hailo",
+            "backends": {
+                "hailo": {"name": "Hailo-8L", "available": True},
+                "cpu": {"name": "CPU", "available": True},
+            },
+        }
+        ipc.publish_backends_catalog(backends_data)
+        read_backends = ipc.get_ipc_backends_catalog()
+        assert read_backends is not None
+        assert read_backends["current_backend"] == "hailo"
+        assert read_backends["backends"]["hailo"]["available"] is True
+
+        ipc.send_ipc_inference_command("switch_backend", backend="cpu", model_path="models/onnx/model.onnx")
+        cmd = ipc.consume_ipc_inference_command()
+        assert cmd is not None
+        assert cmd["command"] == "switch_backend"
+        assert cmd["kwargs"]["backend"] == "cpu"
+        assert cmd["kwargs"]["model_path"] == "models/onnx/model.onnx"
+
+        # File is unlinked after consumption
+        assert ipc.consume_ipc_inference_command() is None
+
+        # Test publishing inference status (e.g. stopped)
+        stopped_stats = {"is_running": False, "current_fps": 0.0, "active_backend": "cpu"}
+        ipc.publish_inference_status(stats=stopped_stats)
+        assert ipc.get_ipc_inference_stats()["is_running"] is False
+

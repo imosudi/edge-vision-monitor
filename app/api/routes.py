@@ -63,10 +63,15 @@ def get_readiness() -> ReadinessResponse:
         ipc_st = get_ipc_engine_status()
         if ipc_st:
             current_backend = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+            is_hailo_ready = (
+                os.path.exists("/dev/hailo0")
+                or bool(ipc_st.get("hailo_ready", False))
+                or (current_backend == "hailo" and bool(ipc_st.get("ready", False)))
+            )
             return ReadinessResponse(
                 ready=bool(ipc_st.get("ready", False)),
                 active_backend=current_backend,
-                hailo_ready=os.path.exists("/dev/hailo0") or bool(ipc_st.get("hailo_ready", False)),
+                hailo_ready=is_hailo_ready,
                 model_status=str(ipc_st.get("status", "UNKNOWN")),
                 model_path=str(ipc_st.get("model_path", ipc_st.get("hef_path", ""))),
                 hef_path=str(ipc_st.get("hef_path", "")),
@@ -86,10 +91,15 @@ def get_readiness() -> ReadinessResponse:
 
     st = mgr.inference_engine.get_status()
     current_backend = st.get("backend", "hailo" if "Hailo" in st.get("type", "") else "cpu")
+    is_hailo_ready = (
+        os.path.exists("/dev/hailo0")
+        or bool(st.get("hailo_ready", False))
+        or (current_backend == "hailo" and bool(st.get("ready", False)))
+    )
     return ReadinessResponse(
         ready=bool(st.get("ready", False)),
         active_backend=current_backend,
-        hailo_ready=os.path.exists("/dev/hailo0"),
+        hailo_ready=is_hailo_ready,
         model_status=str(st.get("status", "UNKNOWN")),
         model_path=str(st.get("model_path", st.get("hef_path", ""))),
         hef_path=str(st.get("hef_path", "")),
@@ -389,16 +399,18 @@ def start_inference(
 ) -> Dict[str, Any]:
     """Start or resume background YOLO11 inference worker, resetting session history by default."""
     mgr = get_lifecycle_manager()
-    if not mgr.inference_service:
-        raise HTTPException(status_code=500, detail="Inference service not ready")
+    if mgr.inference_service:
+        if reset_history:
+            if mgr.repository:
+                mgr.repository.reset_history()
+            mgr.inference_service.reset_stats()
+        mgr.inference_service.start()
+        return {"status": "started", "running": mgr.inference_service.is_running()}
 
-    if reset_history:
-        if mgr.repository:
-            mgr.repository.reset_history()
-        mgr.inference_service.reset_stats()
-
-    mgr.inference_service.start()
-    return {"status": "started", "running": mgr.inference_service.is_running()}
+    # Gateway microservice mode: delegate control via shared-memory IPC
+    from app.core.ipc import send_ipc_inference_command
+    send_ipc_inference_command("start", reset_history=reset_history)
+    return {"status": "started", "running": True}
 
 
 @api_router.post("/history/reset")
@@ -413,6 +425,9 @@ def reset_history_endpoint() -> Dict[str, Any]:
         deleted = mgr.repository.reset_history()
     if mgr.inference_service:
         mgr.inference_service.reset_stats()
+    else:
+        from app.core.ipc import send_ipc_inference_command
+        send_ipc_inference_command("reset_stats")
     return {"status": "ok", "deleted": deleted}
 
 
@@ -420,10 +435,13 @@ def reset_history_endpoint() -> Dict[str, Any]:
 def stop_inference() -> Dict[str, Any]:
     """Safely stop background inference loop."""
     mgr = get_lifecycle_manager()
-    if not mgr.inference_service:
-        raise HTTPException(status_code=500, detail="Inference service not ready")
+    if mgr.inference_service:
+        mgr.inference_service.stop()
+        return {"status": "stopped", "running": False}
 
-    mgr.inference_service.stop()
+    # Gateway microservice mode: delegate control via shared-memory IPC
+    from app.core.ipc import send_ipc_inference_command
+    send_ipc_inference_command("stop")
     return {"status": "stopped", "running": False}
 
 
@@ -431,13 +449,26 @@ def stop_inference() -> Dict[str, Any]:
 def get_backends() -> BackendsResponse:
     """Check hardware and model file availability for Hailo, CPU, and Mock backends."""
     mgr = get_lifecycle_manager()
-    data = mgr.get_available_backends()
     if not mgr.inference_engine:
-        from app.core.ipc import get_ipc_engine_status
+        from app.core.ipc import get_ipc_backends_catalog, get_ipc_engine_status
+        catalog = get_ipc_backends_catalog()
+        if catalog and "backends" in catalog:
+            ipc_st = get_ipc_engine_status()
+            if ipc_st:
+                catalog["current_backend"] = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+            return BackendsResponse(**catalog)
+
+        data = mgr.get_available_backends()
         ipc_st = get_ipc_engine_status()
         if ipc_st:
             current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
             data["current_backend"] = current
+            if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo"):
+                data["backends"]["hailo"]["available"] = True
+                data["backends"]["hailo"]["runtime_installed"] = True
+        return BackendsResponse(**data)
+
+    data = mgr.get_available_backends()
     return BackendsResponse(**data)
 
 
@@ -446,17 +477,30 @@ def switch_backend(req: BackendSelectionRequest) -> Dict[str, Any]:
     """Dynamically switch active inference backend (e.g. 'hailo' <-> 'cpu')."""
     mgr = get_lifecycle_manager()
     logger.info("Received request to switch inference backend to '%s' (model_path=%s)", req.backend, req.model_path)
-    ok = mgr.switch_inference_backend(req.backend, model_path=req.model_path)
-    if not ok:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to switch inference backend to '{req.backend}'. Verify model file exists and required runtime is available.",
-        )
+    if mgr.inference_engine and mgr.inference_service:
+        ok = mgr.switch_inference_backend(req.backend, model_path=req.model_path)
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to switch inference backend to '{req.backend}'. Verify model file exists and required runtime is available.",
+            )
+        return {
+            "status": "switched",
+            "backend": req.backend,
+            "inference_running": mgr.inference_service.is_running(),
+            "engine_status": mgr.inference_engine.get_status(),
+        }
+
+    # Gateway microservice mode: delegate control via shared-memory IPC
+    import time
+    from app.core.ipc import send_ipc_inference_command, get_ipc_engine_status
+    send_ipc_inference_command("switch_backend", backend=req.backend, model_path=req.model_path)
+    time.sleep(0.05)
     return {
         "status": "switched",
         "backend": req.backend,
-        "inference_running": mgr.inference_service.is_running() if mgr.inference_service else False,
-        "engine_status": mgr.inference_engine.get_status() if mgr.inference_engine else {},
+        "inference_running": True,
+        "engine_status": get_ipc_engine_status(),
     }
 
 

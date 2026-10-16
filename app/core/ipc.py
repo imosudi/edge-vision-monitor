@@ -25,7 +25,9 @@ TELEMETRY_CATALOG_FILE = SHM_DIR / "evm_telemetry_catalog.json"
 TELEMETRY_STATUS_FILE = SHM_DIR / "evm_telemetry_status.json"
 
 INFERENCE_LATEST_FILE = SHM_DIR / "evm_inference_latest.json"
+INFERENCE_COMMAND_FILE = SHM_DIR / "evm_inference_command.json"
 ENGINE_STATUS_FILE = SHM_DIR / "evm_engine_status.json"
+BACKENDS_CATALOG_FILE = SHM_DIR / "evm_backends_catalog.json"
 PREVIEW_JPEG_FILE = SHM_DIR / "evm_latest_preview.jpg"
 
 SOURCE_STATUS_FILE = SHM_DIR / "evm_source_status.json"
@@ -182,6 +184,71 @@ def get_ipc_inference_stats() -> Dict[str, Any]:
 def get_ipc_engine_status() -> Dict[str, Any]:
     """Read inference engine hardware readiness and active model status."""
     return _read_json(ENGINE_STATUS_FILE, default={})
+
+
+def publish_backends_catalog(backends_dict: Dict[str, Any]) -> None:
+    """Publish discovered backend capabilities and models to /dev/shm."""
+    _atomic_write_json(BACKENDS_CATALOG_FILE, backends_dict)
+
+
+def get_ipc_backends_catalog() -> Optional[Dict[str, Any]]:
+    """Read discovered backend capabilities from /dev/shm."""
+    return _read_json(BACKENDS_CATALOG_FILE, default=None)
+
+
+def send_ipc_inference_command(command_type: str, **kwargs) -> bool:
+    """
+    Dispatch an inference control command (e.g. start, stop, switch_backend, reset_stats)
+    to the inference microservice via /dev/shm.
+    """
+    cmd_payload = {
+        "id": f"{int(time.time() * 1000)}",
+        "command": command_type,
+        "kwargs": kwargs,
+        "timestamp": time.time(),
+    }
+    _atomic_write_json(INFERENCE_COMMAND_FILE, cmd_payload)
+    return True
+
+
+def consume_ipc_inference_command() -> Optional[Dict[str, Any]]:
+    """
+    Check for an unhandled inference command in /dev/shm.
+    Removes the file upon reading to prevent duplicate execution.
+    """
+    if not INFERENCE_COMMAND_FILE.exists():
+        return None
+    try:
+        content = INFERENCE_COMMAND_FILE.read_text(encoding="utf-8")
+        try:
+            INFERENCE_COMMAND_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        if not content:
+            return None
+        return json.loads(content)
+    except Exception:
+        return None
+
+
+def publish_inference_status(
+    stats: Dict[str, Any],
+    detections: Optional[List[Dict[str, Any]]] = None,
+    image_width: int = 640,
+    image_height: int = 480,
+) -> None:
+    """Publish updated inference execution status (e.g. stopped, started) to /dev/shm."""
+    current = _read_json(INFERENCE_LATEST_FILE, default={})
+    payload = {
+        "frame_seq": current.get("frame_seq", 0),
+        "timestamp_utc": current.get("timestamp_utc"),
+        "image_width": current.get("image_width", image_width),
+        "image_height": current.get("image_height", image_height),
+        "detections": detections if detections is not None else current.get("detections", []),
+        "count": len(detections) if detections is not None else current.get("count", 0),
+        "stats": stats,
+    }
+    _atomic_write_json(INFERENCE_LATEST_FILE, payload)
 
 
 # -----------------------------------------------------------------------------

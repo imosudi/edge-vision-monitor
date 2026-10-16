@@ -1207,15 +1207,18 @@ async function loadAvailableBackends() {
     const res = await fetch('/api/v1/inference/backends');
     if (!res.ok) return;
     const data = await res.json();
-    const btnHailo = document.getElementById('btn-backend-hailo');
-    const btnCpu = document.getElementById('btn-backend-cpu');
-
+    const btnAuto = document.getElementById('btn-run-auto-benchmark');
+    const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
     if (btnHailo && data.backends?.hailo) {
       btnHailo.disabled = !data.backends.hailo.available;
       if (!data.backends.hailo.available) {
-        btnHailo.title = 'Hailo-8L NPU unavailable (hardware node or HEF model missing)';
+        btnHailo.title = 'Hailo-8L NPU unavailable (hardware node, driver, or HEF model missing)';
+        if (btnAuto) btnAuto.title = 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
+        if (btnAutoWb) btnAutoWb.title = 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
       } else {
         btnHailo.title = 'Hailo-8L NPU Accelerator';
+        if (btnAuto) btnAuto.title = 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider';
+        if (btnAutoWb) btnAutoWb.title = 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider';
       }
     }
 
@@ -1877,6 +1880,13 @@ function startAutomatedWaveformBenchmark() {
 
 async function startAutomatedBenchmark() {
   if (isBenchmarkRunning) return;
+
+  const btnHailo = document.getElementById('btn-backend-hailo');
+  if (btnHailo && btnHailo.disabled) {
+    alert('Automated Dual Benchmark requires the Hailo-8L NPU accelerator, which is currently unavailable on this runtime environment. For Hailo-8L hardware acceleration, please run Native Deployment on the Raspberry Pi 5.');
+    return;
+  }
+
   const durSec = getBenchmarkTargetDuration();
 
   // Cancel any manual detection countdown timer so it does not stop inference prematurely

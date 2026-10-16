@@ -85,7 +85,16 @@ class ApplicationLifecycleManager:
         # 5. Inference Engine & Inference Service (For inference and all)
         if mode in ("all", "inference"):
             self.inference_engine = create_inference_engine(self.config.model)
-            self.inference_engine.initialize()
+            res = self.inference_engine.initialize()
+            if not res.is_valid and getattr(self.config.model, "active_backend", "hailo") == "hailo":
+                logger.warning("Hailo initialisation failed: %s (%s). Falling back to CPU (ONNX Runtime)...", res.error_message, res.status)
+                from app.inference.engine import ONNXInferenceEngine
+                fallback_engine = ONNXInferenceEngine(self.config.model)
+                fb_res = fallback_engine.initialize()
+                if fb_res.is_valid:
+                    self.inference_engine = fallback_engine
+                    self.config.model.active_backend = "cpu"
+                    logger.info("Successfully fell back to CPU (ONNX Runtime) engine")
 
             self.inference_service = InferenceService(
                 engine=self.inference_engine,
@@ -95,6 +104,12 @@ class ApplicationLifecycleManager:
                 server_config=self.config.server,
             )
             self.inference_service.start()
+            try:
+                from app.core.ipc import publish_backends_catalog, publish_engine_status
+                publish_engine_status(self.inference_engine.get_status())
+                publish_backends_catalog(self.get_available_backends())
+            except Exception as e:
+                logger.debug("Failed publishing initial engine/backends status: %s", e)
 
         if self.event_service:
             self.event_service.emit(
@@ -266,6 +281,13 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
             publish_source_status(manager.source_manager.get_status(), manager.source_manager.enumerate_sources())
         except Exception as e:
             logger.debug("Failed initial source status IPC publish: %s", e)
+    elif service_mode == "inference" and manager.inference_engine:
+        try:
+            from app.core.ipc import publish_backends_catalog, publish_engine_status
+            publish_engine_status(manager.inference_engine.get_status())
+            publish_backends_catalog(manager.get_available_backends())
+        except Exception as e:
+            logger.debug("Failed initial inference IPC publish: %s", e)
 
     try:
         while not shutdown_event.is_set():
@@ -283,7 +305,7 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                             manager.source_manager.switch_source(stype, **call_kwargs)
                         elif action == "pause":
                             manager.source_manager.pause_playback()
-                        elif action == "resume":
+                        elif action in ("play", "resume"):
                             manager.source_manager.resume_playback()
                         elif action == "restart":
                             manager.source_manager.restart_playback()
@@ -303,6 +325,42 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                 except Exception as ipc_err:
                     logger.debug("Error in ingress worker loop: %s", ipc_err)
                 time.sleep(0.01)
+            elif service_mode == "inference":
+                try:
+                    from app.core.ipc import consume_ipc_inference_command, publish_backends_catalog, publish_engine_status
+                    cmd = consume_ipc_inference_command()
+                    if cmd:
+                        action = cmd.get("command")
+                        kwargs = cmd.get("kwargs", {})
+                        logger.info("Inference worker received IPC command '%s': %s", action, kwargs)
+                        if action == "start":
+                            reset_hist = kwargs.get("reset_history", True)
+                            if reset_hist:
+                                if manager.repository:
+                                    manager.repository.reset_history()
+                                if manager.inference_service:
+                                    manager.inference_service.reset_stats()
+                            if manager.inference_service:
+                                manager.inference_service.start()
+                        elif action == "stop":
+                            if manager.inference_service:
+                                manager.inference_service.stop()
+                        elif action == "switch_backend":
+                            backend = kwargs.get("backend", "hailo")
+                            model_path = kwargs.get("model_path")
+                            manager.switch_inference_backend(backend, model_path=model_path)
+                        elif action == "reset_stats":
+                            if manager.repository:
+                                manager.repository.reset_history()
+                            if manager.inference_service:
+                                manager.inference_service.reset_stats()
+
+                        if manager.inference_engine:
+                            publish_engine_status(manager.inference_engine.get_status())
+                        publish_backends_catalog(manager.get_available_backends())
+                except Exception as ipc_err:
+                    logger.debug("Error in inference worker loop: %s", ipc_err)
+                time.sleep(0.02)
             else:
                 time.sleep(0.1)
     except KeyboardInterrupt:

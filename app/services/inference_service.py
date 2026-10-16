@@ -120,6 +120,14 @@ class InferenceService:
         )
         self._thread.start()
         publish_engine_status(self._engine.get_status())
+        try:
+            publish_inference_frame(
+                jpeg_bytes=self.get_latest_jpeg(),
+                detections=self.get_latest_detections(),
+                stats=self.get_stats(),
+            )
+        except Exception:
+            pass
         if self._event_service:
             self._event_service.emit("INFERENCE_STARTED", "Continuous object detection inference started", component="INFERENCE")
         logger.info("Inference worker service started")
@@ -132,6 +140,14 @@ class InferenceService:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._thread = None
+        try:
+            publish_inference_frame(
+                jpeg_bytes=self.get_latest_jpeg(),
+                detections=self.get_latest_detections(),
+                stats=self.get_stats(),
+            )
+        except Exception:
+            pass
         if self._event_service:
             self._event_service.emit("INFERENCE_STOPPED", "Inference execution stopped safely", component="INFERENCE")
         logger.info("Inference worker service stopped")
@@ -183,6 +199,7 @@ class InferenceService:
                 self.start()
 
             st = new_engine.get_status()
+            publish_engine_status(st)
             self._event_service.emit(
                 "BACKEND_SWITCHED",
                 f"Switched inference backend to {st.get('type', 'Unknown')} ({st.get('backend', 'unknown')})",
@@ -347,6 +364,14 @@ class InferenceService:
             self._lat_total = RollingLatencyTracker(window_size=100)
             self._latest_detections.clear()
             self._latest_result = None
+        try:
+            publish_inference_frame(
+                jpeg_bytes=self.get_latest_jpeg(),
+                detections=self.get_latest_detections(),
+                stats=self.get_stats(),
+            )
+        except Exception:
+            pass
         logger.info("Inference rolling statistics and detection caches reset")
 
     def get_stats(self) -> Dict[str, Any]:
