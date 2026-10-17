@@ -1039,7 +1039,7 @@ async function populateBrowserCameras() {
     const prevVal = sel.value;
     sel.innerHTML = '';
     if (videoDevices.length === 0) {
-      sel.innerHTML = '<option value="">Default Web Camera</option>';
+      sel.innerHTML = '<option value="">Default Camera</option>';
       return;
     }
     videoDevices.forEach((dev, idx) => {
@@ -1136,7 +1136,7 @@ async function startBrowserCamera() {
       isBrowserCameraStreaming = true;
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '⏹ Stop Browser Camera';
+        btn.textContent = '⏹ Stop My Camera';
         btn.classList.add('btn-danger');
       }
       if (badge) {
@@ -1152,7 +1152,7 @@ async function startBrowserCamera() {
         isBrowserCameraStreaming = true;
         if (btn) {
           btn.disabled = false;
-          btn.textContent = '⏹ Stop Browser Camera';
+          btn.textContent = '⏹ Stop My Camera';
           btn.classList.add('btn-danger');
         }
         if (badge) {
@@ -1168,11 +1168,11 @@ async function startBrowserCamera() {
     };
 
   } catch (err) {
-    console.error('Failed to access client browser camera:', err);
-    alert(`Could not start browser camera: ${err.message || err}\n\nPlease check browser camera permissions in your address bar.`);
+    console.error('Failed to access client camera:', err);
+    alert(`Could not start camera: ${err.message || err}\n\nPlease check camera permissions in your browser address bar.`);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '🎥 Activate Browser Camera';
+      btn.textContent = '🎥 Activate My Camera';
       btn.classList.remove('btn-danger');
     }
     if (badge) badge.style.display = 'none';
@@ -1276,7 +1276,7 @@ async function stopBrowserCamera() {
   const badge = document.getElementById('badge-browser-cam-status');
   if (btn) {
     btn.disabled = false;
-    btn.textContent = '🎥 Activate Browser Camera';
+    btn.textContent = '🎥 Activate My Camera';
     btn.classList.remove('btn-danger');
   }
   if (badge) badge.style.display = 'none';

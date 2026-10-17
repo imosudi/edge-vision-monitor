@@ -323,7 +323,7 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
             if req.source_type == "picamera":
                 detail = "Picamera2 is not installed or accessible in this container environment. Ensure libcamera, python3-picamera2, and Raspberry Pi camera device mappings (/dev, /run/udev, /sys) are present."
             elif req.source_type == "browser":
-                detail = "Browser camera stream mode activated. Ready for client video frame ingestion."
+                detail = "My Camera stream mode activated. Ready for client video frame ingestion."
             else:
                 detail = f"Failed to switch to {req.source_type}. Verify hardware connection or file format."
         raise HTTPException(status_code=400, detail=detail)
