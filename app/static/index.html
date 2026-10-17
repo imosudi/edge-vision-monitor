@@ -167,6 +167,17 @@
               </label>
               <span id="badge-browser-cam-status" class="badge" style="display: none; font-size: 0.75rem;">Live</span>
               <span class="text-xs text-muted" style="font-size: 0.75rem; color: var(--color-text-muted);">(Streams your device camera to Hailo / YOLO11)</span>
+
+              <!-- Insecure Origin / Camera Permission Guidance Banner -->
+              <div id="browser-cam-security-notice" style="display: none; width: 100%; margin-top: 0.5rem; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 0.75rem; line-height: 1.45;">
+                <div style="font-weight: 600; margin-bottom: 0.25rem;">🔒 Browser Camera Permission Notice:</div>
+                <div>Your browser requires a <strong>Secure Context</strong> to access your laptop camera. When accessing via HTTP LAN IP (<code>http://10.199.153.118:8000</code>), browsers disable webcam APIs.</div>
+                <div style="margin-top: 0.35rem;"><strong>Two quick ways to enable your camera:</strong></div>
+                <ul style="margin: 0.25rem 0 0 1.25rem; padding: 0;">
+                  <li><strong>Option 1 (Recommended)</strong>: Run <code>ssh -L 8000:localhost:8000 iotgwai@10.199.153.118</code> on your laptop, then open <a href="http://localhost:8000" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">http://localhost:8000</a> (localhost is automatically granted webcam access).</li>
+                  <li><strong>Option 2 (Chrome/Edge)</strong>: Open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>, add <code>http://10.199.153.118:8000</code>, set to <strong>Enabled</strong>, and click <strong>Relaunch</strong>.</li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>

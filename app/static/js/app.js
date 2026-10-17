@@ -803,6 +803,10 @@ async function toggleInference() {
 }
 
 function selectSourceTab(type) {
+  if (type === 'synthetic' || !type || type === 'none') {
+    type = 'file';
+  }
+
   if (type !== 'browser' && typeof isBrowserCameraStreaming !== 'undefined' && isBrowserCameraStreaming) {
     stopBrowserCamera();
   }
@@ -1028,11 +1032,26 @@ let isBrowserCameraStreaming = false;
 
 async function populateBrowserCameras() {
   const sel = document.getElementById('select-browser-camera');
+  const notice = document.getElementById('browser-cam-security-notice');
   if (!sel) return;
+
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isSecure = window.isSecureContext || isLocalhost;
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-    sel.innerHTML = '<option value="">Camera API Not Available in Browser</option>';
+    if (!isSecure) {
+      if (notice) notice.style.display = 'block';
+      sel.innerHTML = '<option value="">🔒 Requires Secure Origin (localhost / flag)</option>';
+    } else {
+      sel.innerHTML = '<option value="">Camera API Not Supported</option>';
+    }
     return;
   }
+
+  if (notice && isSecure) {
+    notice.style.display = 'none';
+  }
+
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter((d) => d.kind === 'videoinput');
@@ -1075,7 +1094,36 @@ async function startBrowserCamera() {
   const btn = document.getElementById('btn-activate-browser-cam');
   const badge = document.getElementById('badge-browser-cam-status');
   const sel = document.getElementById('select-browser-camera');
+  const notice = document.getElementById('browser-cam-security-notice');
   const selectedDeviceId = sel ? sel.value : null;
+
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isSecure = window.isSecureContext || isLocalhost;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (!isSecure) {
+      if (notice) notice.style.display = 'block';
+      alert(
+        `Browser Camera Security Restriction:\n\n` +
+        `Web browsers disable camera hardware access when a website is loaded over non-secure HTTP on a LAN IP (${window.location.origin}).\n\n` +
+        `Quick ways to enable your laptop camera:\n\n` +
+        `Option 1 (Recommended): Run an SSH tunnel on your laptop:\n` +
+        `  ssh -L 8000:localhost:8000 iotgwai@10.199.153.118\n` +
+        `  Then open http://localhost:8000 (localhost is automatically trusted by browsers!)\n\n` +
+        `Option 2 (Chrome/Edge):\n` +
+        `  1. Navigate to: chrome://flags/#unsafely-treat-insecure-origin-as-secure\n` +
+        `  2. Enter: ${window.location.origin}\n` +
+        `  3. Select "Enabled" and relaunch your browser.`
+      );
+    } else {
+      alert('Camera access is not supported or was blocked by your browser settings.');
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🎥 Activate My Camera';
+    }
+    return;
+  }
 
   if (btn) {
     btn.disabled = true;
