@@ -14,6 +14,7 @@ from app.core.config import VideoSourceConfig
 from app.core.ipc import publish_source_status
 from app.core.logging_config import get_logger
 from app.sources.base import BaseVideoSource, VideoFrame
+from app.sources.browser_source import BrowserCameraSource
 from app.sources.picamera_source import PiCameraSource
 from app.sources.usb_camera_source import USBCameraSource
 from app.sources.video_file_source import VideoFileSource
@@ -33,7 +34,7 @@ class VideoSourceManager:
         self._last_error: Optional[str] = None
 
     def enumerate_sources(self) -> Dict[str, Any]:
-        """Discover available video sources across CSI, USB, and media directories."""
+        """Discover available video sources across CSI, USB, browser, and media directories."""
         # 1. Check Pi Camera CSI availability
         csi_available = False
         try:
@@ -57,6 +58,7 @@ class VideoSourceManager:
 
         return {
             "csi_camera_supported": csi_available,
+            "browser_camera_supported": True,
             "usb_devices": usb_devices,
             "media_files": sorted(media_files),
             "current_source_type": self._active_type,
@@ -155,6 +157,13 @@ class VideoSourceManager:
                     )
                     new_id = f"file:{os.path.basename(fpath or 'synthetic')}"
 
+                elif source_type in ("browser", "client"):
+                    w = kwargs.get("width", self._config.capture_width)
+                    h = kwargs.get("height", self._config.capture_height)
+                    fps = kwargs.get("fps", self._config.capture_fps)
+                    new_source = BrowserCameraSource(width=w, height=h, fps=fps)
+                    new_id = "browser:client"
+
                 else:
                     logger.error("Unknown video source type: %s", source_type)
                     return False
@@ -250,3 +259,12 @@ class VideoSourceManager:
         if self._active_source:
             status["source_details"] = self._active_source.get_status()
         return status
+
+    def push_browser_frame(self, frame_data: Union[bytes, bytearray, np.ndarray]) -> bool:
+        """Push a real-time frame captured from client web browser into active source."""
+        with self._lock:
+            if not isinstance(self._active_source, BrowserCameraSource):
+                self.switch_source("browser")
+            if isinstance(self._active_source, BrowserCameraSource):
+                return self._active_source.push_frame(frame_data)
+            return False

@@ -11,7 +11,7 @@ import re
 import sys
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.schemas import (
@@ -322,10 +322,83 @@ def select_video_source(req: SourceSelectionRequest) -> Dict[str, Any]:
         if not detail:
             if req.source_type == "picamera":
                 detail = "Picamera2 is not installed or accessible in this container environment. Ensure libcamera, python3-picamera2, and Raspberry Pi camera device mappings (/dev, /run/udev, /sys) are present."
+            elif req.source_type == "browser":
+                detail = "Browser camera stream mode activated. Ready for client video frame ingestion."
             else:
                 detail = f"Failed to switch to {req.source_type}. Verify hardware connection or file format."
         raise HTTPException(status_code=400, detail=detail)
     return {"status": "ok", "source_info": st}
+
+
+def handle_browser_camera_frame(mgr, frame_bytes: bytes, seq: int) -> bool:
+    """Helper to route incoming client browser frame to local source or shared-memory IPC."""
+    import cv2
+    import numpy as np
+    from app.sources.browser_source import BrowserCameraSource
+
+    try:
+        nparr = np.frombuffer(frame_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return False
+
+        h, w = img.shape[:2]
+
+        # 1. Monolithic / native execution with local source_manager
+        if mgr.source_manager:
+            if not isinstance(mgr.source_manager._active_source, BrowserCameraSource):
+                mgr.source_manager.switch_source("browser", width=w, height=h)
+            mgr.source_manager.push_browser_frame(img)
+
+        # 2. Decoupled microservices architecture via shared memory IPC
+        try:
+            from app.core.ipc import publish_raw_frame, publish_source_status
+            publish_raw_frame(
+                img.tobytes(),
+                w,
+                h,
+                3,
+                seq,
+                source_id="browser:client",
+            )
+            publish_source_status({
+                "active_type": "browser",
+                "source_id": "browser:client",
+                "is_active": True,
+                "error_status": None,
+                "source_details": {
+                    "source_type": "browser",
+                    "resolution": f"{w}x{h}",
+                    "active": True,
+                    "frames_captured": seq,
+                },
+            })
+        except Exception as ipc_err:
+            logger.debug("IPC publish error in browser frame handler: %s", ipc_err)
+
+        return True
+    except Exception as e:
+        logger.debug("Failed processing browser camera frame: %s", e)
+        return False
+
+
+@api_router.post("/video/browser-frame")
+async def upload_browser_frame(request: Request) -> Dict[str, Any]:
+    """
+    Ingest a single video frame sent from client web browser device camera.
+    Accepts raw binary JPEG bytes in request body.
+    """
+    mgr = get_lifecycle_manager()
+    frame_bytes = await request.body()
+    if not frame_bytes:
+        raise HTTPException(status_code=400, detail="Empty frame payload")
+
+    seq = getattr(upload_browser_frame, "_seq", 0) + 1
+    upload_browser_frame._seq = seq
+    success = handle_browser_camera_frame(mgr, frame_bytes, seq)
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid image payload")
+    return {"status": "ok", "frame_seq": seq}
 
 
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm"}

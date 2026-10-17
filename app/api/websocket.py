@@ -121,3 +121,28 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.debug("WebSocket error: %s", e)
         ws_manager.disconnect(websocket)
+
+
+@ws_router.websocket("/api/v1/video/browser-stream")
+async def browser_stream_endpoint(websocket: WebSocket):
+    """
+    High-frequency bidirectional WebSocket endpoint for streaming video frames
+    directly from client web browser device camera to YOLO11 inference engine.
+    """
+    await websocket.accept()
+    logger.info("Client browser camera WebSocket connected")
+    mgr = get_lifecycle_manager()
+    seq = 0
+    try:
+        while True:
+            frame_bytes = await websocket.receive_bytes()
+            if not frame_bytes:
+                continue
+            seq += 1
+            from app.api.routes import handle_browser_camera_frame
+            handle_browser_camera_frame(mgr, frame_bytes, seq)
+    except WebSocketDisconnect:
+        logger.info("Client browser camera WebSocket disconnected")
+    except Exception as e:
+        logger.debug("Browser camera WebSocket stream closed: %s", e)
+

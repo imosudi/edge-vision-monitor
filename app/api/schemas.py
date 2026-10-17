@@ -59,7 +59,7 @@ class BackendsResponse(BaseModel):
 
 
 class SourceSelectionRequest(BaseModel):
-    source_type: Literal["picamera", "usb", "file"]
+    source_type: Literal["picamera", "usb", "file", "browser"]
     device: Optional[str] = None
     camera_num: Optional[int] = None
     file_path: Optional[str] = None

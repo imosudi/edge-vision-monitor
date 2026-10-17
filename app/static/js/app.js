@@ -803,20 +803,38 @@ async function toggleInference() {
 }
 
 function selectSourceTab(type) {
+  if (type !== 'browser' && typeof isBrowserCameraStreaming !== 'undefined' && isBrowserCameraStreaming) {
+    stopBrowserCamera();
+  }
+
   currentSourceType = type;
   document.getElementById('tab-source-file').className = `tab-btn ${type === 'file' ? 'active' : ''}`;
   document.getElementById('tab-source-usb').className = `tab-btn ${type === 'usb' ? 'active' : ''}`;
   document.getElementById('tab-source-picam').className = `tab-btn ${type === 'picamera' ? 'active' : ''}`;
+  const tabBrowser = document.getElementById('tab-source-browser');
+  if (tabBrowser) {
+    tabBrowser.className = `tab-btn ${type === 'browser' ? 'active' : ''}`;
+  }
 
   document.getElementById('controls-file').style.display = type === 'file' ? 'flex' : 'none';
   document.getElementById('controls-usb').style.display = type === 'usb' ? 'flex' : 'none';
   document.getElementById('controls-picam').style.display = type === 'picamera' ? 'flex' : 'none';
+  const controlsBrowser = document.getElementById('controls-browser');
+  if (controlsBrowser) {
+    controlsBrowser.style.display = type === 'browser' ? 'flex' : 'none';
+    if (type === 'browser') {
+      populateBrowserCameras();
+    }
+  }
 }
 
 async function loadDiscoveredSources() {
   try {
     const res = await fetch('/api/v1/video/sources');
     const data = await res.json();
+
+    // Populate browser client camera devices
+    populateBrowserCameras();
 
     // Populate Files dropdown
     const fileSel = document.getElementById('select-video-file');
@@ -997,6 +1015,271 @@ async function switchToPiCamSource() {
       btn.textContent = originalText;
     }
   }
+}
+
+// -----------------------------------------------------------------------------
+// Client Web Browser Camera Streaming Coordination
+// -----------------------------------------------------------------------------
+
+let browserStream = null;
+let browserWs = null;
+let browserAnimFrameId = null;
+let isBrowserCameraStreaming = false;
+
+async function populateBrowserCameras() {
+  const sel = document.getElementById('select-browser-camera');
+  if (!sel) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    sel.innerHTML = '<option value="">Camera API Not Available in Browser</option>';
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+    const prevVal = sel.value;
+    sel.innerHTML = '';
+    if (videoDevices.length === 0) {
+      sel.innerHTML = '<option value="">Default Web Camera</option>';
+      return;
+    }
+    videoDevices.forEach((dev, idx) => {
+      const opt = document.createElement('option');
+      opt.value = dev.deviceId;
+      opt.textContent = dev.label || `Camera ${idx + 1} (${dev.deviceId ? dev.deviceId.slice(0, 8) : 'Webcam'}...)`;
+      sel.appendChild(opt);
+    });
+    if (prevVal && sel.querySelector(`option[value="${prevVal}"]`)) {
+      sel.value = prevVal;
+    }
+  } catch (e) {
+    console.debug('Failed to enumerate media devices:', e);
+  }
+}
+
+async function onBrowserCameraDeviceChange() {
+  if (isBrowserCameraStreaming) {
+    await stopBrowserCamera();
+    await startBrowserCamera();
+  }
+}
+
+async function toggleBrowserCamera() {
+  if (isBrowserCameraStreaming) {
+    await stopBrowserCamera();
+  } else {
+    await startBrowserCamera();
+  }
+}
+
+async function startBrowserCamera() {
+  const btn = document.getElementById('btn-activate-browser-cam');
+  const badge = document.getElementById('badge-browser-cam-status');
+  const sel = document.getElementById('select-browser-camera');
+  const selectedDeviceId = sel ? sel.value : null;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Requesting Camera...';
+  }
+
+  try {
+    const videoConstraints = {
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 20, max: 30 },
+    };
+    if (selectedDeviceId) {
+      videoConstraints.deviceId = { exact: selectedDeviceId };
+    }
+
+    browserStream = await navigator.mediaDevices.getUserMedia({
+      video: videoConstraints,
+      audio: false,
+    });
+
+    const videoElem = document.getElementById('client-webcam-video');
+    if (videoElem) {
+      videoElem.srcObject = browserStream;
+      await videoElem.play();
+    }
+
+    // Re-populate device labels now that camera permission has been granted by browser
+    await populateBrowserCameras();
+    if (selectedDeviceId && sel && sel.querySelector(`option[value="${selectedDeviceId}"]`)) {
+      sel.value = selectedDeviceId;
+    }
+
+    // Inform backend of source transition to 'browser'
+    try {
+      await fetch('/api/v1/video/source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_type: 'browser',
+          width: 640,
+          height: 480,
+          fps: 20,
+        }),
+      });
+    } catch (apiErr) {
+      console.warn('Backend source switch warning, proceeding with browser streaming:', apiErr);
+    }
+
+    // Connect WebSocket stream for low-latency frame ingestion
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${proto}//${window.location.host}/api/v1/video/browser-stream`;
+    browserWs = new WebSocket(wsUrl);
+    browserWs.binaryType = 'blob';
+
+    browserWs.onopen = () => {
+      console.log('Browser camera streaming WebSocket established');
+      isBrowserCameraStreaming = true;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⏹ Stop Browser Camera';
+        btn.classList.add('btn-danger');
+      }
+      if (badge) {
+        badge.style.display = 'inline-block';
+        badge.textContent = 'Live (640x480)';
+      }
+      startBrowserFrameCaptureLoop();
+    };
+
+    browserWs.onerror = (err) => {
+      console.warn('Browser camera WebSocket error, using HTTP frame post fallback:', err);
+      if (!isBrowserCameraStreaming) {
+        isBrowserCameraStreaming = true;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '⏹ Stop Browser Camera';
+          btn.classList.add('btn-danger');
+        }
+        if (badge) {
+          badge.style.display = 'inline-block';
+          badge.textContent = 'Live (HTTP)';
+        }
+        startBrowserFrameCaptureLoop();
+      }
+    };
+
+    browserWs.onclose = () => {
+      console.log('Browser camera streaming WebSocket closed');
+    };
+
+  } catch (err) {
+    console.error('Failed to access client browser camera:', err);
+    alert(`Could not start browser camera: ${err.message || err}\n\nPlease check browser camera permissions in your address bar.`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🎥 Activate Browser Camera';
+      btn.classList.remove('btn-danger');
+    }
+    if (badge) badge.style.display = 'none';
+    isBrowserCameraStreaming = false;
+  }
+}
+
+function startBrowserFrameCaptureLoop() {
+  const video = document.getElementById('client-webcam-video');
+  const canvas = document.getElementById('client-webcam-canvas');
+  const mirrorCheck = document.getElementById('check-browser-mirror');
+  if (!video || !canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  let lastSentTime = 0;
+  const targetInterval = 1000 / 20; // 20 frames per second
+  let isSending = false;
+
+  function captureFrame(now) {
+    if (!isBrowserCameraStreaming) return;
+
+    if (now - lastSentTime >= targetInterval && !isSending && video.readyState >= 2) {
+      lastSentTime = now;
+      isSending = true;
+
+      const w = 640;
+      const h = 480;
+      canvas.width = w;
+      canvas.height = h;
+
+      ctx.save();
+      if (mirrorCheck && mirrorCheck.checked) {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, w, h);
+      ctx.restore();
+
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob || !isBrowserCameraStreaming) {
+            isSending = false;
+            return;
+          }
+
+          if (browserWs && browserWs.readyState === WebSocket.OPEN) {
+            try {
+              browserWs.send(blob);
+            } catch (_) {}
+            isSending = false;
+          } else {
+            try {
+              await fetch('/api/v1/video/browser-frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'image/jpeg' },
+                body: blob,
+              });
+            } catch (e) {
+              console.debug('HTTP browser-frame send error:', e);
+            } finally {
+              isSending = false;
+            }
+          }
+        },
+        'image/jpeg',
+        0.82
+      );
+    }
+
+    browserAnimFrameId = requestAnimationFrame(captureFrame);
+  }
+
+  browserAnimFrameId = requestAnimationFrame(captureFrame);
+}
+
+async function stopBrowserCamera() {
+  isBrowserCameraStreaming = false;
+  if (browserAnimFrameId) {
+    cancelAnimationFrame(browserAnimFrameId);
+    browserAnimFrameId = null;
+  }
+
+  if (browserWs) {
+    try {
+      browserWs.close();
+    } catch (_) {}
+    browserWs = null;
+  }
+
+  if (browserStream) {
+    try {
+      browserStream.getTracks().forEach((t) => t.stop());
+    } catch (_) {}
+    browserStream = null;
+  }
+
+  const video = document.getElementById('client-webcam-video');
+  if (video) video.srcObject = null;
+
+  const btn = document.getElementById('btn-activate-browser-cam');
+  const badge = document.getElementById('badge-browser-cam-status');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '🎥 Activate Browser Camera';
+    btn.classList.remove('btn-danger');
+  }
+  if (badge) badge.style.display = 'none';
 }
 
 async function controlPlayback(action) {

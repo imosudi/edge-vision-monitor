@@ -114,6 +114,7 @@
                 <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file')">Video File</button>
                 <button id="tab-source-usb" class="tab-btn" onclick="selectSourceTab('usb')">USB Camera</button>
                 <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera')">Pi Camera (CSI)</button>
+                <button id="tab-source-browser" class="tab-btn" onclick="selectSourceTab('browser')">Browser Camera</button>
               </div>
 
               <!-- Detection Time Range Slider (Extended up to 30 mins) -->
@@ -152,6 +153,20 @@
                 Activate CSI Camera
               </button>
               <span class="text-xs text-muted" style="font-size: 0.75rem; color: var(--color-text-muted);">(Requires Raspberry Pi OS with libcamera)</span>
+            </div>
+
+            <div id="controls-browser" class="source-selectors" style="display: none; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <select id="select-browser-camera" class="input-select" onchange="onBrowserCameraDeviceChange()" style="max-width: 220px;" title="Select available camera on current browser device">
+                <option value="">Default Web Camera</option>
+              </select>
+              <button id="btn-activate-browser-cam" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="toggleBrowserCamera()">
+                🎥 Activate Browser Camera
+              </button>
+              <label class="checkbox-container" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--color-text-muted); cursor: pointer; user-select: none;">
+                <input type="checkbox" id="check-browser-mirror" checked> Mirror Feed
+              </label>
+              <span id="badge-browser-cam-status" class="badge" style="display: none; font-size: 0.75rem;">Live</span>
+              <span class="text-xs text-muted" style="font-size: 0.75rem; color: var(--color-text-muted);">(Streams current device camera to Hailo / YOLO11)</span>
             </div>
           </div>
         </div>
@@ -1040,6 +1055,10 @@
       </div>
     </div>
   </div>
+
+  <!-- Offscreen client webcam capture elements -->
+  <video id="client-webcam-video" autoplay playsinline muted style="display: none;"></video>
+  <canvas id="client-webcam-canvas" width="640" height="480" style="display: none;"></canvas>
 
   <footer>
     <span class="footer-cite-key">EdgeVisionMonitor2026</span> &bull; Isiaka Mosudi (FHTW) &bull; &copy; 2026

@@ -111,3 +111,34 @@ def test_video_upload_endpoint(client):
     res_err = client.post("/api/v1/video/upload", files=invalid_files)
     assert res_err.status_code == 400
 
+
+def test_video_browser_source_and_frame_endpoint(client):
+    import cv2
+    import numpy as np
+
+    # 1. Sources catalogue reports browser_camera_supported
+    res = client.get("/api/v1/video/sources")
+    assert res.status_code == 200
+    assert res.json().get("browser_camera_supported") is True
+
+    # 2. Switch to browser source
+    switch_res = client.post(
+        "/api/v1/video/source",
+        json={"source_type": "browser", "width": 640, "height": 480, "fps": 20},
+    )
+    assert switch_res.status_code == 200
+    assert switch_res.json()["source_info"]["active_type"] == "browser"
+
+    # 3. Post a browser frame
+    dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
+    _, jpg = cv2.imencode(".jpg", dummy_img)
+    frame_res = client.post(
+        "/api/v1/video/browser-frame",
+        content=jpg.tobytes(),
+        headers={"Content-Type": "image/jpeg"},
+    )
+    assert frame_res.status_code == 200
+    assert frame_res.json()["status"] == "ok"
+    assert frame_res.json()["frame_seq"] >= 1
+
+
