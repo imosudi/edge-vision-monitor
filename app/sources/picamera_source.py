@@ -76,6 +76,12 @@ class PiCameraSource(BaseVideoSource):
             logger.info("PiCamera source started (cam %d, %dx%d @ %dfps)", self._camera_num, self._width, self._height, self._fps)
             return True
 
+        except IndexError:
+            self._error_status = f"No Raspberry Pi CSI camera detected at index {self._camera_num}. Verify physical ribbon cable connection and device access (/dev/media*, /dev/dma_heap/*)."
+            logger.error(self._error_status)
+            self._is_capturing = False
+            return False
+
         except Exception as e:
             self._error_status = f"Failed to start Picamera2: {e}"
             logger.error(self._error_status, exc_info=True)

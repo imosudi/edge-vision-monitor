@@ -42,10 +42,7 @@ services:
 
     # Device cgroup access rules for Raspberry Pi 5 ISP & Camera Subsystem
     device_cgroup_rules:
-      - "c 81:* rmw"   # V4L2 video and subdev devices (/dev/video*, /dev/v4l-subdev*)
-      - "c 511:* rmw"  # Media controller devices (/dev/media*)
-      - "c 252:* rmw"  # DMA-BUF heap allocators (/dev/dma_heap/*)
-      - "c 245:* rmw"  # RP1 ISP DMA memory
+      - "c *:* rmw"    # Dynamic character device nodes (V4L2 81, Media 510/511, DMA-BUF heaps 252, RP1 ISP)
 
     # Volume mounts with security labeling (:Z for SELinux / rootless Podman)
     volumes:
