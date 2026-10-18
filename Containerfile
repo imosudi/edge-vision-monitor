@@ -1,10 +1,10 @@
 # ==============================================================================
 # Edge Vision Monitor - Least-Privilege Podman Containerfile
 # Target Platform: Raspberry Pi 5 (ARM64 / aarch64) and Linux x86_64
-# Base: Debian Bookworm Slim with HailoRT runtime dependencies
+# Base: Debian Trixie Slim with HailoRT 4.23.0 and Picamera2 runtime dependencies
 # ==============================================================================
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -15,11 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Tolerate clock skew on edge devices by allowing future release dates
 RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
     echo 'Acquire::Max-Future-Time "864000";' >> /etc/apt/apt.conf.d/99no-check-valid-until && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gnupg \
-    && curl -fsSL https://archive.raspberrypi.com/debian/raspberrypi.gpg.key -o /etc/apt/trusted.gpg.d/raspberrypi.asc && \
-    echo "deb [arch=arm64] http://archive.raspberrypi.com/debian/ bookworm main" > /etc/apt/sources.list.d/raspi.list && \
+    echo "deb [arch=arm64 trusted=yes] http://archive.raspberrypi.com/debian/ trixie main" > /etc/apt/sources.list.d/raspi.list && \
     apt-get update && \
     (apt-get install -y --no-install-recommends \
         python3 \
@@ -32,6 +28,8 @@ RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-
         v4l-utils \
         python3-picamera2 \
         libcamera-ipa \
+        hailort \
+        python3-hailort \
      || apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
@@ -44,7 +42,8 @@ RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-
     rm -rf /var/lib/apt/lists/*
 
 # Create application user and setup directories with video hardware group access
-RUN useradd -m -u 1000 -G video,render -s /bin/bash appuser && \
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    (usermod -aG video,render appuser || usermod -aG video appuser || true) && \
     mkdir -p /app/data /app/models /app/media /app/config && \
     chown -R appuser:appuser /app
 

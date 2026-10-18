@@ -64,10 +64,16 @@ services:
       - EVM_SERVICE=inference
       - EVM_CONFIG_PATH=/app/config/config.yaml
       - EVM_SERVER__LOG_LEVEL=INFO
+    group_add:
+      - "video"
+      - "44"
+    device_cgroup_rules:
+      - "c *:* rmw"
     devices:
       - "/dev/hailo0:/dev/hailo0:rwm"
     volumes:
       - "/dev/shm:/dev/shm"
+      - "/sys:/sys:ro"
       - "./models:/app/models:ro,Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
@@ -101,10 +107,16 @@ services:
       - EVM_SERVICE=telemetry
       - EVM_CONFIG_PATH=/app/config/config.yaml
       - EVM_SERVER__LOG_LEVEL=INFO
+    group_add:
+      - "video"
+      - "44"
+    device_cgroup_rules:
+      - "c *:* rmw"
+    devices:
+      - "/dev/hailo0:/dev/hailo0:rwm"
     volumes:
       - "/dev/shm:/dev/shm"
-      - "/sys/class/hwmon:/sys/class/hwmon:ro"
-      - "/sys/class/thermal:/sys/class/thermal:ro"
+      - "/sys:/sys:ro"
       - "./data:/app/data:Z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
