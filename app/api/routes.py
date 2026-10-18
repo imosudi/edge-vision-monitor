@@ -551,14 +551,18 @@ def get_backends() -> BackendsResponse:
     if not mgr.inference_engine:
         from app.core.ipc import get_ipc_backends_catalog, get_ipc_engine_status
         catalog = get_ipc_backends_catalog()
+        ipc_st = get_ipc_engine_status()
         if catalog and "backends" in catalog:
-            ipc_st = get_ipc_engine_status()
             if ipc_st:
-                catalog["current_backend"] = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+                current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+                catalog["current_backend"] = current
+                if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo"):
+                    if "hailo" in catalog.get("backends", {}):
+                        catalog["backends"]["hailo"]["available"] = True
+                        catalog["backends"]["hailo"]["runtime_installed"] = True
             return BackendsResponse(**catalog)
 
         data = mgr.get_available_backends()
-        ipc_st = get_ipc_engine_status()
         if ipc_st:
             current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
             data["current_backend"] = current

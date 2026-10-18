@@ -61,7 +61,10 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
     # Check PCIe link info in sysfs
     pcie_dirs = [
         "/sys/bus/pci/drivers/hailo_pci",
+        "/sys/bus/pci/drivers/hailo",
+        "/sys/class/hailo_chardev",
         "/sys/class/hailo",
+        "/sys/module/hailo_pci",
     ]
     driver_loaded = any(os.path.isdir(d) for d in pcie_dirs)
     samples.append(

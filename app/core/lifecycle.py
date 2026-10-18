@@ -222,15 +222,19 @@ class ApplicationLifecycleManager:
             st = self.inference_engine.get_status()
             current = st.get("backend", "hailo" if "Hailo" in st.get("type", "") else "cpu" if "CPU" in st.get("type", "") else "mock")
 
+        hailo_is_active = (current == "hailo" and getattr(self.inference_engine, "_is_ready", False))
+        hailo_available = bool((hailo_rt and hailo_dev and hailo_hef_exists) or hailo_is_active)
+        hailo_rt_installed = bool(hailo_rt or hailo_is_active)
+
         return {
             "current_backend": current,
             "backends": {
                 "hailo": {
                     "name": "Hailo-8L NPU",
-                    "available": bool(hailo_rt and hailo_dev and hailo_hef_exists),
+                    "available": hailo_available,
                     "model_path": self.config.model.hef_path,
                     "device_node": "/dev/hailo0",
-                    "runtime_installed": bool(hailo_rt),
+                    "runtime_installed": hailo_rt_installed,
                 },
                 "cpu": {
                     "name": "CPU (ONNX Runtime)",

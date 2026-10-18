@@ -128,8 +128,27 @@ function handleLiveUpdate(data) {
   const badgeSource = document.getElementById('badge-source');
   badgeSource.className = 'badge active';
 
-  // Synchronise backend buttons & labels
+  // Synchronise header Hailo badge in real-time
+  const hailoBadge = document.getElementById('badge-hailo');
+  const hailoLabel = document.getElementById('label-hailo');
   const activeBackend = inference.active_backend || status.active_backend || 'hailo';
+  if (hailoBadge && hailoLabel) {
+    const isHailoActive = (activeBackend === 'hailo');
+    const hailoMetricPresent = metrics?.['hailo_device_present']?.value === 1.0;
+    const hailoEngReady = inference?.engine_status?.hailo_ready || (inference?.engine_status?.ready && inference?.engine_status?.backend === 'hailo');
+    if (isHailoActive || hailoMetricPresent || hailoEngReady) {
+      hailoBadge.className = 'badge active';
+      hailoLabel.textContent = isHailoActive ? 'Hailo-8L: Online' : 'Hailo-8L: Ready';
+    } else if (inference?.engine_status?.is_mock) {
+      hailoBadge.className = 'badge mock';
+      hailoLabel.textContent = 'Hailo-8L: Mock Mode';
+    } else {
+      hailoBadge.className = 'badge warning';
+      hailoLabel.textContent = 'Hailo-8L: Missing';
+    }
+  }
+
+  // Synchronise backend buttons & labels
   if (!isSwitchingBackend) {
     const btnHailo = document.getElementById('btn-backend-hailo');
     const btnCpu = document.getElementById('btn-backend-cpu');
@@ -1568,8 +1587,11 @@ async function loadAvailableBackends() {
     const res = await fetch('/api/v1/inference/backends');
     if (!res.ok) return;
     const data = await res.json();
+    const btnHailo = document.getElementById('btn-backend-hailo');
+    const btnCpu = document.getElementById('btn-backend-cpu');
     const btnAuto = document.getElementById('btn-run-auto-benchmark');
     const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
+
     if (btnHailo && data.backends?.hailo) {
       btnHailo.disabled = !data.backends.hailo.available;
       if (!data.backends.hailo.available) {
@@ -1601,6 +1623,19 @@ async function loadAvailableBackends() {
         btnCpu?.classList.remove('active');
       }
     }
+
+    // Synchronise header Hailo badge
+    const hailoBadge = document.getElementById('badge-hailo');
+    const hailoLabel = document.getElementById('label-hailo');
+    if (hailoBadge && hailoLabel) {
+      if (data.backends?.hailo?.available) {
+        hailoBadge.className = 'badge active';
+        hailoLabel.textContent = (data.current_backend === 'hailo') ? 'Hailo-8L: Online' : 'Hailo-8L: Ready';
+      } else {
+        hailoBadge.className = 'badge warning';
+        hailoLabel.textContent = 'Hailo-8L: Missing';
+      }
+    }
   } catch (e) {
     console.error('Failed to load available backends', e);
   }
@@ -1611,6 +1646,11 @@ async function switchBackend(backend) {
   const btnHailo = document.getElementById('btn-backend-hailo');
   const btnCpu = document.getElementById('btn-backend-cpu');
   const targetBtn = backend === 'cpu' ? btnCpu : btnHailo;
+
+  if (targetBtn && targetBtn.classList.contains('active')) {
+    console.log(`[INFERENCE] Backend '${backend}' is already active`);
+    return;
+  }
 
   const originalContent = targetBtn ? targetBtn.innerHTML : '';
   try {
@@ -1640,14 +1680,18 @@ async function switchBackend(backend) {
         btnHailo?.classList.add('active');
         btnCpu?.classList.remove('active');
       }
+      // Wait briefly for worker process to reconfigure pipeline
+      await new Promise(r => setTimeout(r, 350));
     }
   } catch (e) {
     console.error('Failed to switch backend', e);
     alert(`Error switching backend: ${e.message}`);
   } finally {
-    if (targetBtn) {
+    if (targetBtn && originalContent) {
       targetBtn.innerHTML = originalContent;
     }
+    if (btnHailo) btnHailo.disabled = false;
+    if (btnCpu) btnCpu.disabled = false;
     isSwitchingBackend = false;
     await loadAvailableBackends();
   }

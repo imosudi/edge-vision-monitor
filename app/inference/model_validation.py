@@ -80,8 +80,26 @@ def check_hailo_runtime_installed() -> Tuple[bool, Optional[str]]:
         if os.path.exists("/dev/hailo0"):
             try:
                 vdev = hailo_platform.VDevice()
+                try:
+                    if hasattr(vdev, "release"):
+                        vdev.release()
+                except Exception:
+                    pass
                 del vdev
             except Exception as v_err:
+                err_msg = str(v_err)
+                # If physical device is already claimed by an active engine instance,
+                # HailoRT returns HAILO_OUT_OF_PHYSICAL_DEVICES (error 74).
+                # This confirms the driver and device are active and functional.
+                if (
+                    "HAILO_OUT_OF_PHYSICAL_DEVICES" in err_msg
+                    or "74" in err_msg
+                    or "Device or resource busy" in err_msg
+                    or "out of physical devices" in err_msg.lower()
+                ):
+                    logger.debug("HailoRT VDevice already claimed by active process (%s): %s", version, v_err)
+                    return True, version
+
                 logger.warning("HailoRT runtime detected (%s), but VDevice initialisation failed: %s", version, v_err)
                 return False, f"Driver incompatible ({v_err})"
         return True, version
