@@ -200,6 +200,11 @@ function handleLiveUpdate(data) {
   let cpuTemp = null;
   let rp1Temp = null;
   let hailoTemp = null;
+  let ambientTemp = null;
+  let ambientHumidity = null;
+  let ambientComfort = null;
+  let ambientColor = null;
+  let ambientConnected = false;
   let cpuUtil = null;
   let memUtil = null;
   let isThermalThrottling = false;
@@ -220,6 +225,32 @@ function handleLiveUpdate(data) {
       if (k.includes('hailo_temp') && v.value !== null) {
         hailoTemp = v.value;
       }
+    }
+
+    // Ambient Sensor Telemetry (ESP32-S3 / DHT22)
+    if (metrics.ambient_temperature_c && metrics.ambient_temperature_c.value !== null) {
+      ambientTemp = metrics.ambient_temperature_c.value;
+      if (metrics.ambient_temperature_c.comfort_status) {
+        ambientComfort = metrics.ambient_temperature_c.comfort_status;
+        ambientColor = metrics.ambient_temperature_c.comfort_color;
+      }
+    }
+    if (metrics.ambient_humidity_percent && metrics.ambient_humidity_percent.value !== null) {
+      ambientHumidity = metrics.ambient_humidity_percent.value;
+    }
+    if (metrics.ambient_metadata) {
+      const meta = metrics.ambient_metadata;
+      ambientConnected = !!(meta.value > 0 || meta.status === 'AVAILABLE');
+      if (meta.comfort_status && !ambientComfort) ambientComfort = meta.comfort_status;
+      if (meta.comfort_color && !ambientColor) ambientColor = meta.comfort_color;
+      if (meta.chip_type && document.getElementById('val-esp32-chip')) {
+        document.getElementById('val-esp32-chip').textContent = meta.chip_type;
+      }
+      if (meta.serial_port && document.getElementById('val-esp32-port')) {
+        document.getElementById('val-esp32-port').textContent = `${meta.serial_port} (${meta.baud_rate || 115200})`;
+      }
+    } else if (ambientTemp !== null) {
+      ambientConnected = true;
     }
 
     if (metrics.cpu_utilisation && metrics.cpu_utilisation.value !== null) {
@@ -330,6 +361,65 @@ function handleLiveUpdate(data) {
     document.getElementById('val-hailo-temp').textContent = `${hailoTemp}°C`;
   } else {
     document.getElementById('val-hailo-temp').textContent = 'N/A';
+  }
+
+  // Update Ambient Environment DOM (ESP32-S3 + DHT22)
+  const valAmbTemp = document.getElementById('val-ambient-temp');
+  const barAmbTemp = document.getElementById('bar-ambient-temp');
+  const valAmbHum = document.getElementById('val-ambient-humidity');
+  const barAmbHum = document.getElementById('bar-ambient-humidity');
+  const valAmbComfort = document.getElementById('val-ambient-comfort-text');
+  const pillAmbComfort = document.getElementById('ambient-comfort-pill');
+
+  if (ambientTemp !== null) {
+    if (valAmbTemp) valAmbTemp.textContent = `${ambientTemp.toFixed(1)} °C`;
+    if (barAmbTemp) {
+      const pct = Math.max(0, Math.min(100, (ambientTemp / 50) * 100));
+      barAmbTemp.style.width = `${pct}%`;
+      if (ambientTemp >= 35) barAmbTemp.style.background = 'var(--accent-rose, #ef4444)';
+      else if (ambientTemp >= 28) barAmbTemp.style.background = 'var(--accent-amber, #f59e0b)';
+      else barAmbTemp.style.background = '#06b6d4';
+    }
+  } else {
+    if (valAmbTemp) valAmbTemp.textContent = '-- °C';
+    if (barAmbTemp) barAmbTemp.style.width = '0%';
+  }
+
+  if (ambientHumidity !== null) {
+    if (valAmbHum) valAmbHum.textContent = `${ambientHumidity.toFixed(1)} %`;
+    if (barAmbHum) {
+      const pct = Math.max(0, Math.min(100, ambientHumidity));
+      barAmbHum.style.width = `${pct}%`;
+    }
+  } else {
+    if (valAmbHum) valAmbHum.textContent = '-- %';
+    if (barAmbHum) barAmbHum.style.width = '0%';
+  }
+
+  if (ambientComfort) {
+    if (valAmbComfort) {
+      valAmbComfort.textContent = ambientComfort;
+      if (ambientColor) valAmbComfort.style.color = ambientColor;
+    }
+    if (pillAmbComfort) {
+      pillAmbComfort.textContent = ambientComfort;
+      if (ambientColor) {
+        pillAmbComfort.style.color = ambientColor;
+        pillAmbComfort.style.borderColor = `${ambientColor}66`;
+        pillAmbComfort.style.backgroundColor = `${ambientColor}1f`;
+      }
+    }
+  } else if (!ambientConnected) {
+    if (valAmbComfort) {
+      valAmbComfort.textContent = 'ESP32 Offline';
+      valAmbComfort.style.color = 'var(--text-muted, #94a3b8)';
+    }
+    if (pillAmbComfort) {
+      pillAmbComfort.textContent = 'Disconnected';
+      pillAmbComfort.style.color = '#94a3b8';
+      pillAmbComfort.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+      pillAmbComfort.style.backgroundColor = 'rgba(148, 163, 184, 0.1)';
+    }
   }
 
   // Update Resources DOM
@@ -459,7 +549,7 @@ function handleLiveUpdate(data) {
     }
 
     // 5. Thermal Profile History (°C)
-    if (thermalChart) updateChartSeries(thermalChart, nowLabel, [cpuTemp || 0, rp1Temp || 0, hailoTemp || 0]);
+    if (thermalChart) updateChartSeries(thermalChart, nowLabel, [cpuTemp || 0, rp1Temp || 0, hailoTemp || 0, ambientTemp !== null ? ambientTemp : null]);
 
     // 6. System Utilisation History (%)
     if (resourceChart) updateChartSeries(resourceChart, nowLabel, [cpuUtil || 0, memUtil || 0]);
@@ -520,6 +610,8 @@ function handleLiveUpdate(data) {
         cpu_temp: cpuTemp !== null ? cpuTemp : 0,
         rp1_temp: rp1Temp !== null ? rp1Temp : 0,
         hailo_temp: hailoTemp !== null ? hailoTemp : 0,
+        ambient_temp: ambientTemp !== null ? ambientTemp : 0,
+        ambient_humidity: ambientHumidity !== null ? ambientHumidity : 0,
         mem_util: memUtil !== null ? memUtil : 0,
         fan_rpm: fanRpm !== null ? fanRpm : 0,
         disk_util: diskUtil !== null ? diskUtil : 0,

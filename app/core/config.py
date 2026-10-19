@@ -52,6 +52,10 @@ class TelemetryThresholds(BaseModel):
     critical_hailo_temp_c: float = Field(default=90.0, description="Critical threshold for Hailo NPU temperature in °C")
     warning_memory_percent: float = Field(default=85.0, description="Warning threshold for RAM usage %")
     critical_memory_percent: float = Field(default=95.0, description="Critical threshold for RAM usage %")
+    warning_ambient_temp_c: float = Field(default=35.0, description="Warning threshold for ambient room temperature in °C")
+    critical_ambient_temp_c: float = Field(default=45.0, description="Critical threshold for ambient room temperature in °C")
+    warning_ambient_humidity_percent: float = Field(default=70.0, description="Warning threshold for ambient relative humidity %")
+    critical_ambient_humidity_percent: float = Field(default=85.0, description="Critical threshold for ambient relative humidity %")
     warning_min_fps: Optional[float] = Field(default=None, ge=0.1, le=120.0, description="Warning threshold if inference FPS drops below this value")
     critical_min_fps: Optional[float] = Field(default=None, ge=0.1, le=120.0, description="Critical threshold if inference FPS drops below this value")
 
@@ -69,6 +73,9 @@ class TelemetryConfig(BaseModel):
     enable_ina219: bool = Field(default=False, description="Enable optional INA219 current/power sensor")
     ina219_i2c_bus: int = Field(default=1, ge=0, description="I2C bus number for INA219")
     ina219_i2c_address: int = Field(default=0x40, ge=0, description="I2C address for INA219")
+    enable_ambient: bool = Field(default=True, description="Enable ESP32 ambient temperature and humidity sensor")
+    ambient_serial_port: str = Field(default="/dev/ttyUSB0", description="Serial port device path for ESP32 ambient sensor")
+    ambient_baud_rate: int = Field(default=115200, ge=1200, le=1000000, description="Serial baud rate for ESP32 ambient sensor")
     thresholds: TelemetryThresholds = Field(default_factory=TelemetryThresholds)
 
 
@@ -132,6 +139,8 @@ class AppConfig(BaseModel):
                 "enable_hailo": self.telemetry.enable_hailo,
                 "enable_process": self.telemetry.enable_process,
                 "enable_ina219": self.telemetry.enable_ina219,
+                "enable_ambient": self.telemetry.enable_ambient,
+                "ambient_serial_port": self.telemetry.ambient_serial_port,
                 "thresholds": self.telemetry.thresholds.model_dump(),
             },
             "storage": {

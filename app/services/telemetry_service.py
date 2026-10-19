@@ -55,6 +55,7 @@ class TelemetryService:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._thread = None
+        self._collector.stop()
         logger.info("Telemetry background service stopped")
 
     def _sampling_loop(self) -> None:
@@ -159,6 +160,40 @@ class TelemetryService:
                 )
             elif s.metric_name == "rpi_arm_freq_capped_now" and s.value == 0:
                 self._clear_alarm("rpi_arm_freq_capped")
+
+            # Ambient Room Temperature (ESP32 / DHT22)
+            elif s.metric_name == "ambient_temperature_c":
+                if thresholds.critical_ambient_temp_c is not None and s.value >= thresholds.critical_ambient_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"CRITICAL: Ambient room temperature is {s.value}°C (threshold: {thresholds.critical_ambient_temp_c}°C)",
+                        severity="CRITICAL",
+                    )
+                elif thresholds.warning_ambient_temp_c is not None and s.value >= thresholds.warning_ambient_temp_c:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"WARNING: Ambient room temperature is {s.value}°C (threshold: {thresholds.warning_ambient_temp_c}°C)",
+                        severity="WARNING",
+                    )
+                else:
+                    self._clear_alarm(s.metric_name)
+
+            # Ambient Relative Humidity (ESP32 / DHT22)
+            elif s.metric_name == "ambient_humidity_percent":
+                if thresholds.critical_ambient_humidity_percent is not None and s.value >= thresholds.critical_ambient_humidity_percent:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"CRITICAL: Ambient relative humidity is {s.value}% (threshold: {thresholds.critical_ambient_humidity_percent}%)",
+                        severity="CRITICAL",
+                    )
+                elif thresholds.warning_ambient_humidity_percent is not None and s.value >= thresholds.warning_ambient_humidity_percent:
+                    self._trigger_alarm(
+                        s.metric_name,
+                        f"WARNING: Ambient relative humidity is {s.value}% (threshold: {thresholds.warning_ambient_humidity_percent}%)",
+                        severity="WARNING",
+                    )
+                else:
+                    self._clear_alarm(s.metric_name)
 
         # Minimum Inference FPS Threshold Checks
         if thresholds.critical_min_fps is not None or thresholds.warning_min_fps is not None:

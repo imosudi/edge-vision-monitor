@@ -232,6 +232,56 @@
           </div>
         </div>
 
+        <!-- Ambient Environment Card (ESP32-S3 + DHT22) -->
+        <div class="card" id="card-ambient-environment">
+          <div class="card-header">
+            <div class="card-title"><span>🌿</span> Ambient Environment</div>
+            <div id="ambient-comfort-pill" class="status-pill available" style="background: rgba(39, 174, 96, 0.15); color: #27ae60; border-color: rgba(39, 174, 96, 0.4);">Awaiting Data</div>
+          </div>
+          
+          <div class="metric-group">
+            <div class="metric-row">
+              <span class="metric-label">Room Temperature</span>
+              <span id="val-ambient-temp" class="metric-val cyan">-- °C</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-ambient-temp" class="progress-fill" style="width: 0%; background: #06b6d4;"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label">Relative Humidity</span>
+              <span id="val-ambient-humidity" class="metric-val cyan">-- %</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-ambient-humidity" class="progress-fill" style="width: 0%; background: #3b82f6;"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label">Comfort Assessment</span>
+              <span id="val-ambient-comfort-text" style="font-size: 0.82rem; font-weight: 600; color: #27ae60;">--</span>
+            </div>
+
+            <div class="ambient-hw-details" style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.72rem; color: var(--text-muted); line-height: 1.4;">
+              <div style="display: flex; justify-content: space-between;">
+                <span>Microcontroller:</span>
+                <span id="val-esp32-chip" style="color: var(--text-normal);">ESP32-S3 (QFN56)</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>Sensor Interface:</span>
+                <span style="color: var(--text-normal);">DHT22 on GPIO 21</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>Serial Bus:</span>
+                <span id="val-esp32-port" style="color: var(--text-normal);">/dev/ttyUSB0 (115200)</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>Hardware MAC:</span>
+                <span style="font-family: monospace; color: var(--text-normal);">94:a9:90:1c:78:14</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- System Resources Card -->
         <div class="card">
           <div class="card-header">
@@ -1075,7 +1125,7 @@
     <span class="footer-cite-key">EdgeVisionMonitor2026</span> &bull; Isiaka Mosudi (FHTW) &bull; &copy; 2026
   </footer>
 
-  <script src="/static/js/charts.js?v=3.19-backendtoggle"></script>
-  <script src="/static/js/app.js?v=3.19-backendtoggle"></script>
+  <script src="/static/js/charts.js?v=3.20-ambient"></script>
+  <script src="/static/js/app.js?v=3.20-ambient"></script>
 </body>
 </html>

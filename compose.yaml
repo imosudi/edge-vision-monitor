@@ -34,11 +34,15 @@ services:
     group_add:
       - "video"
       - "44"
+      - "dialout"
+      - "20"
 
     # Least-privilege hardware device mapping
     devices:
       # Hailo-8L PCIe accelerator node
       - "/dev/hailo0:/dev/hailo0:rwm"
+      # ESP32-S3 ambient sensor serial node
+      - "/dev/ttyUSB0:/dev/ttyUSB0:rwm"
 
     # Device cgroup access rules for Raspberry Pi 5 ISP & Camera Subsystem
     device_cgroup_rules:

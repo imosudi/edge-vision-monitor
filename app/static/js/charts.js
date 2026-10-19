@@ -284,7 +284,8 @@ function initCharts() {
         datasets: [
           { label: 'CPU Temp (°C)', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent' },
           { label: 'RP1 Temp (°C)', data: [], borderColor: '#2563eb', backgroundColor: 'transparent' },
-          { label: 'Hailo NPU (°C)', data: [], borderColor: '#16a34a', backgroundColor: 'transparent' }
+          { label: 'Hailo NPU (°C)', data: [], borderColor: '#16a34a', backgroundColor: 'transparent' },
+          { label: 'Ambient Room (°C)', data: [], borderColor: '#06b6d4', backgroundColor: 'transparent' }
         ]
       },
       options: chartOptionsBase
@@ -886,7 +887,7 @@ const CHART_REGISTRY = {
     title: 'Thermal Profile History (°C)',
     icon: '🌡️',
     badge: 'THERMALS',
-    desc: 'Multi-zone temperature telemetry tracking Raspberry Pi 5 BCM2712 CPU, RP1 Southbridge I/O Controller, and Hailo-8L M.2 AI accelerator.',
+    desc: 'Multi-zone temperature telemetry tracking Raspberry Pi 5 BCM2712 CPU, RP1 Southbridge I/O Controller, Hailo-8L M.2 AI accelerator, and ESP32 DHT22 ambient room temperature.',
     yUnit: '°C',
     defaultFilename: 'thermal_profile_history'
   },
@@ -1182,7 +1183,7 @@ function exportCompleteLiveWaveformsCSV() {
       header: 'Detections_Per_Frame',
       getVal: (i) => getChartDataVal(detectionsCountChart, 0, i, masterLabels.length)
     },
-    // 5. Thermal Profile History (°C) (chart-thermal: ds[0]=cpu, ds[1]=rp1, ds[2]=hailo)
+    // 5. Thermal Profile History (°C) (chart-thermal: ds[0]=cpu, ds[1]=rp1, ds[2]=hailo, ds[3]=ambient)
     {
       header: 'Thermal_CPU_degC',
       getVal: (i) => getChartDataVal(thermalChart, 0, i, masterLabels.length)
@@ -1194,6 +1195,10 @@ function exportCompleteLiveWaveformsCSV() {
     {
       header: 'Thermal_Hailo8L_NPU_degC',
       getVal: (i) => getChartDataVal(thermalChart, 2, i, masterLabels.length)
+    },
+    {
+      header: 'Thermal_Ambient_ESP32_degC',
+      getVal: (i) => getChartDataVal(thermalChart, 3, i, masterLabels.length)
     },
     // 6. System Utilisation History (%) (chart-resources: ds[0]=cpu, ds[1]=ram)
     {

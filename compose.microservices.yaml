@@ -110,10 +110,13 @@ services:
     group_add:
       - "video"
       - "44"
+      - "dialout"
+      - "20"
     device_cgroup_rules:
       - "c *:* rmw"
     devices:
       - "/dev/hailo0:/dev/hailo0:rwm"
+      - "/dev/ttyUSB0:/dev/ttyUSB0:rwm"
     volumes:
       - "/dev/shm:/dev/shm"
       - "/sys:/sys:ro"
