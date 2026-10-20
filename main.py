@@ -413,6 +413,13 @@ def run_compose(args: argparse.Namespace) -> int:
     if remote_host and remote_method == "ssh" and shutil.which("ssh"):
         compose_filename = "compose.microservices.yaml" if is_microservices else "compose.yaml"
         action_str = " ".join(action_args)
+        is_up = "up" in action_args
+        should_monitor = getattr(args, "monitor", None)
+        if should_monitor is None:
+            should_monitor = is_up
+
+        monitor_cmd = "python3 scripts/hailo_monitor.py --cli" if getattr(args, "cli", False) else "python3 scripts/hailo_monitor.py"
+
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
             f"cd {remote_dir} && (git pull origin main 2>/dev/null || git pull 2>/dev/null || true); "
@@ -422,6 +429,7 @@ def run_compose(args: argparse.Namespace) -> int:
             f"fi; "
             f"export HAILO_MONITOR=1 && "
             f"(podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
+            f"{f' && {monitor_cmd}' if should_monitor else ''}"
         )
 
         cmd = ["ssh"]
@@ -450,6 +458,11 @@ def run_compose(args: argparse.Namespace) -> int:
 
     # Route 2: Local container engine or remote daemon socket connection
     else:
+        is_up = "up" in action_args
+        should_monitor = getattr(args, "monitor", None)
+        if should_monitor is None:
+            should_monitor = is_up
+
         cmd = list(compose_cmd)
         if remote_host:
             login_target = f"{remote_user}@{remote_host}" if remote_user else remote_host
@@ -477,6 +490,18 @@ def run_compose(args: argparse.Namespace) -> int:
                 host=remote_host or "localhost",
             )
             log_error(f"Container runtime execution error: {exc}")
+            return proc.returncode
+
+        # If local compose up succeeded and monitoring requested, launch live monitor locally
+        if proc.returncode == 0 and not remote_host and "up" in action_args and getattr(args, "monitor", True):
+            from scripts.hailo_monitor import run_raw_hailortcli, render_dashboard, HailoHardwareReader, RemoteTelemetryClient
+            if getattr(args, "cli", False):
+                return run_raw_hailortcli()
+            hw_reader = HailoHardwareReader()
+            api_client = RemoteTelemetryClient(host="127.0.0.1", port=getattr(args, "port", 8000) or 8000)
+            render_dashboard(hw_reader=hw_reader, api_client=api_client, target_host="localhost", interval=1.0)
+            return 0
+
         return proc.returncode
     except KeyboardInterrupt:
         log_info("Execution interrupted by user.")
@@ -897,22 +922,30 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             return ret_code
 
         print("\nSelect Compose action for Monolithic Container:")
-        print("  [1] Start container in background (up -d) [default]")
-        print("  [2] Stop container (down)")
-        print("  [3] View container logs (logs -f)")
-        print("  [4] Inspect container status (ps)")
+        print("  [1] Start container & display live Hailo-8L NPU monitor [default]")
+        print("  [2] Start container in background only (up -d)")
+        print("  [3] Stop container (down)")
+        print("  [4] View container logs (logs -f)")
+        print("  [5] Inspect container status (ps)")
         try:
-            act_choice = input(_colourise("Enter action [1-4] (default: 1): ", "1;33")).strip() or "1"
+            act_choice = input(_colourise("Enter action [1-5] (default: 1): ", "1;33")).strip() or "1"
         except (KeyboardInterrupt, EOFError):
             print("\nOperation cancelled.")
             return 0
-        act_map = {"1": "up", "2": "down", "3": "logs", "4": "ps"}
         args.command = "compose"
-        args.compose_action = act_map.get(act_choice, "up")
         args.microservices = False
         args.type = "monolith"
         for k, v in remote_info.items():
             setattr(args, k, v)
+        if act_choice == "1":
+            args.compose_action = "up"
+            args.monitor = True
+        elif act_choice == "2":
+            args.compose_action = "up"
+            args.monitor = False
+        else:
+            act_map = {"3": "down", "4": "logs", "5": "ps"}
+            args.compose_action = act_map.get(act_choice, "up")
         return run_compose(args)
 
     elif choice == "4":
@@ -922,13 +955,14 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             return ret_code
 
         print("\nSelect Compose action for Microservices Decomposition:")
-        print("  [1] Start all 5 microservices in background (up -d) [default]")
-        print("  [2] Stop all microservices (down)")
-        print("  [3] View microservices logs (logs -f)")
-        print("  [4] Inspect microservices status (ps)")
-        print("  [5] Target specific microservice (ingress, inference, telemetry, storage, gateway)")
+        print("  [1] Start all 5 microservices & display live Hailo-8L NPU monitor [default]")
+        print("  [2] Start all 5 microservices in background only (up -d)")
+        print("  [3] Stop all microservices (down)")
+        print("  [4] View microservices logs (logs -f)")
+        print("  [5] Inspect microservices status (ps)")
+        print("  [6] Target specific microservice (ingress, inference, telemetry, storage, gateway)")
         try:
-            act_choice = input(_colourise("Enter action [1-5] (default: 1): ", "1;33")).strip() or "1"
+            act_choice = input(_colourise("Enter action [1-6] (default: 1): ", "1;33")).strip() or "1"
         except (KeyboardInterrupt, EOFError):
             print("\nOperation cancelled.")
             return 0
@@ -938,16 +972,23 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         for k, v in remote_info.items():
             setattr(args, k, v)
 
-        if act_choice == "5":
+        if act_choice == "1":
+            args.compose_action = "up"
+            args.monitor = True
+        elif act_choice == "2":
+            args.compose_action = "up"
+            args.monitor = False
+        elif act_choice == "6":
             try:
                 target = input(_colourise("Enter microservice name [ingress/inference/telemetry/storage/gateway]: ", "1;33")).strip()
             except (KeyboardInterrupt, EOFError):
                 print("\nOperation cancelled.")
                 return 0
             args.compose_action = "up"
+            args.monitor = (target in ("inference", "all", ""))
             args.services = [target] if target else []
         else:
-            act_map = {"1": "up", "2": "down", "3": "logs", "4": "ps"}
+            act_map = {"3": "down", "4": "logs", "5": "ps"}
             args.compose_action = act_map.get(act_choice, "up")
         return run_compose(args)
 
@@ -1290,6 +1331,9 @@ Examples:
     compose_parser.add_argument("--follow", action="store_true", default=True, help="Follow log output")
     compose_parser.add_argument("--tail", type=int, default=100, help="Number of lines to show for logs")
     compose_parser.add_argument("--engine", choices=["podman", "docker"], help="Explicitly force compose engine")
+    compose_parser.add_argument("--monitor", dest="monitor", action="store_true", default=None, help="Display live Hailo-8L monitor after starting containers (default: True on up)")
+    compose_parser.add_argument("--no-monitor", dest="monitor", action="store_false", help="Do not launch live monitor after starting containers")
+    compose_parser.add_argument("--cli", action="store_true", help="Display raw hailortcli monitor tables directly")
 
     # --- Subcommand: systemd ---
     systemd_parser = subparsers.add_parser("systemd", help="Manage systemd service integration on Linux host")
