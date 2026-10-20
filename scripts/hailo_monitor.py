@@ -109,7 +109,18 @@ class HailoHardwareReader:
             return None, None
 
     def read_throttling_state(self) -> Optional[bool]:
-        """Return True if hardware thermal throttling is currently active."""
+        """
+        Return True only if hardware thermal throttling is actively engaged (die temp >= 90.0 °C).
+        Note: d.control.get_throttling_state() returns True when protection is armed/enabled in firmware.
+        """
+        ts0, ts1 = self.read_chip_temperature()
+        temps = [t for t in (ts0, ts1) if t is not None]
+        if temps:
+            return max(temps) >= 90.0
+        return False
+
+    def is_protection_enabled(self) -> Optional[bool]:
+        """Return True if firmware thermal and overcurrent protection mechanism is armed."""
         if not self._available or not self._device:
             return None
         try:
@@ -300,13 +311,14 @@ def render_dashboard(
         else:
             print(f"  NPU Die Temperature:   {format_temp(ts0)}")
 
-        # Thermal Throttling state
-        if throttled is True:
-            throttle_str = f"{CLR_RED}{CLR_BOLD}⚠️  THROTTLED (Clock frequency reduced to preserve silicon){CLR_RESET}"
-        elif throttled is False:
-            throttle_str = f"{CLR_GREEN}Nominal (Full 400 MHz NPU operational frequency){CLR_RESET}"
+        # Thermal Throttling state based on verified silicon die temperatures
+        max_die_temp = max([t for t in (ts0, ts1) if t is not None], default=None)
+        if max_die_temp is not None and max_die_temp >= 90.0:
+            throttle_str = f"{CLR_RED}{CLR_BOLD}⚠️  ACTIVELY THROTTLED (Silicon temp {max_die_temp:.1f} °C >= 90 °C limit: clock reduced){CLR_RESET}"
+        elif max_die_temp is not None and max_die_temp >= 75.0:
+            throttle_str = f"{CLR_YELLOW}Elevated ({max_die_temp:.1f} °C: approaching 90 °C throttle threshold){CLR_RESET}"
         else:
-            throttle_str = f"{CLR_GREEN}Nominal{CLR_RESET}"
+            throttle_str = f"{CLR_GREEN}Nominal (Full 400 MHz operational frequency - Thermal protection armed){CLR_RESET}"
         print(f"  Thermal Throttling:    {throttle_str}")
 
         # Live NPU load gauge bar
@@ -400,6 +412,7 @@ def main():
                     "hailo_temp_ts0_c": ts0 or (mets.get("hailo_temperature_c") or {}).get("value"),
                     "hailo_temp_ts1_c": ts1 or (mets.get("hailo_temperature_c") or {}).get("value"),
                     "hailo_throttled": throttled,
+                    "hailo_protection_armed": hw_reader.is_protection_enabled(),
                     "hailo_load_percent": util,
                     "inference_fps": stats.get("current_fps"),
                     "total_frames": stats.get("total_frames_processed"),
