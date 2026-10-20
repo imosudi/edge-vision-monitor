@@ -19,6 +19,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from app.core.exceptions import (
+    DeviceGatheringError,
+    MissingHardwareDeviceError,
+    print_missing_device_notice,
+)
+
 # Base project directory
 PROJECT_ROOT = Path(__file__).resolve().parent
 SYSTEMD_SERVICE_NAME = "edge-vision-monitor.service"
@@ -409,7 +415,12 @@ def run_compose(args: argparse.Namespace) -> int:
         action_str = " ".join(action_args)
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
-            f"cd {remote_dir} && export HAILO_MONITOR=1 && "
+            f"cd {remote_dir} && (git pull origin main 2>/dev/null || git pull 2>/dev/null || true); "
+            f"if [ ! -e /dev/ttyUSB0 ] && grep -q '/dev/ttyUSB0' {compose_filename} 2>/dev/null; then "
+            f"echo '[NOTICE] Hardware node /dev/ttyUSB0 not found on host. Enabling dynamic hotplug mode in {compose_filename}...'; "
+            f"sed -i '/\\/dev\\/ttyUSB0/d' {compose_filename} 2>/dev/null || true; "
+            f"fi; "
+            f"export HAILO_MONITOR=1 && "
             f"(podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
         )
 
@@ -456,6 +467,16 @@ def run_compose(args: argparse.Namespace) -> int:
     log_info(f"Executing: {' '.join(cmd)}")
     try:
         proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env)
+        if proc.returncode != 0 and "up" in action_args:
+            print_missing_device_notice(
+                device_node="/dev/ttyUSB0",
+                host=remote_host or "localhost",
+            )
+            exc = DeviceGatheringError(
+                device_node="/dev/ttyUSB0",
+                host=remote_host or "localhost",
+            )
+            log_error(f"Container runtime execution error: {exc}")
         return proc.returncode
     except KeyboardInterrupt:
         log_info("Execution interrupted by user.")

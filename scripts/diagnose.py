@@ -124,6 +124,18 @@ def check_thermals_and_sensors():
         print(f"  - {hname} ({chip})")
 
 
+def check_ambient_sensor():
+    print_section("AMBIENT SENSOR HARDWARE (ESP32-S3)")
+    usb_serial_devs = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+    if usb_serial_devs:
+        print(f"Serial Nodes (/dev/ttyUSB*):    {', '.join(usb_serial_devs)} [DETECTED]")
+        for dev in usb_serial_devs:
+            print(f"  - {dev} (ESP32-S3 UART telemetry feed)")
+    else:
+        print("Serial Nodes (/dev/ttyUSB*):    [NOT DETECTED] (/dev/ttyUSB0 absent)")
+        print("Operational Mode:              Autonomous telemetry active (runs with or without sensor)")
+
+
 def check_rpi_throttling():
     print_section("RASPBERRY PI FIRMWARE & THROTTLING")
     try:
@@ -162,6 +174,7 @@ def main():
     check_hailo_hardware()
     check_cameras()
     check_thermals_and_sensors()
+    check_ambient_sensor()
     check_rpi_throttling()
     check_permissions()
     print("\n" + "#"*70)
