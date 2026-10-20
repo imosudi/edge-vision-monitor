@@ -418,7 +418,7 @@ def run_compose(args: argparse.Namespace) -> int:
         if should_monitor is None:
             should_monitor = is_up
 
-        monitor_cmd = "python3 scripts/hailo_monitor.py --cli" if getattr(args, "cli", False) else "python3 scripts/hailo_monitor.py"
+        monitor_cmd = "python3 scripts/hailo_monitor.py --remote 127.0.0.1 --cli" if getattr(args, "cli", False) else "python3 scripts/hailo_monitor.py --remote 127.0.0.1"
 
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
@@ -1075,7 +1075,7 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
         if remote_info:
             rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
-            remote_cmd = f"cd {rdir} && export HAILO_MONITOR=1; python3 scripts/hailo_monitor.py"
+            remote_cmd = f"cd {rdir} && export HAILO_MONITOR=1; python3 scripts/hailo_monitor.py --remote 127.0.0.1"
             ssh_cmd = build_ssh_command(
                 remote_host=remote_info["remote_host"],
                 remote_user=remote_info["remote_user"],
@@ -1360,7 +1360,7 @@ Examples:
     mon_parser = subparsers.add_parser("monitor", aliases=["hailo-monitor"], help="Launch live Hailo-8L NPU monitor (chip temperature, compute load, FPS)")
     mon_parser.add_argument("--mode", choices=["dashboard", "cli", "json"], default="dashboard", help="Display mode ('dashboard', 'cli', or 'json')")
     mon_parser.add_argument("--cli", action="store_true", help="Launch raw hailortcli monitor tables directly")
-    mon_parser.add_argument("--remote", default=os.environ.get("EVM_REMOTE_HOST", "192.168.3.14"), help="Target edge host IP or hostname")
+    mon_parser.add_argument("--remote", default=os.environ.get("EVM_REMOTE_HOST", "127.0.0.1"), help="Target edge host IP or hostname (default: 127.0.0.1 or $EVM_REMOTE_HOST)")
     mon_parser.add_argument("--port", type=int, default=8000, help="Gateway API port")
     mon_parser.add_argument("--interval", type=float, default=1.0, help="Refresh interval in seconds")
 

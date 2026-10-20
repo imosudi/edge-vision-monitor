@@ -345,6 +345,10 @@ def render_dashboard(
 
         if ambient_temp is not None and ambient_hum is not None:
             print(f"  Room Ambient:          {CLR_GREEN}{ambient_temp:.1f} °C{CLR_RESET} ({ambient_hum:.1f}% RH) | Comfort: {CLR_YELLOW}{ambient_comfort}{CLR_RESET} (ESP32-S3)")
+        elif ambient_temp is not None:
+            print(f"  Room Ambient:          {CLR_GREEN}{ambient_temp:.1f} °C{CLR_RESET} | Comfort: {CLR_YELLOW}{ambient_comfort}{CLR_RESET} (ESP32-S3)")
+        else:
+            print(f"  Room Ambient:          {CLR_GRAY}-- °C (ESP32 sensor disconnected or synchronising...){CLR_RESET}")
 
         # Footer
         print(f"\n{CLR_BLUE}================================================================================{CLR_RESET}")
@@ -372,8 +376,8 @@ def main():
     )
     parser.add_argument(
         "--remote",
-        default=os.environ.get("EVM_REMOTE_HOST", "192.168.3.14"),
-        help="Target host IP address or hostname (default: 192.168.3.14)",
+        default=os.environ.get("EVM_REMOTE_HOST", "127.0.0.1"),
+        help="Target host IP address or hostname (default: 127.0.0.1 or $EVM_REMOTE_HOST)",
     )
     parser.add_argument(
         "--port",
