@@ -169,6 +169,7 @@ def run_native(args: argparse.Namespace) -> int:
 
     service_mode = (getattr(args, "service", None) or os.getenv("EVM_SERVICE", "all")).lower()
     os.environ["EVM_SERVICE"] = service_mode
+    os.environ["HAILO_MONITOR"] = "1"
 
     # Run optional hardware diagnostics first
     if getattr(args, "diagnose", False):
@@ -395,12 +396,22 @@ def run_compose(args: argparse.Namespace) -> int:
         action_args.extend(mapped_targets)
 
     env = os.environ.copy()
+    env["HAILO_MONITOR"] = "1"
+    try:
+        os.makedirs("/tmp/hmon_files", exist_ok=True)
+        os.makedirs("/tmp/nnc_utilization", exist_ok=True)
+    except Exception:
+        pass
 
     # Route 1: Direct SSH execution to remote edge host
     if remote_host and remote_method == "ssh" and shutil.which("ssh"):
         compose_filename = "compose.microservices.yaml" if is_microservices else "compose.yaml"
         action_str = " ".join(action_args)
-        remote_exec = f"cd {remote_dir} && (podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
+        remote_exec = (
+            f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
+            f"cd {remote_dir} && export HAILO_MONITOR=1 && "
+            f"(podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
+        )
 
         cmd = ["ssh"]
         if sys.stdin.isatty():
@@ -784,10 +795,11 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
     print(f"  {_colourise('[5]', '36;1')} systemd Host Service Management (Install, Status, Logs, Restart)")
     print(f"  {_colourise('[6]', '36;1')} Pre-flight Hardware Diagnostics Check (Hailo PCIe, V4L2, sysfs)")
     print(f"  {_colourise('[7]', '36;1')} Display Least-Privilege Service Comparison Matrix")
+    print(f"  {_colourise('[8]', '36;1')} Hailo-8L NPU Live Terminal Monitor (Chip Temperature, Load %, FPS)")
     print(f"  {_colourise('[0]', '31;1')} Exit\n")
 
     try:
-        choice = input(_colourise("Enter selection [1-7, 0 to exit] (default: 1): ", "1;33")).strip()
+        choice = input(_colourise("Enter selection [1-8, 0 to exit] (default: 1): ", "1;33")).strip()
     except (KeyboardInterrupt, EOFError):
         print("\nOperation cancelled.")
         return 0
@@ -992,6 +1004,30 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         # Service Comparison Matrix
         print_service_matrix()
         return 0
+
+    elif choice == "8":
+        # Hailo-8L NPU Live Terminal Monitor
+        ret_code, remote_info = prompt_remote_host_options("Hailo-8L NPU Live Terminal Monitor")
+        if remote_info is None:
+            return ret_code
+
+        if remote_info:
+            rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
+            remote_cmd = f"cd {rdir} && export HAILO_MONITOR=1; python3 scripts/hailo_monitor.py"
+            ssh_cmd = build_ssh_command(
+                remote_host=remote_info["remote_host"],
+                remote_user=remote_info["remote_user"],
+                remote_port=remote_info["remote_port"],
+                remote_auth=remote_info["remote_auth"],
+                remote_key=remote_info["remote_key"],
+                remote_command=remote_cmd,
+            )
+            log_info(f"Target Remote Host:        {_colourise(remote_info['remote_host'], '35;1')}")
+            log_info(f"Executing: {' '.join(ssh_cmd)}")
+            return subprocess.run(ssh_cmd).returncode
+
+        from scripts.hailo_monitor import main as run_hailo_monitor
+        return run_hailo_monitor() or 0
 
     elif choice == "0":
         print("Exiting.")
@@ -1255,6 +1291,14 @@ Examples:
     # --- Subcommand: diagnose ---
     subparsers.add_parser("diagnose", help="Run hardware, PCIe, V4L2, and driver diagnostic inspection")
 
+    # --- Subcommand: monitor ---
+    mon_parser = subparsers.add_parser("monitor", aliases=["hailo-monitor"], help="Launch live Hailo-8L NPU monitor (chip temperature, compute load, FPS)")
+    mon_parser.add_argument("--mode", choices=["dashboard", "cli", "json"], default="dashboard", help="Display mode ('dashboard', 'cli', or 'json')")
+    mon_parser.add_argument("--cli", action="store_true", help="Launch raw hailortcli monitor tables directly")
+    mon_parser.add_argument("--remote", default=os.environ.get("EVM_REMOTE_HOST", "192.168.3.14"), help="Target edge host IP or hostname")
+    mon_parser.add_argument("--port", type=int, default=8000, help="Gateway API port")
+    mon_parser.add_argument("--interval", type=float, default=1.0, help="Refresh interval in seconds")
+
     return parser
 
 
@@ -1280,6 +1324,8 @@ def main() -> int:
             command = "systemd"
         elif mode == "diagnose":
             command = "diagnose"
+        elif mode in ("monitor", "hailo-monitor"):
+            command = "monitor"
 
     # Interactive deployment menu prompt if explicitly requested or running without subcommands in an interactive TTY
     prompt_requested = getattr(args, "prompt", False)
@@ -1303,8 +1349,11 @@ def main() -> int:
             from scripts.diagnose import main as run_diagnostics
             return run_diagnostics() or 0
         except Exception as exc:
-            log_error(f"Failed to run diagnostics: {exc}")
+            log_error(f"Failed to execute diagnostic tool: {exc}")
             return 1
+    elif command in ("monitor", "hailo-monitor"):
+        from scripts.hailo_monitor import main as run_hailo_monitor
+        return run_hailo_monitor() or 0
     else:
         parser.print_help()
         return 1

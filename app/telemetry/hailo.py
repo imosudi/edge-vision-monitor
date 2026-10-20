@@ -77,9 +77,19 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
         )
     )
 
-    # 3. Check for Hailo hwmon sensor node (some Hailo firmware exposes hwmon directly)
+    # 3. Query Hailo-8L on-die chip temperature via HailoRT control interface
     hailo_temp_c: Optional[float] = None
     hailo_power_w: Optional[float] = None
+
+    try:
+        from hailo_platform.pyhailort import pyhailort as _ph  # type: ignore
+        _devs = _ph.Device.scan()
+        if _devs:
+            _d = _ph.Device(_devs[0])
+            _temp_info = _d.control.get_chip_temperature()
+            hailo_temp_c = round(float(_temp_info.ts0_temperature), 1)
+    except Exception:
+        pass
 
     try:
         # Try hailortcli measure if present
@@ -108,9 +118,9 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
             metric_name="hailo_temperature_c",
             value=hailo_temp_c,
             unit="celsius",
-            source="hailort",
+            source="hailort:device_control",
             availability_status="AVAILABLE" if hailo_temp_c is not None else "UNSUPPORTED",
-            error_message=None if hailo_temp_c is not None else "Hailo on-die temperature interface not exposed by driver",
+            error_message=None if hailo_temp_c is not None else "Hailo on-die temperature interface unavailable",
         )
     )
 
@@ -125,4 +135,32 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
         )
     )
 
+    # 4. Instantaneous NPU Compute Utilization from HailoRT monitor profiler
+    hailo_util: Optional[float] = None
+    try:
+        import glob
+        for util_file in glob.glob("/tmp/nnc_utilization/*"):
+            try:
+                with open(util_file, "r", encoding="utf-8") as fp:
+                    content = fp.read().strip()
+                    if content:
+                        hailo_util = round(float(content), 1)
+                        break
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    samples.append(
+        TelemetrySample(
+            metric_name="hailo_utilization_percent",
+            value=hailo_util,
+            unit="percent",
+            source="hailort:profiler",
+            availability_status="AVAILABLE" if hailo_util is not None else "UNSUPPORTED",
+            error_message=None if hailo_util is not None else "HailoRT monitor profiler inactive or /tmp/nnc_utilization absent",
+        )
+    )
+
     return samples
+

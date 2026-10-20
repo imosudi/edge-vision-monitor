@@ -41,8 +41,6 @@ services:
     devices:
       # Hailo-8L PCIe accelerator node
       - "/dev/hailo0:/dev/hailo0:rwm"
-      # ESP32-S3 ambient sensor serial node
-      - "/dev/ttyUSB0:/dev/ttyUSB0:rwm"
 
     # Device cgroup access rules for Raspberry Pi 5 ISP & Camera Subsystem
     device_cgroup_rules:
@@ -52,6 +50,8 @@ services:
     volumes:
       # Shared memory IPC buffer
       - "/dev/shm:/dev/shm"
+      - "/tmp/hmon_files:/tmp/hmon_files"
+      - "/tmp/nnc_utilization:/tmp/nnc_utilization"
       # Hardware device tree and nodes
       - "/dev:/dev"
       - "/run/udev:/run/udev:ro"
@@ -74,6 +74,7 @@ services:
       - EVM_SERVER__PORT=8000
       - EVM_CONFIG_PATH=/app/config/config.yaml
       - EVM_SERVER__LOG_LEVEL=INFO
+      - HAILO_MONITOR=1
 
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
