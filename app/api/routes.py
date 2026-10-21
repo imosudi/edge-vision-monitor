@@ -525,7 +525,10 @@ def reset_history_endpoint() -> Dict[str, Any]:
     mgr = get_lifecycle_manager()
     deleted = {}
     if mgr.repository:
-        deleted = mgr.repository.reset_history()
+        try:
+            deleted = mgr.repository.reset_history()
+        except Exception:
+            deleted = {"status": "read_only"}
     if mgr.inference_service:
         mgr.inference_service.reset_stats()
     else:
