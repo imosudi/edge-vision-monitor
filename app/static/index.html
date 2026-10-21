@@ -261,9 +261,17 @@
               <span id="val-rp1-temp" class="metric-val cyan">-- °C</span>
             </div>
 
-            <div class="metric-row">
-              <span class="metric-label">Hailo-8L NPU Die</span>
-              <span id="val-hailo-temp" class="metric-val green">-- °C</span>
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label" title="Firmware peak silicon hotspot junction temperature">NPU Junction Temperature (Tj)</span>
+              <span id="val-hailo-tj-temp" class="metric-val green">-- °C</span>
+            </div>
+            <div class="progress-meter">
+              <div id="bar-hailo-tj-temp" class="progress-fill" style="width: 0%; background: var(--accent-emerald, #10b981);"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 0.5rem;">
+              <span class="metric-label" title="Physical silicon substrate on-die thermal sensors 0 and 1">NPU Die Sensors (TS0 / TS1)</span>
+              <span id="val-hailo-die-temp" class="metric-val" style="font-size: 0.85rem; color: var(--text-secondary, #cbd5e1);">-- / -- °C</span>
             </div>
           </div>
         </div>

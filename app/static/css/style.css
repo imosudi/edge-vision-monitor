@@ -1139,6 +1139,7 @@ select.input-select:focus {
 }
 
 .status-pill.available   { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.status-pill.degraded    { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
 .status-pill.unsupported { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; }
 .status-pill.unavailable { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 

@@ -200,6 +200,9 @@ function handleLiveUpdate(data) {
   let cpuTemp = null;
   let rp1Temp = null;
   let hailoTemp = null;
+  let hailoJunctionTemp = null;
+  let hailoTs0 = null;
+  let hailoTs1 = null;
   let ambientTemp = null;
   let ambientHumidity = null;
   let ambientComfort = null;
@@ -214,7 +217,20 @@ function handleLiveUpdate(data) {
   let throttleDrop = 0.0;
 
   if (metrics) {
-    // Find CPU Temp
+    // 1. Direct key lookups for Hailo NPU thermals
+    if (metrics.hailo_junction_temperature_c && metrics.hailo_junction_temperature_c.value !== null) {
+      hailoJunctionTemp = metrics.hailo_junction_temperature_c.value;
+    } else if (metrics.hailo_temperature_c && metrics.hailo_temperature_c.value !== null) {
+      hailoJunctionTemp = metrics.hailo_temperature_c.value;
+    }
+    if (metrics.hailo_temp_ts0_c && metrics.hailo_temp_ts0_c.value !== null) {
+      hailoTs0 = metrics.hailo_temp_ts0_c.value;
+    }
+    if (metrics.hailo_temp_ts1_c && metrics.hailo_temp_ts1_c.value !== null) {
+      hailoTs1 = metrics.hailo_temp_ts1_c.value;
+    }
+
+    // Find CPU Temp and fallbacks
     for (const [k, v] of Object.entries(metrics)) {
       if (k.includes('cpu') && v.unit === 'celsius' && v.value !== null) {
         cpuTemp = v.value;
@@ -222,10 +238,21 @@ function handleLiveUpdate(data) {
       if (k.includes('rp1') && v.unit === 'celsius' && v.value !== null) {
         rp1Temp = v.value;
       }
-      if (k.includes('hailo_temp') && v.value !== null) {
-        hailoTemp = v.value;
+      if (k.includes('junction') && v.value !== null && hailoJunctionTemp === null) {
+        hailoJunctionTemp = v.value;
+      }
+      if (k.includes('ts0') && v.value !== null && hailoTs0 === null) {
+        hailoTs0 = v.value;
+      }
+      if (k.includes('ts1') && v.value !== null && hailoTs1 === null) {
+        hailoTs1 = v.value;
       }
     }
+
+    if (hailoJunctionTemp === null && (hailoTs0 !== null || hailoTs1 !== null)) {
+      hailoJunctionTemp = Math.max(hailoTs0 ?? 0, hailoTs1 ?? 0);
+    }
+    hailoTemp = hailoJunctionTemp;
 
     // Ambient Sensor Telemetry (ESP32-S3 / DHT22)
     if (metrics.ambient_temperature_c && metrics.ambient_temperature_c.value !== null) {
@@ -355,12 +382,74 @@ function handleLiveUpdate(data) {
     else cpuBar.style.background = 'var(--accent-blue)';
   }
   if (rp1Temp !== null) {
-    document.getElementById('val-rp1-temp').textContent = `${rp1Temp}°C`;
+    const elRp1 = document.getElementById('val-rp1-temp');
+    if (elRp1) elRp1.textContent = `${Number(rp1Temp).toFixed(1)}°C`;
   }
-  if (hailoTemp !== null) {
-    document.getElementById('val-hailo-temp').textContent = `${hailoTemp}°C`;
+
+  // Update NPU Junction Temperature (Tj) & Die Sensors in Hardware Thermals Card
+  const effectiveJunctionTemp = hailoJunctionTemp !== null ? hailoJunctionTemp : hailoTemp;
+  const elHailoTj = document.getElementById('val-hailo-tj-temp');
+  const barHailoTj = document.getElementById('bar-hailo-tj-temp');
+  if (effectiveJunctionTemp !== null) {
+    const tjValStr = `${Number(effectiveJunctionTemp).toFixed(1)}°C`;
+    if (elHailoTj) {
+      elHailoTj.textContent = tjValStr;
+      if (effectiveJunctionTemp >= 100.0) {
+        elHailoTj.className = 'metric-val red';
+      } else if (effectiveJunctionTemp >= 85.0) {
+        elHailoTj.className = 'metric-val amber';
+      } else {
+        elHailoTj.className = 'metric-val green';
+      }
+    }
+    if (barHailoTj) {
+      const tjPct = Math.max(0, Math.min(100, (effectiveJunctionTemp / 105.0) * 100.0));
+      barHailoTj.style.width = `${tjPct}%`;
+      if (effectiveJunctionTemp >= 100.0) {
+        barHailoTj.style.background = 'var(--accent-rose, #ef4444)';
+      } else if (effectiveJunctionTemp >= 85.0) {
+        barHailoTj.style.background = 'var(--accent-amber, #f59e0b)';
+      } else {
+        barHailoTj.style.background = 'var(--accent-emerald, #10b981)';
+      }
+    }
   } else {
-    document.getElementById('val-hailo-temp').textContent = 'N/A';
+    if (elHailoTj) elHailoTj.textContent = 'N/A';
+    if (barHailoTj) barHailoTj.style.width = '0%';
+  }
+
+  // Legacy fallback alias for val-hailo-temp
+  const elHailoLegacy = document.getElementById('val-hailo-temp');
+  if (elHailoLegacy) {
+    elHailoLegacy.textContent = effectiveJunctionTemp !== null ? `${Number(effectiveJunctionTemp).toFixed(1)}°C` : 'N/A';
+  }
+
+  // Update NPU Die Sensors (TS0 / TS1)
+  const elHailoDie = document.getElementById('val-hailo-die-temp');
+  if (elHailoDie) {
+    if (hailoTs0 !== null && hailoTs1 !== null) {
+      elHailoDie.textContent = `${Number(hailoTs0).toFixed(0)} / ${Number(hailoTs1).toFixed(0)} °C`;
+    } else if (effectiveJunctionTemp !== null) {
+      elHailoDie.textContent = `~${Number(effectiveJunctionTemp).toFixed(0)} °C`;
+    } else {
+      elHailoDie.textContent = '-- / -- °C';
+    }
+  }
+
+  // Update Thermal Status Pill
+  const pillThermal = document.getElementById('thermal-status-pill');
+  if (pillThermal) {
+    const maxT = Math.max(cpuTemp || 0, effectiveJunctionTemp || 0);
+    if (isThermalThrottling || maxT >= 100.0) {
+      pillThermal.textContent = 'Critical (Throttle)';
+      pillThermal.className = 'status-pill unavailable';
+    } else if (maxT >= 85.0) {
+      pillThermal.textContent = 'Elevated';
+      pillThermal.className = 'status-pill degraded';
+    } else {
+      pillThermal.textContent = 'Nominal';
+      pillThermal.className = 'status-pill available';
+    }
   }
 
   // Update Ambient Environment DOM (ESP32-S3 + DHT22)
@@ -2881,6 +2970,29 @@ function updateWorkloadUI(workload) {
     } else {
       banner.style.display = 'none';
     }
+  }
+
+  // Update Hardware Thermals card from active workload if telemetry is streaming
+  if (workload.current_tj_c !== null && workload.current_tj_c !== undefined) {
+    const elTj = document.getElementById('val-hailo-tj-temp');
+    if (elTj) {
+      elTj.textContent = `${Number(workload.current_tj_c).toFixed(1)}°C`;
+      if (workload.current_tj_c >= 100.0) elTj.className = 'metric-val red';
+      else if (workload.current_tj_c >= 85.0) elTj.className = 'metric-val amber';
+      else elTj.className = 'metric-val green';
+    }
+    const barTj = document.getElementById('bar-hailo-tj-temp');
+    if (barTj) {
+      const pct = Math.max(0, Math.min(100, (workload.current_tj_c / 105.0) * 100.0));
+      barTj.style.width = `${pct}%`;
+      if (workload.current_tj_c >= 100.0) barTj.style.background = 'var(--accent-rose, #ef4444)';
+      else if (workload.current_tj_c >= 85.0) barTj.style.background = 'var(--accent-amber, #f59e0b)';
+      else barTj.style.background = 'var(--accent-emerald, #10b981)';
+    }
+  }
+  if (workload.ts0_c !== null && workload.ts1_c !== null && workload.ts0_c !== undefined) {
+    const elDie = document.getElementById('val-hailo-die-temp');
+    if (elDie) elDie.textContent = `${Number(workload.ts0_c).toFixed(0)} / ${Number(workload.ts1_c).toFixed(0)} °C`;
   }
 
   // 2. Update Modal Controls and Metrics HUD if open
