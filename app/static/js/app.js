@@ -2145,18 +2145,24 @@ async function seedInferenceAndDetectionHistory() {
   }
 }
 
-// Initialise on page load with readyState check
 function onAppInit() {
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
   initDetectionDurationSlider();
+  initWorkloadTrajectoryChart();
   connectWebSocket();
   seedCpuFreqHistory();
   seedVoltageHistory();
   seedProcFootprintHistory();
   seedDiskHistory();
   seedInferenceAndDetectionHistory();
+  fetch('/api/v1/workload/status')
+    .then(r => r.json())
+    .then(st => {
+      if (st) updateWorkloadUI(st);
+    })
+    .catch(err => console.debug('[WORKLOAD] Initial status check:', err));
 }
 
 if (document.readyState === 'loading') {
@@ -2773,39 +2779,21 @@ let workloadTrajectoryChart = null;
 let lastWorkloadSessionId = null;
 let isWorkloadModalOpen = false;
 
-function openWorkloadModal() {
-  const modal = document.getElementById('modal-workload-suite');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  isWorkloadModalOpen = true;
-
-  if (!workloadTrajectoryChart) {
-    setTimeout(initWorkloadTrajectoryChart, 50);
+function scrollToWorkloadSuite() {
+  const el = document.getElementById('section-workload-suite');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('suite-focus-highlight');
+    setTimeout(() => el.classList.remove('suite-focus-highlight'), 1800);
   }
-
-  // Refresh current status from API
-  fetch('/api/v1/workload/status')
-    .then(r => r.json())
-    .then(st => {
-      if (st) updateWorkloadUI(st);
-    })
-    .catch(err => console.debug('[WORKLOAD] Status check error:', err));
 }
-window.openWorkloadModal = openWorkloadModal;
+window.scrollToWorkloadSuite = scrollToWorkloadSuite;
+window.openWorkloadModal = scrollToWorkloadSuite;
 
 function closeWorkloadModal() {
-  const modal = document.getElementById('modal-workload-suite');
-  if (modal) modal.style.display = 'none';
-  isWorkloadModalOpen = false;
+  // Modal deprecated, workload suite is embedded directly on the main page
 }
 window.closeWorkloadModal = closeWorkloadModal;
-
-function handleWorkloadModalBackdrop(event) {
-  if (event.target && event.target.id === 'modal-workload-suite') {
-    closeWorkloadModal();
-  }
-}
-window.handleWorkloadModalBackdrop = handleWorkloadModalBackdrop;
 
 function selectWorkloadCard(type) {
   selectedWorkloadType = type;
@@ -2828,6 +2816,7 @@ window.selectWorkloadCard = selectWorkloadCard;
 function initWorkloadTrajectoryChart() {
   const ctx = document.getElementById('chart-workload-trajectory');
   if (!ctx || typeof Chart === 'undefined') return;
+  if (workloadTrajectoryChart) return;
 
   const chartOptions = {
     responsive: true,

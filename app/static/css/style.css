@@ -1742,7 +1742,28 @@ footer {
   overflow: hidden;
 }
 
-/* Modal Content Size */
+/* Workload Suite Main Dashboard Card */
+.workload-suite-card {
+  margin-top: 1.5rem;
+  margin-bottom: 1.75rem;
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.workload-suite-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+.suite-focus-highlight {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.45), 0 8px 30px rgba(245, 158, 11, 0.15) !important;
+  transition: box-shadow 0.4s ease-in-out;
+}
+
+/* Modal Content Size (Legacy fallback) */
 .modal-workload-content {
   max-width: 880px;
   width: 95%;
