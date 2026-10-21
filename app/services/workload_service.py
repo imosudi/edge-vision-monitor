@@ -185,6 +185,8 @@ class WorkloadService:
             if self._inference_service is not None:
                 try:
                     self._inference_service.set_benchmark_mode(True)
+                    if not self._inference_service.is_running():
+                        self._inference_service.start()
                 except Exception as e:
                     logger.warning("Could not enable inference benchmark mode: %s", e)
 
@@ -279,10 +281,11 @@ class WorkloadService:
             return
         try:
             st = self._source_manager.get_status()
+            source_details = st.get("source_details", {})
             self._initial_source_config = {
                 "active_type": st.get("active_type", "file"),
                 "source_id": st.get("source_id"),
-                "file_path": st.get("file_path"),
+                "file_path": st.get("file_path") or source_details.get("file_path"),
             }
         except Exception as e:
             logger.debug("Failed saving initial source config: %s", e)
@@ -294,16 +297,29 @@ class WorkloadService:
             return
 
         try:
+            # Resolve target media file if available
+            media_file = self._media_file
+            active_type = "file"
+            if self._initial_source_config:
+                active_type = self._initial_source_config.get("active_type", "file")
+                if not media_file and active_type == "file":
+                    media_file = self._initial_source_config.get("file_path")
+
             if canonical_type == "A":
-                # Workload A: In-memory circular RAM buffer
+                # If active source is a live camera and no specific media file was requested, retain the live camera
+                if active_type in ("usb", "picamera", "browser") and not self._media_file:
+                    logger.info("Workload A retaining active live camera source: %s", active_type)
+                    return
+
+                # Otherwise engage in-memory circular RAM buffer from selected video file
                 self._source_manager.start_ring_buffer_source(
-                    file_path=self._media_file,
+                    file_path=media_file,
                     buffer_size=self._buffer_size,
                     unthrottled=True,
                 )
             else:
                 # Workload B, C, D: Multi-stream concurrent ingestion feeder
-                file_paths = [self._media_file] if self._media_file else None
+                file_paths = [media_file] if media_file else None
                 self._source_manager.start_multi_stream_source(
                     stream_count=self._stream_count,
                     file_paths=file_paths,

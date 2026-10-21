@@ -6,6 +6,7 @@ throttling governor response validation, and CSV/JSON trajectory exports.
 
 import csv
 import json
+import os
 import time
 import pytest
 
@@ -17,6 +18,7 @@ from app.services.workload_service import (
     WorkloadService,
 )
 from app.sources.manager import VideoSourceManager
+from app.sources.multi_stream_source import MultiStreamSource
 from app.telemetry.trajectory import TrajectoryEngine
 
 
@@ -24,6 +26,16 @@ class MockInferenceService:
     def __init__(self):
         self.benchmark_mode = False
         self.fps = 26.5
+        self.running = False
+
+    def is_running(self) -> bool:
+        return self.running
+
+    def start(self):
+        self.running = True
+
+    def stop(self):
+        self.running = False
 
     def set_benchmark_mode(self, enabled: bool):
         self.benchmark_mode = enabled
@@ -300,3 +312,75 @@ def test_trajectory_exports_csv_and_json(workload_env):
     assert json_data["workload_name"] == "workload_a"
     assert "summary" in json_data
     assert "points" in json_data
+
+
+def test_workload_ingress_file_selection(workload_env, temp_dir):
+    """Verify that WorkloadService passes user selected media file into ingress feeder."""
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    engine = workload_env["engine"]
+
+    dummy_file = os.path.join(temp_dir, "test_video.mp4")
+    with open(dummy_file, "wb") as f:
+        f.write(b"0" * 1024)
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        trajectory_engine=engine,
+    )
+
+    st = svc.start_workload(
+        workload_type="A",
+        duration_seconds=5.0,
+        media_file="test_video.mp4",
+        simulate=True,
+    )
+    assert st["active"] is True
+    assert svc._media_file == "test_video.mp4"
+
+    svc.stop_workload()
+    assert svc.get_status()["active"] is False
+
+
+def test_multi_stream_candidate_file_resolution(temp_dir):
+    """Verify MultiStreamSource resolves relative and basename file paths inside media_dir."""
+    dummy_name = "sample_footage.mp4"
+    dummy_path = os.path.join(temp_dir, dummy_name)
+    with open(dummy_path, "wb") as f:
+        f.write(b"0" * 1024)
+
+    src = MultiStreamSource(
+        stream_count=2,
+        file_paths=[dummy_name],
+        media_dir=temp_dir,
+    )
+    candidates = src._discover_candidate_files()
+    assert len(candidates) == 1
+    assert candidates[0] == dummy_path
+
+
+def test_workload_ensures_inference_service_running(workload_env):
+    """Verify start_workload starts inference_service if not already running."""
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    engine = workload_env["engine"]
+
+    inf_svc.running = False
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        trajectory_engine=engine,
+    )
+
+    svc.start_workload(workload_type="A", duration_seconds=5.0, simulate=True)
+    assert inf_svc.is_running() is True
+    assert inf_svc.benchmark_mode is True
+
+    svc.stop_workload()
+    assert inf_svc.benchmark_mode is False

@@ -35,6 +35,21 @@ function syncWorkloadModeSelectorUI(runningWorkload) {
   if (btnCpu) btnCpu.classList.toggle('active', effectiveMode === 'cpu');
   if (btnBench) btnBench.classList.toggle('active', effectiveMode === 'benchmark');
   if (btnSuite) btnSuite.classList.toggle('active', effectiveMode === 'workload_suite');
+
+  const inputTargetBadge = document.getElementById('badge-workload-input-target');
+  if (inputTargetBadge) {
+    inputTargetBadge.className = `badge-input-target ${effectiveMode}`;
+    if (effectiveMode === 'hailo') {
+      inputTargetBadge.innerHTML = '<span>🚀</span> Hailo-8L NPU';
+    } else if (effectiveMode === 'cpu') {
+      inputTargetBadge.innerHTML = '<span>💻</span> CPU (ONNX)';
+    } else if (effectiveMode === 'benchmark') {
+      inputTargetBadge.innerHTML = '<span>⚖️</span> Dual Benchmark';
+    } else if (effectiveMode === 'workload_suite') {
+      const prof = selectedWorkloadType || 'A';
+      inputTargetBadge.innerHTML = `<span>🔥</span> Workload Suite (Profile ${prof})`;
+    }
+  }
 }
 
 function syncContextualWorkloadButtons(runningWorkload) {
@@ -1156,6 +1171,17 @@ function onDetectionDurationChange(val) {
     elBenchVal.style.color = sec > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)';
   }
 
+  // Bidirectional synchronisation with Workload Suite duration slider
+  const elWorkloadDuration = document.getElementById('input-workload-duration');
+  const elWorkloadDurationLabel = document.getElementById('lbl-workload-duration');
+  if (elWorkloadDuration && sec > 0) {
+    const clampedDur = Math.max(5, Math.min(300, sec));
+    elWorkloadDuration.value = clampedDur;
+    if (elWorkloadDurationLabel) {
+      elWorkloadDurationLabel.textContent = clampedDur + 's';
+    }
+  }
+
   // If currently running, sync countdown
   if (isInferenceRunning) {
     if (sec > 0) {
@@ -1239,6 +1265,18 @@ function initDetectionDurationSlider() {
     onDetectionDurationChange(0);
   }
 }
+
+function onWorkloadDurationInput(val) {
+  const sec = parseInt(val, 10) || 60;
+  const lbl = document.getElementById('lbl-workload-duration');
+  if (lbl) lbl.textContent = sec + 's';
+  const slider = document.getElementById('slider-detection-duration');
+  if (slider) {
+    slider.value = sec;
+    onDetectionDurationChange(sec);
+  }
+}
+window.onWorkloadDurationInput = onWorkloadDurationInput;
 
 /**
  * Reset Sensor Catalogue & Live Data Provenance telemetry and detection data:
@@ -1325,7 +1363,7 @@ async function toggleInference() {
   await toggleGlobalWorkload();
 }
 
-function selectSourceTab(type) {
+function selectSourceTab(type, triggerSwitch = false) {
   if (type === 'synthetic' || !type || type === 'none') {
     type = 'file';
   }
@@ -1351,6 +1389,14 @@ function selectSourceTab(type) {
     controlsBrowser.style.display = type === 'browser' ? 'flex' : 'none';
     if (type === 'browser') {
       populateBrowserCameras();
+    }
+  }
+
+  if (triggerSwitch) {
+    if (type === 'file') {
+      switchToFileSource();
+    } else if (type === 'usb') {
+      switchToUsbSource();
     }
   }
 }
@@ -2887,6 +2933,12 @@ async function startAutomatedBenchmark() {
       body: JSON.stringify({ backend: 'hailo' })
     });
     if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
+
+    // Rewind video playback to beginning so Phase 1 evaluates from start
+    if (currentSourceType === 'file') {
+      try { await controlPlayback('restart'); } catch (e) {}
+    }
+
     await fetch('/api/v1/inference/start', { method: 'POST' });
 
     currentBenchmarkPhase = 'hailo';
@@ -2927,6 +2979,12 @@ async function startAutomatedBenchmark() {
       await cleanupCancelledBenchmark();
       return;
     }
+
+    // Rewind video playback to beginning so Phase 2 evaluates the identical frame sequence
+    if (currentSourceType === 'file') {
+      try { await controlPlayback('restart'); } catch (e) {}
+    }
+
     await fetch('/api/v1/inference/start', { method: 'POST' });
 
     // -----------------------------------------------------------------------
@@ -3422,6 +3480,7 @@ function updateWorkloadUI(workload) {
         html += `<span style="color: #15803d; font-weight: 600;">Silicon temperature successfully returned below 99.0°C hysteresis threshold.</span>`;
       }
       resultBox.innerHTML = html;
+      updateMasterWorkloadButton();
     } else if (isActive) {
       resultBox.style.display = 'none';
     }
@@ -3430,23 +3489,32 @@ function updateWorkloadUI(workload) {
 
 async function startWorkloadFromUI() {
   activeWorkloadMode = 'workload_suite';
-  // If regular continuous inference is active, halt it so workload suite has direct exclusive hardware access
-  if (isInferenceRunning) {
+
+  // Ensure inference service is actively running so live preview and detections stream during workload
+  if (!isInferenceRunning) {
     try {
-      await fetch('/api/v1/inference/stop', { method: 'POST' });
-      isInferenceRunning = false;
+      await fetch('/api/v1/inference/start', { method: 'POST' });
+      isInferenceRunning = true;
     } catch (e) {
-      console.warn('Failed to stop background inference prior to workload run:', e);
+      console.warn('Could not start inference prior to workload run:', e);
     }
   }
 
   isWorkloadSuiteActive = true;
   updateMasterWorkloadButton();
 
-  const durVal = parseFloat(document.getElementById('input-workload-duration')?.value || '60');
+  // Pick up unified detection duration if configured, otherwise fallback to workload duration slider
+  let durVal = parseFloat(document.getElementById('input-workload-duration')?.value || '60');
+  if (typeof detectionDurationSec === 'number' && detectionDurationSec > 0) {
+    durVal = detectionDurationSec;
+  }
   const targetTempVal = parseFloat(document.getElementById('input-workload-target-temp')?.value || '100');
   const streamsVal = parseInt(document.getElementById('select-workload-streams')?.value || '4', 10);
   const simulateVal = !!document.getElementById('chk-workload-simulate')?.checked;
+
+  // Retrieve user's currently selected video file from Inference Input section
+  const selectedFile = document.getElementById('select-video-file')?.value;
+  const mediaFile = selectedFile ? (selectedFile.startsWith('media/') ? selectedFile : `media/${selectedFile}`) : null;
 
   const payload = {
     workload_type: selectedWorkloadType,
@@ -3455,7 +3523,8 @@ async function startWorkloadFromUI() {
     safety_temp_limit_c: 102.0,
     simulate: simulateVal,
     stream_count: streamsVal,
-    buffer_size: 120
+    buffer_size: 120,
+    media_file: mediaFile
   };
 
   const btnStart = document.getElementById('btn-workload-start');

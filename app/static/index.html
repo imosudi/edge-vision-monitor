@@ -145,12 +145,26 @@
 
           <!-- Video Source Selector Bar -->
           <div class="source-control-bar">
-            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem;">
+            <!-- Header: Unified Inference Input for all Workloads -->
+            <div class="source-bar-header">
+              <div class="source-bar-header-left">
+                <span class="source-bar-title">📡 Unified Inference Input</span>
+                <span class="source-bar-subtitle">(Ingress source and duration applied to all 4 workload scenarios)</span>
+              </div>
+              <div class="source-bar-header-right">
+                <span class="source-target-label">Active Target:</span>
+                <span id="badge-workload-input-target" class="badge-input-target hailo" title="This video ingress source feeds the selected active workload">
+                  <span>🚀</span> Hailo-8L NPU
+                </span>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem; width: 100%;">
               <div class="source-tabs">
-                <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file')">Video File</button>
-                <button id="tab-source-usb" class="tab-btn" onclick="selectSourceTab('usb')">USB Camera</button>
-                <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera')">Pi Camera (CSI)</button>
-                <button id="tab-source-browser" class="tab-btn" onclick="selectSourceTab('browser')">My Camera</button>
+                <button id="tab-source-file" class="tab-btn active" onclick="selectSourceTab('file', true)">Video File</button>
+                <button id="tab-source-usb" class="tab-btn" onclick="selectSourceTab('usb', true)">USB Camera</button>
+                <button id="tab-source-picam" class="tab-btn" onclick="selectSourceTab('picamera', true)">Pi Camera (CSI)</button>
+                <button id="tab-source-browser" class="tab-btn" onclick="selectSourceTab('browser', true)">My Camera</button>
               </div>
 
               <!-- Detection Time Range Slider (Extended up to 30 mins) -->
@@ -524,7 +538,7 @@
                 <label for="input-workload-duration" style="font-weight: 600; color: var(--text-secondary);">Target Duration:</label>
                 <strong id="lbl-workload-duration" style="color: var(--accent-blue);">60s</strong>
               </div>
-              <input type="range" id="input-workload-duration" min="5" max="300" step="5" value="60" oninput="document.getElementById('lbl-workload-duration').textContent = this.value + 's'">
+              <input type="range" id="input-workload-duration" min="5" max="300" step="5" value="60" oninput="onWorkloadDurationInput(this.value)">
             </div>
 
             <!-- Target Temperature for C -->

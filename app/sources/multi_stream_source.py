@@ -61,9 +61,20 @@ class MultiStreamSource(BaseVideoSource):
     def _discover_candidate_files(self) -> List[str]:
         candidates: List[str] = []
         for p in self._file_paths:
+            if not p:
+                continue
             abs_p = os.path.abspath(p)
             if os.path.exists(abs_p):
                 candidates.append(abs_p)
+                continue
+            media_p = os.path.join(self._media_dir, os.path.basename(p))
+            if os.path.exists(media_p):
+                candidates.append(media_p)
+                continue
+            media_rel = os.path.join(self._media_dir, p)
+            if os.path.exists(media_rel):
+                candidates.append(media_rel)
+                continue
 
         if not candidates and os.path.isdir(self._media_dir):
             for ext in ("*.mp4", "*.avi", "*.mkv", "*.mov", "*.m4v"):
