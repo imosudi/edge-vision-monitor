@@ -3226,7 +3226,7 @@ function initWorkloadTrajectoryChart() {
       y: {
         type: 'linear',
         position: 'left',
-        min: 40,
+        min: 25,
         max: 110,
         grid: { color: 'rgba(0, 0, 0, 0.05)' },
         ticks: {

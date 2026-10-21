@@ -384,3 +384,45 @@ def test_workload_ensures_inference_service_running(workload_env):
 
     svc.stop_workload()
     assert inf_svc.benchmark_mode is False
+
+
+def test_workload_microservices_ipc_dispatch():
+    """Verify WorkloadService dispatches IPC commands when source_manager and inference_service are None."""
+    from unittest.mock import patch
+    from app.telemetry.trajectory import TrajectoryEngine
+
+    engine = TrajectoryEngine()
+    svc = WorkloadService(
+        source_manager=None,
+        inference_service=None,
+        telemetry_service=None,
+        trajectory_engine=engine,
+    )
+
+    with patch("app.core.ipc.send_ipc_inference_command") as mock_inf_cmd, \
+         patch("app.core.ipc.send_ipc_source_command") as mock_src_cmd, \
+         patch("app.core.ipc.get_ipc_source_status", return_value={"active_type": "file", "source_id": "file:test.mp4"}):
+
+        # Start Workload B with 8 streams
+        svc.start_workload(workload_type="B", duration_seconds=10.0, stream_count=8, simulate=True)
+
+        # Verify inference benchmark mode command dispatched via IPC
+        mock_inf_cmd.assert_called_with("set_benchmark_mode", enabled=True)
+
+        # Verify multi-stream switch command dispatched via IPC
+        mock_src_cmd.assert_called_with(
+            "switch_source",
+            source_type="multi_stream",
+            stream_count=8,
+            file_paths=None,
+            buffer_size_per_stream=15,
+            unthrottled=True,
+        )
+
+        # Stop Workload
+        svc.stop_workload()
+
+        # Verify nominal restoration commands dispatched via IPC
+        assert any(c[0] == ("set_benchmark_mode",) and c[1].get("enabled") is False for c in mock_inf_cmd.call_args_list)
+        assert any(c[0] == ("switch_source",) and c[1].get("source_type") == "file" for c in mock_src_cmd.call_args_list)
+

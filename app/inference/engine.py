@@ -36,7 +36,13 @@ class BaseInferenceEngine(ABC):
         pass
 
     @abstractmethod
-    def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
+    def infer(
+        self,
+        frame: np.ndarray,
+        frame_seq: int,
+        source_id: str,
+        skip_postprocessing: bool = False,
+    ) -> DetectionResult:
         """Run preprocessing, model execution, and post-processing on a video frame."""
         pass
 
@@ -136,7 +142,13 @@ class HailoInferenceEngine(BaseInferenceEngine):
             self._validation.error_message = str(e)
             return self._validation
 
-    def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
+    def infer(
+        self,
+        frame: np.ndarray,
+        frame_seq: int,
+        source_id: str,
+        skip_postprocessing: bool = False,
+    ) -> DetectionResult:
         if not self._is_ready:
             return DetectionResult(
                 frame_seq=frame_seq,
@@ -187,18 +199,22 @@ class HailoInferenceEngine(BaseInferenceEngine):
 
         hailo_ms = (time.monotonic() - t_hailo_start) * 1000.0
 
-        # 3. Post-process
-        detections, post_ms = decode_yolo11_detections(
-            raw_outputs=raw_outputs,
-            orig_w=orig_w,
-            orig_h=orig_h,
-            scale=scale,
-            pad_offsets=pads,
-            labels=self._labels,
-            confidence_threshold=self._config.confidence_threshold,
-            nms_iou_threshold=self._config.nms_iou_threshold,
-            max_detections=self._config.max_detections,
-        )
+        # 3. Post-process (skipped in benchmark mode to maximize NPU compute duty cycle)
+        if skip_postprocessing:
+            detections = []
+            post_ms = 0.0
+        else:
+            detections, post_ms = decode_yolo11_detections(
+                raw_outputs=raw_outputs,
+                orig_w=orig_w,
+                orig_h=orig_h,
+                scale=scale,
+                pad_offsets=pads,
+                labels=self._labels,
+                confidence_threshold=self._config.confidence_threshold,
+                nms_iou_threshold=self._config.nms_iou_threshold,
+                max_detections=self._config.max_detections,
+            )
 
         total_latency_ms = (time.monotonic() - t_start) * 1000.0
 
@@ -365,7 +381,13 @@ class ONNXInferenceEngine(BaseInferenceEngine):
             )
             return self._validation
 
-    def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
+    def infer(
+        self,
+        frame: np.ndarray,
+        frame_seq: int,
+        source_id: str,
+        skip_postprocessing: bool = False,
+    ) -> DetectionResult:
         if not self._is_ready or self._session is None:
             return DetectionResult(
                 frame_seq=frame_seq,
@@ -404,18 +426,22 @@ class ONNXInferenceEngine(BaseInferenceEngine):
                 error_status=str(e),
             )
 
-        # 3. Post-process
-        detections, post_ms = decode_yolo11_detections(
-            raw_outputs=raw_output,
-            orig_w=orig_w,
-            orig_h=orig_h,
-            scale=scale,
-            pad_offsets=pads,
-            labels=self._labels,
-            confidence_threshold=self._config.confidence_threshold,
-            nms_iou_threshold=self._config.nms_iou_threshold,
-            max_detections=self._config.max_detections,
-        )
+        # 3. Post-process (skipped in benchmark mode)
+        if skip_postprocessing:
+            detections = []
+            post_ms = 0.0
+        else:
+            detections, post_ms = decode_yolo11_detections(
+                raw_outputs=raw_output,
+                orig_w=orig_w,
+                orig_h=orig_h,
+                scale=scale,
+                pad_offsets=pads,
+                labels=self._labels,
+                confidence_threshold=self._config.confidence_threshold,
+                nms_iou_threshold=self._config.nms_iou_threshold,
+                max_detections=self._config.max_detections,
+            )
 
         total_latency_ms = (time.monotonic() - t_start) * 1000.0
 
@@ -480,45 +506,55 @@ class MockInferenceEngine(BaseInferenceEngine):
         logger.info("Mock inference engine initialised (simulated detections for testing)")
         return self._validation
 
-    def infer(self, frame: np.ndarray, frame_seq: int, source_id: str) -> DetectionResult:
+    def infer(
+        self,
+        frame: np.ndarray,
+        frame_seq: int,
+        source_id: str,
+        skip_postprocessing: bool = False,
+    ) -> DetectionResult:
         orig_h, orig_w = frame.shape[:2]
         t_start = time.monotonic()
 
-        # Simulate synthetic detection moving gently across screen
-        t = frame_seq * 0.1
-        cx = 0.5 + 0.25 * math.sin(t)
-        cy = 0.5 + 0.15 * math.cos(t)
-        w, h = 0.2, 0.3
+        if skip_postprocessing:
+            detections = []
+            post_ms = 0.0
+        else:
+            # Simulate synthetic detection moving gently across screen
+            t = frame_seq * 0.1
+            cx = 0.5 + 0.25 * math.sin(t)
+            cy = 0.5 + 0.15 * math.cos(t)
+            w, h = 0.2, 0.3
 
-        box1 = BoundingBox(
-            xmin=max(0.0, cx - w / 2),
-            ymin=max(0.0, cy - h / 2),
-            xmax=min(1.0, cx + w / 2),
-            ymax=min(1.0, cy + h / 2),
-        )
-        detections = [
-            Detection(
-                box=box1,
-                class_id=0,
-                class_name=self._labels[0] if self._labels else "person",
-                confidence=0.88,
+            box1 = BoundingBox(
+                xmin=max(0.0, cx - w / 2),
+                ymin=max(0.0, cy - h / 2),
+                xmax=min(1.0, cx + w / 2),
+                ymax=min(1.0, cy + h / 2),
             )
-        ]
-
-        if frame_seq % 2 == 0 and len(self._labels) > 2:
-            box2 = BoundingBox(xmin=0.1, ymin=0.2, xmax=0.35, ymax=0.6)
-            detections.append(
+            detections = [
                 Detection(
-                    box=box2,
-                    class_id=2,
-                    class_name=self._labels[2] if len(self._labels) > 2 else "car",
-                    confidence=0.74,
+                    box=box1,
+                    class_id=0,
+                    class_name=self._labels[0] if self._labels else "person",
+                    confidence=0.88,
                 )
-            )
+            ]
+
+            if frame_seq % 2 == 0 and len(self._labels) > 2:
+                box2 = BoundingBox(xmin=0.1, ymin=0.2, xmax=0.35, ymax=0.6)
+                detections.append(
+                    Detection(
+                        box=box2,
+                        class_id=2,
+                        class_name=self._labels[2] if len(self._labels) > 2 else "car",
+                        confidence=0.74,
+                    )
+                )
+            post_ms = 0.8
 
         prep_ms = 1.2
         hailo_ms = 4.8
-        post_ms = 0.8
         total_latency_ms = (time.monotonic() - t_start) * 1000.0 + (prep_ms + hailo_ms + post_ms)
 
         return DetectionResult(

@@ -189,6 +189,12 @@ class WorkloadService:
                         self._inference_service.start()
                 except Exception as e:
                     logger.warning("Could not enable inference benchmark mode: %s", e)
+            else:
+                try:
+                    from app.core.ipc import send_ipc_inference_command
+                    send_ipc_inference_command("set_benchmark_mode", enabled=True)
+                except Exception as e:
+                    logger.warning("Could not enable inference benchmark mode via IPC: %s", e)
 
             # Switch video ingress according to workload strategy
             self._activate_workload_ingress(canonical_type)
@@ -277,25 +283,34 @@ class WorkloadService:
 
     def _preserve_active_source(self) -> None:
         """Capture currently active video source attributes for subsequent restoration."""
-        if self._source_manager is None:
-            return
-        try:
-            st = self._source_manager.get_status()
-            source_details = st.get("source_details", {})
-            self._initial_source_config = {
-                "active_type": st.get("active_type", "file"),
-                "source_id": st.get("source_id"),
-                "file_path": st.get("file_path") or source_details.get("file_path"),
-            }
-        except Exception as e:
-            logger.debug("Failed saving initial source config: %s", e)
-            self._initial_source_config = None
+        if self._source_manager is not None:
+            try:
+                st = self._source_manager.get_status()
+                source_details = st.get("source_details", {})
+                self._initial_source_config = {
+                    "active_type": st.get("active_type", "file"),
+                    "source_id": st.get("source_id"),
+                    "file_path": st.get("file_path") or source_details.get("file_path"),
+                }
+            except Exception as e:
+                logger.debug("Failed saving initial source config: %s", e)
+                self._initial_source_config = None
+        else:
+            try:
+                from app.core.ipc import get_ipc_source_status
+                st = get_ipc_source_status()
+                source_details = st.get("source_details", {})
+                self._initial_source_config = {
+                    "active_type": st.get("active_type", "file"),
+                    "source_id": st.get("source_id"),
+                    "file_path": st.get("file_path") or source_details.get("file_path"),
+                }
+            except Exception as e:
+                logger.debug("Failed saving initial source config from IPC: %s", e)
+                self._initial_source_config = None
 
     def _activate_workload_ingress(self, canonical_type: str) -> None:
         """Engage specific high-throughput ingress feeder matching the selected workload."""
-        if self._source_manager is None:
-            return
-
         try:
             # Resolve target media file if available
             media_file = self._media_file
@@ -312,20 +327,42 @@ class WorkloadService:
                     return
 
                 # Otherwise engage in-memory circular RAM buffer from selected video file
-                self._source_manager.start_ring_buffer_source(
-                    file_path=media_file,
-                    buffer_size=self._buffer_size,
-                    unthrottled=True,
-                )
+                if self._source_manager is not None:
+                    self._source_manager.start_ring_buffer_source(
+                        file_path=media_file,
+                        buffer_size=self._buffer_size,
+                        unthrottled=True,
+                    )
+                else:
+                    from app.core.ipc import send_ipc_source_command
+                    send_ipc_source_command(
+                        "switch_source",
+                        source_type="ring_buffer",
+                        file_path=media_file,
+                        buffer_size=self._buffer_size,
+                        unthrottled=True,
+                    )
             else:
                 # Workload B, C, D: Multi-stream concurrent ingestion feeder
                 file_paths = [media_file] if media_file else None
-                self._source_manager.start_multi_stream_source(
-                    stream_count=self._stream_count,
-                    file_paths=file_paths,
-                    buffer_size_per_stream=max(15, self._buffer_size // max(1, self._stream_count)),
-                    unthrottled=True,
-                )
+                buf_size_per_stream = max(15, self._buffer_size // max(1, self._stream_count))
+                if self._source_manager is not None:
+                    self._source_manager.start_multi_stream_source(
+                        stream_count=self._stream_count,
+                        file_paths=file_paths,
+                        buffer_size_per_stream=buf_size_per_stream,
+                        unthrottled=True,
+                    )
+                else:
+                    from app.core.ipc import send_ipc_source_command
+                    send_ipc_source_command(
+                        "switch_source",
+                        source_type="multi_stream",
+                        stream_count=self._stream_count,
+                        file_paths=file_paths,
+                        buffer_size_per_stream=buf_size_per_stream,
+                        unthrottled=True,
+                    )
         except Exception as e:
             logger.error("Failed activating workload ingress for %s: %s", canonical_type, e)
 
@@ -339,20 +376,33 @@ class WorkloadService:
                 self._inference_service.set_benchmark_mode(False)
             except Exception as e:
                 logger.debug("Failed disabling benchmark mode on inference service: %s", e)
+        else:
+            try:
+                from app.core.ipc import send_ipc_inference_command
+                send_ipc_inference_command("set_benchmark_mode", enabled=False)
+            except Exception as e:
+                logger.debug("Failed disabling benchmark mode via IPC: %s", e)
 
         # 2. Restore video source
+        prev = self._initial_source_config or {}
+        prev_type = prev.get("active_type", "file")
+        if prev_type in ("ring_buffer", "multi_stream", "none", ""):
+            prev_type = "file"
+        prev_file = prev.get("file_path")
+
         if self._source_manager is not None:
             try:
-                prev = self._initial_source_config or {}
-                prev_type = prev.get("active_type", "file")
-                if prev_type in ("ring_buffer", "multi_stream", "none", ""):
-                    prev_type = "file"
-
-                prev_file = prev.get("file_path")
                 self._source_manager.switch_source(prev_type, file_path=prev_file)
                 logger.info("Restored video source to '%s' (%s)", prev_type, prev_file or "default")
             except Exception as e:
                 logger.warning("Failed restoring video source: %s", e)
+        else:
+            try:
+                from app.core.ipc import send_ipc_source_command
+                send_ipc_source_command("switch_source", source_type=prev_type, file_path=prev_file)
+                logger.info("Restored video source via IPC to '%s' (%s)", prev_type, prev_file or "default")
+            except Exception as e:
+                logger.warning("Failed restoring video source via IPC: %s", e)
 
     # -------------------------------------------------------------------------
     # Supervision Loop
@@ -418,6 +468,11 @@ class WorkloadService:
                         )
 
                 # 5. Sleep until next evaluation cycle
+                try:
+                    from app.core.ipc import publish_workload_status
+                    publish_workload_status(self.get_status())
+                except Exception:
+                    pass
                 time.sleep(check_interval)
 
         except Exception as exc:
@@ -647,6 +702,11 @@ class WorkloadService:
             f"{self._peak_tj_c:.1f}" if self._peak_tj_c is not None else "N/A",
             self._active_session_id,
         )
+        try:
+            from app.core.ipc import publish_workload_status
+            publish_workload_status(self.get_status())
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
     # Status and Export

@@ -270,10 +270,15 @@ class InferenceService:
 
             try:
                 # 1. Execute Inference
+                now_check = time.monotonic()
+                is_preview_frame = (now_check - self._last_preview_time) >= self._preview_interval
+                skip_post = self._benchmark_mode and not is_preview_frame
+
                 result = self._engine.infer(
                     frame=vframe.data,
                     frame_seq=vframe.frame_seq,
                     source_id=vframe.source_id,
+                    skip_postprocessing=skip_post,
                 )
                 result.acquisition_ms = acq_ms
 
@@ -290,7 +295,8 @@ class InferenceService:
                 # 2. Update Rolling Latencies
                 self._lat_preprocess.add(result.preprocessing_ms)
                 self._lat_hailo.add(result.hailo_exec_ms)
-                self._lat_postprocess.add(result.postprocessing_ms)
+                if not skip_post:
+                    self._lat_postprocess.add(result.postprocessing_ms)
                 self._lat_total.add(result.total_latency_ms)
 
                 # 3. Render Preview JPEG if interval elapsed
@@ -311,7 +317,8 @@ class InferenceService:
 
                 # 4. Cache structured detections and publish to shared-memory IPC
                 with self._lock:
-                    self._latest_detections = [d.to_dict() for d in result.detections]
+                    if not skip_post:
+                        self._latest_detections = [d.to_dict() for d in result.detections]
                     self._latest_result = result
                     publish_inference_frame(
                         jpeg_bytes=self._latest_jpeg,

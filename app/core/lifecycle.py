@@ -346,9 +346,11 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                             vframe.frame_seq,
                             vframe.source_id,
                         )
+                    else:
+                        time.sleep(0.005)
                 except Exception as ipc_err:
                     logger.debug("Error in ingress worker loop: %s", ipc_err)
-                time.sleep(0.01)
+                    time.sleep(0.01)
             elif service_mode == "inference":
                 try:
                     from app.core.ipc import consume_ipc_inference_command, publish_backends_catalog, publish_engine_status
@@ -369,6 +371,12 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                         elif action == "stop":
                             if manager.inference_service:
                                 manager.inference_service.stop()
+                        elif action == "set_benchmark_mode":
+                            enabled = kwargs.get("enabled", True)
+                            if manager.inference_service:
+                                manager.inference_service.set_benchmark_mode(enabled)
+                                if enabled and not manager.inference_service.is_running():
+                                    manager.inference_service.start()
                         elif action == "switch_backend":
                             backend = kwargs.get("backend", "hailo")
                             model_path = kwargs.get("model_path")
