@@ -68,8 +68,36 @@ def test_parser_subcommands():
     args_diag = parser.parse_args(["diagnose"])
     assert args_diag.command == "diagnose"
 
+    # Test benchmark subcommand
+    args_bench = parser.parse_args([
+        "benchmark",
+        "--workload", "B",
+        "--duration", "120",
+        "--target-temp", "98.5",
+        "--safety-limit", "101.0",
+        "--streams", "6",
+        "--simulate",
+        "--format", "json",
+        "-o", "reports/traj.json",
+    ])
+    assert args_bench.command == "benchmark"
+    assert args_bench.workload == "B"
+    assert args_bench.duration == 120.0
+    assert args_bench.target_temp == 98.5
+    assert args_bench.safety_limit == 101.0
+    assert args_bench.streams == 6
+    assert args_bench.simulate is True
+    assert args_bench.format == "json"
+    assert args_bench.output == "reports/traj.json"
+
+    # Test stress alias
+    args_stress = parser.parse_args(["stress", "-w", "C"])
+    assert args_stress.command == "stress"
+    assert args_stress.workload == "C"
+
 
 def test_parser_mode_flags():
+
     parser = build_parser()
     args = parser.parse_args(["--mode", "compose"])
     assert args.mode == "compose"

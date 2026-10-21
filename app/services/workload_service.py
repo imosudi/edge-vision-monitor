@@ -263,6 +263,12 @@ class WorkloadService:
                 self._state = "completed" if not reason else "aborted"
             return self.get_status()
 
+    def wait_completion(self, timeout: float = 5.0) -> None:
+        """Wait for supervisor thread and session finalisation to finish."""
+        if self._supervisor_thread and self._supervisor_thread.is_alive():
+            if threading.current_thread() != self._supervisor_thread:
+                self._supervisor_thread.join(timeout=timeout)
+
     # -------------------------------------------------------------------------
     # Ingress and Mode Setup
     # -------------------------------------------------------------------------
@@ -493,6 +499,44 @@ class WorkloadService:
 
             if fps > 0:
                 self._fps_samples.append(fps)
+
+        # Record point in active trajectory recording session
+        try:
+            if self._simulate:
+                sim_metrics = {
+                    "hailo_junction_temperature_c": tj,
+                    "hailo_temp_ts0_c": ts0,
+                    "hailo_temp_ts1_c": ts1,
+                    "hailo_clock_frequency_mhz": clock_mhz,
+                    "hailo_throttling_level": throttling_lvl,
+                    "hailo_throttling_active": 1.0 if throttling_act else 0.0,
+                    "hailo_utilization_percent": 95.0,
+                    "cpu_utilisation_percent": 18.5,
+                    "cpu_temperature_c": 52.0,
+                    "hwmon_pwmfan_fan1_rpm": 4200.0,
+                }
+                sim_inf_stats = {
+                    "current_fps": fps,
+                    "latencies": {
+                        "preprocessing_ms": {"p50": 1.2, "p95": 1.5, "p99": 1.8},
+                        "execution_ms": {"p50": 14.5, "p95": 15.0, "p99": 16.0},
+                        "postprocessing_ms": {"p50": 24.0, "p95": 26.0, "p99": 28.0},
+                        "total_ms": {"p50": 39.7, "p95": 42.5, "p99": 45.8},
+                    },
+                }
+                self._trajectory_engine.capture_point(
+                    metrics_snapshot=sim_metrics,
+                    inference_stats=sim_inf_stats,
+                    workload_name=self._workload_name,
+                )
+            else:
+                self._trajectory_engine.capture_point(
+                    metrics_snapshot=metrics,
+                    inference_stats=inf_stats,
+                    workload_name=self._workload_name,
+                )
+        except Exception as e:
+            logger.debug("Failed capturing trajectory point: %s", e)
 
     def _advance_simulation(self, elapsed: float, current_sim_temp: float) -> float:
         """Simulate realistic thermal trajectory curve for software validation."""

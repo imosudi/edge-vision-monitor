@@ -641,9 +641,14 @@ function handleLiveUpdate(data) {
 
     // Update live values in Diagnostics modal if open
     updateModalTelemetryLive(metrics, nowLabel);
+
+    // 6. Update Workload Suite UI & Live Trajectory (Phase 4)
+    if (data.workload) {
+      updateWorkloadUI(data.workload);
+    }
   }
 
-    // 6. Render Detections List
+    // 7. Render Detections List
     renderDetections(detections);
   } catch (err) {
     console.error('[TELEMETRY] Error in handleLiveUpdate:', err);
@@ -2669,3 +2674,404 @@ async function manualRecordBenchmarkPhase(backend) {
     currentBenchmarkPhase = null;
   }
 }
+
+/* ==========================================================================
+   Phase 4: Hailo-8L Workload Suite & Thermal Stress Interactive Controllers
+   ========================================================================== */
+
+let selectedWorkloadType = 'A';
+let workloadTrajectoryChart = null;
+let lastWorkloadSessionId = null;
+let isWorkloadModalOpen = false;
+
+function openWorkloadModal() {
+  const modal = document.getElementById('modal-workload-suite');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  isWorkloadModalOpen = true;
+
+  if (!workloadTrajectoryChart) {
+    setTimeout(initWorkloadTrajectoryChart, 50);
+  }
+
+  // Refresh current status from API
+  fetch('/api/v1/workload/status')
+    .then(r => r.json())
+    .then(st => {
+      if (st) updateWorkloadUI(st);
+    })
+    .catch(err => console.debug('[WORKLOAD] Status check error:', err));
+}
+window.openWorkloadModal = openWorkloadModal;
+
+function closeWorkloadModal() {
+  const modal = document.getElementById('modal-workload-suite');
+  if (modal) modal.style.display = 'none';
+  isWorkloadModalOpen = false;
+}
+window.closeWorkloadModal = closeWorkloadModal;
+
+function handleWorkloadModalBackdrop(event) {
+  if (event.target && event.target.id === 'modal-workload-suite') {
+    closeWorkloadModal();
+  }
+}
+window.handleWorkloadModalBackdrop = handleWorkloadModalBackdrop;
+
+function selectWorkloadCard(type) {
+  selectedWorkloadType = type;
+  document.querySelectorAll('.workload-option-card').forEach(c => c.classList.remove('active'));
+  const targetCard = document.getElementById(`card-workload-${type}`);
+  if (targetCard) targetCard.classList.add('active');
+
+  const wrapperTargetTemp = document.getElementById('wrapper-param-target-temp');
+  const wrapperStreams = document.getElementById('wrapper-param-streams');
+
+  if (wrapperTargetTemp) {
+    wrapperTargetTemp.style.display = (type === 'C') ? 'block' : 'none';
+  }
+  if (wrapperStreams) {
+    wrapperStreams.style.display = (type === 'B' || type === 'C' || type === 'D') ? 'block' : 'none';
+  }
+}
+window.selectWorkloadCard = selectWorkloadCard;
+
+function initWorkloadTrajectoryChart() {
+  const ctx = document.getElementById('chart-workload-trajectory');
+  if (!ctx || typeof Chart === 'undefined') return;
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    elements: {
+      point: { radius: 0 },
+      line: { tension: 0.2, borderWidth: 2 }
+    },
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: '#475569',
+          font: { family: 'Inter', size: 10, weight: '500' },
+          boxWidth: 8
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(0, 0, 0, 0.04)' },
+        ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 }, maxRotation: 0 }
+      },
+      y: {
+        type: 'linear',
+        position: 'left',
+        min: 40,
+        max: 110,
+        grid: { color: 'rgba(0, 0, 0, 0.05)' },
+        ticks: {
+          color: '#ef4444',
+          font: { family: 'JetBrains Mono', size: 9 },
+          callback: (v) => `${v}°C`
+        }
+      },
+      y1: {
+        type: 'linear',
+        position: 'right',
+        min: 150,
+        max: 450,
+        grid: { display: false },
+        ticks: {
+          color: '#6366f1',
+          font: { family: 'JetBrains Mono', size: 9 },
+          callback: (v) => `${v}MHz`
+        }
+      }
+    }
+  };
+
+  workloadTrajectoryChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Silicon Tj (°C)',
+          data: [],
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.08)',
+          yAxisID: 'y',
+          fill: false
+        },
+        {
+          label: 'Diode TS0 (°C)',
+          data: [],
+          borderColor: '#f59e0b',
+          borderDash: [3, 2],
+          yAxisID: 'y',
+          fill: false
+        },
+        {
+          label: 'Diode TS1 (°C)',
+          data: [],
+          borderColor: '#ea580c',
+          borderDash: [3, 2],
+          yAxisID: 'y',
+          fill: false
+        },
+        {
+          label: 'Clock Frequency (MHz)',
+          data: [],
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99, 102, 241, 0.05)',
+          yAxisID: 'y1',
+          fill: false
+        }
+      ]
+    },
+    options: chartOptions
+  });
+}
+
+function updateWorkloadUI(workload) {
+  if (!workload) return;
+
+  const isActive = !!workload.active;
+  if (workload.session_id) {
+    lastWorkloadSessionId = workload.session_id;
+  }
+
+  // 1. Update Top Active Banner
+  const banner = document.getElementById('workload-active-banner');
+  if (banner) {
+    if (isActive) {
+      banner.style.display = 'flex';
+      const titleEl = document.getElementById('banner-workload-title');
+      if (titleEl) titleEl.textContent = workload.workload_title || `Workload ${workload.workload_type}`;
+
+      const stateBadge = document.getElementById('banner-workload-state');
+      if (stateBadge) {
+        stateBadge.textContent = (workload.state || 'RUNNING').toUpperCase();
+        stateBadge.className = workload.state === 'running' ? 'badge-tag-amber' : 'badge-tag-cyan';
+      }
+
+      const tjEl = document.getElementById('banner-tj');
+      if (tjEl) tjEl.textContent = workload.current_tj_c !== null ? Number(workload.current_tj_c).toFixed(1) : '--';
+
+      const ts0El = document.getElementById('banner-ts0');
+      if (ts0El) ts0El.textContent = workload.ts0_c !== null ? Number(workload.ts0_c).toFixed(0) : '--';
+
+      const ts1El = document.getElementById('banner-ts1');
+      if (ts1El) ts1El.textContent = workload.ts1_c !== null ? Number(workload.ts1_c).toFixed(0) : '--';
+
+      const clkEl = document.getElementById('banner-clock');
+      if (clkEl) clkEl.textContent = workload.clock_frequency_mhz !== null ? Number(workload.clock_frequency_mhz).toFixed(0) : '--';
+
+      const fpsEl = document.getElementById('banner-fps');
+      if (fpsEl) fpsEl.textContent = workload.current_fps !== null ? Number(workload.current_fps).toFixed(1) : '--';
+
+      const elEl = document.getElementById('banner-elapsed');
+      if (elEl) elEl.textContent = Number(workload.elapsed_seconds || 0).toFixed(1);
+
+      const durEl = document.getElementById('banner-duration');
+      if (durEl) durEl.textContent = Number(workload.duration_seconds || 60).toFixed(0);
+
+      const progBar = document.getElementById('banner-progress-bar');
+      if (progBar) progBar.style.width = `${Math.min(100, workload.progress_percent || 0)}%`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // 2. Update Modal Controls and Metrics HUD if open
+  const btnStart = document.getElementById('btn-workload-start');
+  const btnAbort = document.getElementById('btn-workload-abort');
+  if (btnStart) btnStart.disabled = isActive;
+  if (btnAbort) btnAbort.disabled = !isActive;
+
+  const stateBadgeHud = document.getElementById('hud-workload-state-badge');
+  if (stateBadgeHud) {
+    const stStr = (workload.state || 'IDLE').toUpperCase();
+    stateBadgeHud.textContent = stStr;
+    if (stStr === 'RUNNING') stateBadgeHud.className = 'badge-tag-amber';
+    else if (stStr === 'COMPLETED') stateBadgeHud.className = 'badge-tag-cyan';
+    else if (stStr === 'ABORTED') stateBadgeHud.className = 'badge-tag-red';
+    else stateBadgeHud.className = 'badge-tag-gray';
+  }
+
+  const progTxt = document.getElementById('hud-workload-prog-text');
+  if (progTxt) progTxt.textContent = `${Number(workload.progress_percent || 0).toFixed(1)}%`;
+
+  const timeTxt = document.getElementById('hud-workload-time-text');
+  if (timeTxt) {
+    timeTxt.textContent = `${Number(workload.elapsed_seconds || 0).toFixed(1)}s / ${Number(workload.duration_seconds || 60).toFixed(0)}s`;
+  }
+
+  const progBarHud = document.getElementById('hud-workload-progress-bar');
+  if (progBarHud) progBarHud.style.width = `${Math.min(100, workload.progress_percent || 0)}%`;
+
+  const hudTj = document.getElementById('hud-workload-tj');
+  if (hudTj) {
+    const val = workload.current_tj_c;
+    hudTj.textContent = val !== null ? Number(val).toFixed(1) : '--';
+    if (val !== null && val >= 100.0) hudTj.style.color = 'var(--accent-rose, #ef4444)';
+    else if (val !== null && val >= 85.0) hudTj.style.color = 'var(--accent-amber, #f59e0b)';
+    else hudTj.style.color = 'var(--text-primary, #0f172a)';
+  }
+
+  const hudTs = document.getElementById('hud-workload-ts');
+  if (hudTs) {
+    const ts0 = workload.ts0_c !== null ? Number(workload.ts0_c).toFixed(1) : '--';
+    const ts1 = workload.ts1_c !== null ? Number(workload.ts1_c).toFixed(1) : '--';
+    hudTs.textContent = `${ts0} / ${ts1}`;
+  }
+
+  const hudClk = document.getElementById('hud-workload-clock');
+  if (hudClk) {
+    hudClk.textContent = workload.clock_frequency_mhz !== null ? Number(workload.clock_frequency_mhz).toFixed(0) : '--';
+  }
+
+  const hudTh = document.getElementById('hud-workload-throttling');
+  if (hudTh) {
+    if (workload.throttling_active) {
+      hudTh.textContent = 'ACTIVE';
+      hudTh.style.color = 'var(--accent-rose, #ef4444)';
+    } else if (workload.throttling_level && workload.throttling_level > 0) {
+      hudTh.textContent = `Level ${workload.throttling_level}`;
+      hudTh.style.color = 'var(--accent-amber, #f59e0b)';
+    } else {
+      hudTh.textContent = 'Nominal';
+      hudTh.style.color = 'var(--accent-emerald, #16a34a)';
+    }
+  }
+
+  const hudFps = document.getElementById('hud-workload-fps');
+  if (hudFps) {
+    hudFps.textContent = workload.current_fps !== null ? Number(workload.current_fps).toFixed(1) : '--';
+  }
+
+  const hudMeanFps = document.getElementById('hud-workload-fps-mean');
+  if (hudMeanFps) {
+    hudMeanFps.textContent = workload.mean_fps !== null ? Number(workload.mean_fps).toFixed(1) : '--';
+  }
+
+  // 3. Update Trajectory Real-Time Chart
+  if (workloadTrajectoryChart && isActive && workload.current_tj_c !== null) {
+    const nowTime = new Date().toLocaleTimeString();
+    const labels = workloadTrajectoryChart.data.labels;
+    labels.push(nowTime);
+
+    workloadTrajectoryChart.data.datasets[0].data.push(workload.current_tj_c);
+    workloadTrajectoryChart.data.datasets[1].data.push(workload.ts0_c);
+    workloadTrajectoryChart.data.datasets[2].data.push(workload.ts1_c);
+    workloadTrajectoryChart.data.datasets[3].data.push(workload.clock_frequency_mhz);
+
+    if (labels.length > 180) {
+      labels.shift();
+      workloadTrajectoryChart.data.datasets.forEach(d => d.data.shift());
+    }
+    workloadTrajectoryChart.update('none');
+  }
+
+  // 4. Update Result Callout Box when finished or aborted
+  const resultBox = document.getElementById('workload-result-box');
+  if (resultBox) {
+    if (workload.state === 'completed' || workload.state === 'aborted') {
+      resultBox.style.display = 'block';
+      resultBox.className = `workload-result-box ${workload.state}`;
+      const isAbort = workload.state === 'aborted';
+      const icon = isAbort ? '⚠️' : '✅';
+      const summary = workload.session_summary || {};
+      const evalInfo = summary.workload_evaluation || {};
+
+      let html = `<strong>${icon} Workload Run ${workload.state.toUpperCase()}</strong> &bull; `;
+      html += `Peak Tj: <strong>${workload.peak_tj_c !== null ? Number(workload.peak_tj_c).toFixed(1) : 'N/A'}°C</strong> | `;
+      html += `Mean FPS: <strong>${workload.mean_fps !== null ? Number(workload.mean_fps).toFixed(1) : 'N/A'}</strong> | `;
+      html += `Samples: <strong>${workload.samples_count || 0}</strong><br>`;
+
+      if (isAbort && workload.abort_reason) {
+        html += `<span style="color: #b91c1c; font-weight: 600;">Abort Notice: ${workload.abort_reason}</span><br>`;
+      }
+      if (evalInfo.throttling_observed) {
+        html += `<span style="color: #b45309;">Governor Throttling was engaged during run. </span>`;
+      }
+      if (evalInfo.hysteresis_recovered) {
+        html += `<span style="color: #15803d; font-weight: 600;">Silicon temperature successfully returned below 99.0°C hysteresis threshold.</span>`;
+      }
+      resultBox.innerHTML = html;
+    } else if (isActive) {
+      resultBox.style.display = 'none';
+    }
+  }
+}
+
+async function startWorkloadFromUI() {
+  const durVal = parseFloat(document.getElementById('input-workload-duration')?.value || '60');
+  const targetTempVal = parseFloat(document.getElementById('input-workload-target-temp')?.value || '100');
+  const streamsVal = parseInt(document.getElementById('select-workload-streams')?.value || '4', 10);
+  const simulateVal = !!document.getElementById('chk-workload-simulate')?.checked;
+
+  const payload = {
+    workload_type: selectedWorkloadType,
+    duration_seconds: durVal,
+    target_temp_c: targetTempVal,
+    safety_temp_limit_c: 102.0,
+    simulate: simulateVal,
+    stream_count: streamsVal,
+    buffer_size: 120
+  };
+
+  const btnStart = document.getElementById('btn-workload-start');
+  if (btnStart) btnStart.disabled = true;
+
+  // Clear previous trajectory chart data for fresh run
+  if (workloadTrajectoryChart) {
+    workloadTrajectoryChart.data.labels = [];
+    workloadTrajectoryChart.data.datasets.forEach(d => { d.data = []; });
+    workloadTrajectoryChart.update();
+  }
+
+  const resultBox = document.getElementById('workload-result-box');
+  if (resultBox) resultBox.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/v1/workload/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || `Server error HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    lastWorkloadSessionId = data.session_id;
+    updateWorkloadUI(data);
+  } catch (err) {
+    console.error('[WORKLOAD] Start failed:', err);
+    alert(`Could not start workload: ${err.message}`);
+    if (btnStart) btnStart.disabled = false;
+  }
+}
+window.startWorkloadFromUI = startWorkloadFromUI;
+
+async function emergencyAbortWorkload() {
+  try {
+    const res = await fetch('/api/v1/workload/stop?reason=Web+Dashboard+Safety+Abort', { method: 'POST' });
+    const data = await res.json();
+    console.log('[WORKLOAD] Abort response:', data);
+    updateWorkloadUI(data.summary || { active: false, state: 'aborted' });
+  } catch (err) {
+    console.error('[WORKLOAD] Abort request failed:', err);
+    alert(`Failed to abort workload: ${err.message}`);
+  }
+}
+window.emergencyAbortWorkload = emergencyAbortWorkload;
+
+function exportWorkloadFromUI(fmt) {
+  const sess = lastWorkloadSessionId || '';
+  const url = `/api/v1/workload/export?format=${encodeURIComponent(fmt)}&session_id=${encodeURIComponent(sess)}`;
+  window.open(url, '_blank');
+}
+window.exportWorkloadFromUI = exportWorkloadFromUI;
+

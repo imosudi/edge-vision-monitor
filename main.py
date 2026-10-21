@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -1120,8 +1121,351 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
 
 # ==============================================================================
+# 4.5 Hailo-8L Throughput & Thermal Stress Benchmark Suite (Phase 4 CLI)
+# ==============================================================================
+
+def _print_benchmark_summary(workload_type: str, title: str, state: str, summary: Optional[dict]):
+    """Format and print structured executive benchmark summary table."""
+    print(f"\n{_colourise('=' * 80, '36')}")
+    print(_colourise(f"         BENCHMARK EXECUTIVE SUMMARY: {title.upper()}", "1;36"))
+    print(_colourise("=" * 80, "36"))
+
+    status_colour = "32;1" if state == "completed" else "31;1"
+    print(f"  Execution State:           {_colourise(state.upper(), status_colour)}")
+
+    if not summary:
+        print("  Summary Metrics:           No telemetry summary points recorded.")
+        print("-" * 80)
+        return
+
+    dur = summary.get("duration_seconds", 0.0)
+    pts = summary.get("total_points", 0)
+    fps_info = summary.get("fps", {})
+    therm_info = summary.get("thermals_c", {})
+    cpu_info = summary.get("cpu_load_percent", {})
+    fan_info = summary.get("fan_rpm", {})
+    th_info = summary.get("throttling", {})
+    eval_info = summary.get("workload_evaluation", {})
+
+    fps_mean = fps_info.get("mean", 0.0)
+    fps_min = fps_info.get("min", 0.0)
+    fps_max = fps_info.get("max", 0.0)
+    fps_disp = _colourise(f"{fps_mean:.1f} FPS", "1;32")
+    print(f"  Inference Throughput:      Mean: {fps_disp} | Min: {fps_min:.1f} | Peak: {fps_max:.1f} FPS")
+
+    tj_peak = therm_info.get("tj_peak")
+    ts0_peak = therm_info.get("ts0_peak")
+    ts1_peak = therm_info.get("ts1_peak")
+    tj_disp = f"{tj_peak:.1f}°C" if tj_peak is not None else "N/A"
+    ts_disp = f"TS0: {ts0_peak:.1f}°C, TS1: {ts1_peak:.1f}°C" if (ts0_peak is not None and ts1_peak is not None) else "N/A"
+    tj_col = "1;31" if (tj_peak and tj_peak >= 100.0) else ("1;33" if (tj_peak and tj_peak >= 85.0) else "1;32")
+    print(f"  Peak Silicon Junction Tj:  {_colourise(tj_disp, tj_col)} ({ts_disp})")
+
+    tj_init = therm_info.get("tj_initial")
+    tj_final = therm_info.get("tj_final")
+    tj_mean = therm_info.get("tj_mean")
+    tj_init_s = f"{tj_init:.1f}°C" if tj_init is not None else "N/A"
+    tj_final_s = f"{tj_final:.1f}°C" if tj_final is not None else "N/A"
+    tj_mean_s = f"{tj_mean:.1f}°C" if tj_mean is not None else "N/A"
+    print(f"  Junction Temperature Rise: Initial: {tj_init_s} -> Final: {tj_final_s} (Mean: {tj_mean_s})")
+
+
+    cpu_mean = cpu_info.get("mean")
+    cpu_disp = f"{cpu_mean:.1f}%" if cpu_mean is not None else "N/A"
+    fan_mean = fan_info.get("mean")
+    fan_disp = f"{fan_mean:.0f} RPM" if fan_mean is not None else "N/A"
+    print(f"  Host Load & Cooling:       CPU: {cpu_disp} | Cooling Fan: {fan_disp}")
+
+    # Throttling evaluation
+    th_occurred = th_info.get("throttling_occurred", False) or eval_info.get("throttling_observed", False)
+    th_count = th_info.get("throttled_samples_count", 0)
+    th_col = "1;31" if th_occurred else "1;32"
+    print(
+        f"  Throttling Governor State: {_colourise('ACTIVE / ENGAGED' if th_occurred else 'NOMINAL (No throttling)', th_col)} "
+        f"({th_count} throttled samples)"
+    )
+
+    if eval_info.get("initial_clock_mhz") is not None:
+        init_clk = eval_info.get("initial_clock_mhz")
+        min_clk = eval_info.get("min_clock_mhz")
+        print(f"  Silicon Clock Frequency:   Initial: {init_clk:.0f} MHz | Min: {min_clk:.0f} MHz")
+
+    if eval_info.get("hysteresis_recovered"):
+        print(f"  Hysteresis Recovery:       {_colourise('CONFIRMED (<99.0°C return)', '1;32')}")
+
+    if eval_info.get("safety_abort_triggered"):
+        reason = eval_info.get("abort_reason", "Safety limit reached")
+        print(f"  Safety Abort Guard:        {_colourise('TRIGGERED', '1;31')} ({reason})")
+
+    print("-" * 80)
+
+
+def run_benchmark(args: argparse.Namespace) -> int:
+    """
+    Execute Hailo-8L Throughput & Thermal Stress Benchmark Suite (A, B, C, D).
+    Can target either a running Edge Vision Monitor instance via REST API or execute standalone.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    workload_type = getattr(args, "workload", "A").upper()
+    duration = float(getattr(args, "duration", 60.0))
+    target_temp = float(getattr(args, "target_temp", 100.0))
+    safety_limit = float(getattr(args, "safety_limit", 102.0))
+    simulate = bool(getattr(args, "simulate", False))
+    streams = int(getattr(args, "streams", 4))
+    buf_size = int(getattr(args, "buffer_size", 120))
+    media_file = getattr(args, "file", None)
+    output_path = getattr(args, "output", None)
+    export_fmt = getattr(args, "format", "csv").lower()
+
+    titles = {
+        "A": "Workload A: High-Throughput Object Detection",
+        "B": "Workload B: High NPU Utilisation and Sustained Thermal Load",
+        "C": "Workload C: Near-Threshold Thermal Monitoring (Safety Guard)",
+        "D": "Workload D: Throttling-Response and Hysteresis Validation",
+    }
+    title = titles.get(workload_type, f"Workload {workload_type}")
+
+    log_step(f"Benchmark Execution: {title}")
+    print(f"  Category:           {_colourise(workload_type, '1;36')}")
+    print(f"  Target Duration:    {duration:.1f}s")
+    print(f"  Safety Abort Limit: {_colourise(f'{safety_limit:.1f}°C', '1;31' if safety_limit >= 100 else '1;33')}")
+    if workload_type in ("C", "D"):
+        print(f"  Target Temperature: {target_temp:.1f}°C")
+    if workload_type in ("B", "C", "D"):
+        print(f"  Ingress Streams:    {streams} concurrent channels")
+    if simulate:
+        print(f"  Simulation Mode:    {_colourise('ENABLED', '1;33')}")
+    print()
+
+    # Determine execution mechanism: API if server available, else in-process WorkloadService
+    explicit_remote = getattr(args, "remote_host", None)
+    host = explicit_remote or "127.0.0.1"
+    port = getattr(args, "port", None) or 8000
+    api_base = f"http://{host}:{port}/api/v1"
+    use_api = False
+
+    try:
+        req = urllib.request.Request(f"{api_base}/workload/status", headers={"User-Agent": "EVM-CLI"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            if resp.status == 200:
+                use_api = True
+    except Exception:
+        use_api = False
+
+    if explicit_remote and not use_api:
+        log_error(f"Cannot reach active workload service at {api_base}. Ensure remote host is operational with workload suite support.")
+        return 1
+
+    if use_api:
+        log_info(f"Targeting active Edge Vision Monitor service at {api_base}")
+        payload = json.dumps({
+            "workload_type": workload_type,
+            "duration_seconds": duration,
+            "target_temp_c": target_temp,
+            "safety_temp_limit_c": safety_limit,
+            "simulate": simulate,
+            "stream_count": streams,
+            "buffer_size": buf_size,
+            "media_file": media_file,
+        }).encode("utf-8")
+
+        session_id = None
+        try:
+            req = urllib.request.Request(
+                f"{api_base}/workload/start",
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "EVM-CLI"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                start_data = json.loads(resp.read().decode("utf-8"))
+                session_id = start_data.get("session_id")
+        except urllib.error.HTTPError as he:
+            err_body = he.read().decode("utf-8")
+            log_error(f"Failed to initiate workload via API (HTTP {he.code}): {err_body}")
+            return 1
+        except Exception as e:
+            log_error(f"Failed connecting to workload service: {e}")
+            return 1
+
+        print(f"{_colourise('Workload active:', '1;32')} Session ID {_colourise(session_id or 'unknown', '1')}")
+        print(f"{'Time':<8} {'Progress':<10} {'Tj (°C)':<10} {'TS0/TS1':<12} {'Clock (MHz)':<13} {'Throttling':<12} {'FPS':<8}")
+        print("-" * 75)
+
+        t_start = time.monotonic()
+        last_state = "running"
+        summary = None
+        try:
+            while True:
+                time.sleep(1.0)
+                try:
+                    s_req = urllib.request.Request(f"{api_base}/workload/status", headers={"User-Agent": "EVM-CLI"})
+                    with urllib.request.urlopen(s_req, timeout=3.0) as s_resp:
+                        st = json.loads(s_resp.read().decode("utf-8"))
+                except Exception:
+                    continue
+
+                state = st.get("state", "unknown")
+                last_state = state
+                elapsed = st.get("elapsed_seconds", round(time.monotonic() - t_start, 1))
+                prog = st.get("progress_percent", 0.0)
+                tj = st.get("current_tj_c")
+                ts0 = st.get("ts0_c")
+                ts1 = st.get("ts1_c")
+                clock = st.get("clock_frequency_mhz")
+                th_lvl = st.get("throttling_level")
+                th_act = st.get("throttling_active", False)
+                fps = st.get("current_fps", 0.0)
+
+                tj_str = f"{tj:.1f}" if tj is not None else "--"
+                ts_str = f"{ts0:.0f}/{ts1:.0f}" if (ts0 is not None and ts1 is not None) else "--"
+                clk_str = f"{clock:.0f}" if clock is not None else "--"
+                th_str = "ACTIVE" if th_act else (f"Level {th_lvl}" if th_lvl and th_lvl > 0 else "None")
+                fps_str = f"{fps:.1f}"
+
+                if tj is not None and tj >= 100.0:
+                    tj_disp = _colourise(f"{tj_str}", "1;31")
+                elif tj is not None and tj >= 85.0:
+                    tj_disp = _colourise(f"{tj_str}", "1;33")
+                else:
+                    tj_disp = tj_str
+
+                print(f"{elapsed:>5.1f}s   {prog:>5.1f}%     {tj_disp:<10} {ts_str:<12} {clk_str:<13} {th_str:<12} {fps_str:<8}")
+
+                if not st.get("active", False) or state in ("completed", "aborted"):
+                    summary = st.get("session_summary")
+                    break
+
+        except KeyboardInterrupt:
+            print("\n" + _colourise("Interrupted by user. Triggering clean emergency abort...", "1;33"))
+            try:
+                stop_req = urllib.request.Request(
+                    f"{api_base}/workload/stop?reason=CLI+user+interrupt",
+                    data=b"",
+                    headers={"User-Agent": "EVM-CLI"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(stop_req, timeout=3.0) as sp:
+                    stop_data = json.loads(sp.read().decode("utf-8"))
+                    summary = stop_data.get("summary")
+            except Exception as se:
+                log_warn(f"Failed to cleanly stop workload: {se}")
+
+        _print_benchmark_summary(workload_type, title, last_state, summary)
+
+        if output_path:
+            try:
+                exp_url = f"{api_base}/workload/export?session_id={session_id}&format={export_fmt}"
+                exp_req = urllib.request.Request(exp_url, headers={"User-Agent": "EVM-CLI"})
+                with urllib.request.urlopen(exp_req, timeout=5.0) as exp_resp:
+                    out_bytes = exp_resp.read()
+                    out_p = Path(output_path).resolve()
+                    out_p.parent.mkdir(parents=True, exist_ok=True)
+                    out_p.write_bytes(out_bytes)
+                    log_info(f"Exported trajectory {export_fmt.upper()} to: {out_p} ({len(out_bytes)} bytes)")
+            except Exception as ee:
+                log_error(f"Failed exporting trajectory file: {ee}")
+
+        return 0 if last_state == "completed" else 1
+
+    else:
+        # Standalone on-device execution using WorkloadService directly
+        log_info("Executing standalone benchmark directly on hardware...")
+        from app.core.config import load_config
+        from app.services.workload_service import WorkloadService
+        from app.sources.manager import VideoSourceManager
+        from app.telemetry.trajectory import get_trajectory_engine
+
+        cfg = load_config()
+        src_mgr = VideoSourceManager(cfg.video)
+        engine = get_trajectory_engine()
+
+        svc = WorkloadService(
+            source_manager=src_mgr,
+            trajectory_engine=engine,
+        )
+
+        try:
+            svc.start_workload(
+                workload_type=workload_type,
+                duration_seconds=duration,
+                target_temp_c=target_temp,
+                safety_temp_limit_c=safety_limit,
+                simulate=simulate,
+                stream_count=streams,
+                buffer_size=buf_size,
+                media_file=media_file,
+            )
+        except Exception as exc:
+            log_error(f"Failed initiating standalone workload: {exc}")
+            src_mgr.stop()
+            return 1
+
+        print(f"{'Time':<8} {'Progress':<10} {'Tj (°C)':<10} {'TS0/TS1':<12} {'Clock (MHz)':<13} {'Throttling':<12} {'FPS':<8}")
+        print("-" * 75)
+
+        last_state = "running"
+        try:
+            while True:
+                time.sleep(1.0)
+                st = svc.get_status()
+                state = st.get("state")
+                last_state = state
+                elapsed = st.get("elapsed_seconds", 0.0)
+                prog = st.get("progress_percent", 0.0)
+                tj = st.get("current_tj_c")
+                ts0 = st.get("ts0_c")
+                ts1 = st.get("ts1_c")
+                clock = st.get("clock_frequency_mhz")
+                th_lvl = st.get("throttling_level")
+                th_act = st.get("throttling_active", False)
+                fps = st.get("current_fps", 0.0)
+
+                tj_str = f"{tj:.1f}" if tj is not None else "--"
+                ts_str = f"{ts0:.0f}/{ts1:.0f}" if (ts0 is not None and ts1 is not None) else "--"
+                clk_str = f"{clock:.0f}" if clock is not None else "--"
+                th_str = "ACTIVE" if th_act else (f"Level {th_lvl}" if th_lvl and th_lvl > 0 else "None")
+                fps_str = f"{fps:.1f}"
+
+                print(f"{elapsed:>5.1f}s   {prog:>5.1f}%     {tj_str:<10} {ts_str:<12} {clk_str:<13} {th_str:<12} {fps_str:<8}")
+
+                if not st.get("active", False) or state in ("completed", "aborted"):
+                    break
+        except KeyboardInterrupt:
+            print("\n" + _colourise("Interrupted by user. Aborting workload...", "1;33"))
+            svc.stop_workload(reason="CLI user interrupt")
+        finally:
+            svc.wait_completion(timeout=3.0)
+            st = svc.get_status()
+            summary = st.get("session_summary")
+            src_mgr.stop()
+
+        _print_benchmark_summary(workload_type, title, last_state, summary)
+
+        if output_path:
+            try:
+                out_p = Path(output_path).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                if export_fmt == "json":
+                    data = svc.export_trajectory_json()
+                    out_p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                else:
+                    csv_content = svc.export_trajectory_csv()
+                    out_p.write_text(csv_content, encoding="utf-8")
+                log_info(f"Exported trajectory {export_fmt.upper()} to: {out_p}")
+            except Exception as e:
+                log_error(f"Failed exporting trajectory file: {e}")
+
+        return 0 if last_state == "completed" else 1
+
+
+# ==============================================================================
 # 5. CLI Argument Parser & Orchestrator
 # ==============================================================================
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -1383,13 +1727,83 @@ Examples:
     # --- Subcommand: diagnose ---
     subparsers.add_parser("diagnose", help="Run hardware, PCIe, V4L2, and driver diagnostic inspection")
 
-    # --- Subcommand: monitor ---
-    mon_parser = subparsers.add_parser("monitor", aliases=["hailo-monitor"], help="Launch live Hailo-8L NPU monitor (chip temperature, compute load, FPS)")
-    mon_parser.add_argument("--mode", choices=["dashboard", "cli", "json"], default="dashboard", help="Display mode ('dashboard', 'cli', or 'json')")
-    mon_parser.add_argument("--cli", action="store_true", help="Launch raw hailortcli monitor tables directly")
-    mon_parser.add_argument("--remote", default=os.environ.get("EVM_REMOTE_HOST", "127.0.0.1"), help="Target edge host IP or hostname (default: 127.0.0.1 or $EVM_REMOTE_HOST)")
-    mon_parser.add_argument("--port", type=int, default=8000, help="Gateway API port")
-    mon_parser.add_argument("--interval", type=float, default=1.0, help="Refresh interval in seconds")
+    # --- Subcommand: benchmark ---
+    bench_parser = subparsers.add_parser(
+        "benchmark",
+        aliases=["stress", "profile"],
+        help="Execute Hailo-8L Throughput & Thermal Stress Workload Suite (A, B, C, D)",
+    )
+    bench_parser.add_argument(
+        "-w", "--workload",
+        choices=["A", "B", "C", "D", "a", "b", "c", "d"],
+        default="A",
+        help="Workload category: A (High-Throughput), B (Thermal Load), C (Near-Threshold Guard), D (Throttling Validation)",
+    )
+    bench_parser.add_argument(
+        "-d", "--duration",
+        type=float,
+        default=60.0,
+        help="Target duration in seconds (default: 60.0)",
+    )
+    bench_parser.add_argument(
+        "-t", "--target-temp",
+        type=float,
+        default=100.0,
+        help="Target junction temperature in °C for Workload C (default: 100.0)",
+    )
+    bench_parser.add_argument(
+        "-s", "--safety-limit",
+        type=float,
+        default=102.0,
+        help="Automated safety abort temperature limit in °C (default: 102.0, max: 102.0)",
+    )
+    bench_parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Run in thermal simulation mode for software and hysteresis validation",
+    )
+    bench_parser.add_argument(
+        "--streams",
+        type=int,
+        default=4,
+        help="Number of concurrent ingestion streams for Workload B, C, D (default: 4)",
+    )
+    bench_parser.add_argument(
+        "--buffer-size",
+        type=int,
+        default=120,
+        help="RAM frame buffer size for Workload A (default: 120)",
+    )
+    bench_parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="Custom video media file path to preload",
+    )
+    bench_parser.add_argument(
+        "-o", "--output",
+        type=str,
+        default=None,
+        help="Output file path to export time-series trajectory CSV or JSON upon completion",
+    )
+    bench_parser.add_argument(
+        "--format",
+        choices=["csv", "json"],
+        default="csv",
+        help="Export format for trajectory output (default: csv)",
+    )
+    bench_parser.add_argument(
+        "-H", "--remote-host",
+        type=str,
+        default=None,
+        help="Target remote host IP for benchmark execution via API (default: 127.0.0.1 or direct)",
+    )
+    bench_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Target API port (default: 8000)",
+    )
 
     return parser
 
@@ -1446,6 +1860,8 @@ def main() -> int:
     elif command in ("monitor", "hailo-monitor"):
         from scripts.hailo_monitor import main as run_hailo_monitor
         return run_hailo_monitor() or 0
+    elif command in ("benchmark", "stress", "profile"):
+        return run_benchmark(args)
     else:
         parser.print_help()
         return 1

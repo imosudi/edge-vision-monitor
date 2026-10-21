@@ -54,6 +54,10 @@
         <span>⚖️</span> Run Automated Dual Benchmark ▶
       </button>
 
+      <button id="btn-open-workload-suite" class="btn btn-warning" onclick="openWorkloadModal()" title="Run Hailo-8L Throughput & Thermal Stress Workload Suite (A, B, C, D)">
+        <span>🔥</span> Workload Suite
+      </button>
+
       <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
         <span id="icon-inference">⏹</span>
         <span id="text-inference">Stop Inference</span>
@@ -64,6 +68,37 @@
     </div>
   </header>
 
+  <!-- Active Workload Execution & Thermal Stress Banner (Phase 4) -->
+  <div id="workload-active-banner" class="workload-banner" style="display: none;">
+    <div class="workload-banner-left">
+      <span class="pulsing-flame">🔥</span>
+      <div>
+        <div class="workload-banner-title">
+          <strong id="banner-workload-title">Workload A: High-Throughput Object Detection</strong>
+          <span id="banner-workload-state" class="badge-tag-amber">RUNNING</span>
+        </div>
+        <div class="workload-banner-metrics">
+          <span>Tj: <strong id="banner-tj">--</strong>°C</span> &bull;
+          <span>TS0/TS1: <strong id="banner-ts0">--</strong>/<strong id="banner-ts1">--</strong>°C</span> &bull;
+          <span>Clock: <strong id="banner-clock">--</strong> MHz</span> &bull;
+          <span>FPS: <strong id="banner-fps">--</strong></span> &bull;
+          <span>Time: <strong id="banner-elapsed">0.0</strong>s / <span id="banner-duration">60.0</span>s</span>
+        </div>
+      </div>
+    </div>
+    <div class="workload-banner-right">
+      <div class="workload-mini-progress">
+        <div id="banner-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+      <button id="btn-banner-abort" class="btn btn-danger-abort" onclick="emergencyAbortWorkload()">
+        ⚠️ Emergency Abort
+      </button>
+      <button class="btn btn-ghost" onclick="openWorkloadModal()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
+        View Live Curve
+      </button>
+    </div>
+  </div>
+
   <!-- Throttling & Hardware Alert Banner -->
   <div id="alert-banner">
     <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -72,6 +107,7 @@
     </div>
     <span style="font-size: 0.75rem; opacity: 0.8;">Check power supply and cooling fan</span>
   </div>
+
 
   <!-- Main Dashboard Layout -->
   <main class="main-container">
@@ -1117,8 +1153,233 @@
     </div>
   </div>
 
+  <!-- Hailo-8L Throughput & Thermal Stress Workload Suite Modal (Phase 4) -->
+  <div id="modal-workload-suite" class="modal-overlay" style="display: none;" onclick="handleWorkloadModalBackdrop(event)">
+    <div class="modal-content modal-workload-content">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div class="card-title" style="font-size: 1.1rem; font-weight: 700;">
+            <span>🔥</span> Hailo-8L Throughput &amp; Thermal Stress Workload Suite
+          </div>
+          <span class="badge-tag-amber">CHARACTERISATION ENGINE</span>
+        </div>
+        <button type="button" class="btn btn-ghost" onclick="closeWorkloadModal()" title="Close (Esc)">✕</button>
+      </div>
+
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <!-- Workload Category Selection Cards -->
+        <div>
+          <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.6rem;">
+            Select Workload Profile:
+          </div>
+          <div class="workload-card-grid">
+            
+            <!-- Workload A Card -->
+            <div id="card-workload-A" class="workload-option-card active" onclick="selectWorkloadCard('A')">
+              <div class="workload-card-header">
+                <span class="workload-letter-badge">A</span>
+                <strong>High Throughput</strong>
+              </div>
+              <p class="workload-card-desc">
+                Maximise sustained inference FPS using zero-decode in-memory RAM ring-buffer and decoupled preview.
+              </p>
+              <div class="workload-card-tags">
+                <span class="workload-tag">RAM Ring-Buffer</span>
+                <span class="workload-tag">Unthrottled</span>
+                <span class="workload-tag">FPS Peak</span>
+              </div>
+            </div>
+
+            <!-- Workload B Card -->
+            <div id="card-workload-B" class="workload-option-card" onclick="selectWorkloadCard('B')">
+              <div class="workload-card-header">
+                <span class="workload-letter-badge">B</span>
+                <strong>Sustained Thermal Load</strong>
+              </div>
+              <p class="workload-card-desc">
+                Drive maximum accelerator compute duty cycle via concurrent multi-stream video ingestion.
+              </p>
+              <div class="workload-card-tags">
+                <span class="workload-tag">Multi-Stream</span>
+                <span class="workload-tag">NPU Saturation</span>
+                <span class="workload-tag">Heat Dissipation</span>
+              </div>
+            </div>
+
+            <!-- Workload C Card -->
+            <div id="card-workload-C" class="workload-option-card" onclick="selectWorkloadCard('C')">
+              <div class="workload-card-header">
+                <span class="workload-letter-badge">C</span>
+                <strong>Near-Threshold Guard</strong>
+              </div>
+              <p class="workload-card-desc">
+                Characterise safety envelope near throttling margin with automated safety abort at 102.0°C.
+              </p>
+              <div class="workload-card-tags">
+                <span class="workload-tag">95°C-102°C Range</span>
+                <span class="workload-tag-danger">102°C Auto Abort</span>
+              </div>
+            </div>
+
+            <!-- Workload D Card -->
+            <div id="card-workload-D" class="workload-option-card" onclick="selectWorkloadCard('D')">
+              <div class="workload-card-header">
+                <span class="workload-letter-badge">D</span>
+                <strong>Throttling Validation</strong>
+              </div>
+              <p class="workload-card-desc">
+                Validate clock step-down from 400 MHz and thermal hysteresis recovery below 99.0°C.
+              </p>
+              <div class="workload-card-tags">
+                <span class="workload-tag">Governor Step-Down</span>
+                <span class="workload-tag">99°C Recovery</span>
+                <span class="workload-tag">Simulation</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Configuration Parameters Drawer -->
+        <div class="workload-params-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
+            
+            <!-- Duration Control -->
+            <div style="flex: 1; min-width: 180px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                <label for="input-workload-duration" style="font-weight: 600; color: var(--text-secondary);">Target Duration:</label>
+                <strong id="lbl-workload-duration" style="color: var(--accent-blue);">60s</strong>
+              </div>
+              <input type="range" id="input-workload-duration" min="5" max="300" step="5" value="60" oninput="document.getElementById('lbl-workload-duration').textContent = this.value + 's'">
+            </div>
+
+            <!-- Target Temperature for C -->
+            <div id="wrapper-param-target-temp" style="flex: 1; min-width: 180px; display: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                <label for="input-workload-target-temp" style="font-weight: 600; color: var(--text-secondary);">Target Junction Temp:</label>
+                <strong id="lbl-workload-target-temp" style="color: var(--accent-rose);">100°C</strong>
+              </div>
+              <input type="range" id="input-workload-target-temp" min="60" max="102" step="1" value="100" oninput="document.getElementById('lbl-workload-target-temp').textContent = this.value + '°C'">
+            </div>
+
+            <!-- Ingress Stream Count for B, C, D -->
+            <div id="wrapper-param-streams" style="min-width: 130px; display: none;">
+              <label for="select-workload-streams" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.3rem;">Concurrent Streams:</label>
+              <select id="select-workload-streams" class="input-select" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+                <option value="2">2 Channels</option>
+                <option value="4" selected>4 Channels</option>
+                <option value="6">6 Channels</option>
+                <option value="8">8 Channels</option>
+              </select>
+            </div>
+
+            <!-- Hard Safety Ceiling Limit Notice -->
+            <div class="safety-limit-pill" title="Automated Emergency Shutdown Safety Limit">
+              <span>🛡️</span> Hard Safety Ceiling: <strong>102.0°C</strong>
+            </div>
+
+            <!-- Simulation Mode Toggle -->
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="chk-workload-simulate">
+              <span>Simulation Mode</span>
+            </label>
+
+          </div>
+        </div>
+
+        <!-- Live Workload Telemetry HUD -->
+        <div class="workload-hud-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <strong style="font-size: 0.9rem;">Live Accelerator Envelope</strong>
+              <span id="hud-workload-state-badge" class="badge-tag-amber">IDLE</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              Progress: <strong id="hud-workload-prog-text">0.0%</strong> (<span id="hud-workload-time-text">0.0s / 60.0s</span>)
+            </div>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="progress-bar-container" style="margin-bottom: 0.8rem;">
+            <div id="hud-workload-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+          </div>
+
+          <!-- Metric Badges Row -->
+          <div class="workload-metrics-row">
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Junction Tj</span>
+              <strong id="hud-workload-tj" class="stat-val">--</strong>
+              <span class="stat-unit">°C</span>
+            </div>
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Diode TS0 / TS1</span>
+              <strong id="hud-workload-ts" class="stat-val">-- / --</strong>
+              <span class="stat-unit">°C</span>
+            </div>
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Clock Frequency</span>
+              <strong id="hud-workload-clock" class="stat-val">--</strong>
+              <span class="stat-unit">MHz</span>
+            </div>
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Throttling</span>
+              <strong id="hud-workload-throttling" class="stat-val">Nominal</strong>
+            </div>
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Throughput</span>
+              <strong id="hud-workload-fps" class="stat-val">--</strong>
+              <span class="stat-unit">FPS</span>
+            </div>
+            <div class="workload-stat-badge">
+              <span class="stat-lbl">Mean FPS</span>
+              <strong id="hud-workload-fps-mean" class="stat-val">--</strong>
+              <span class="stat-unit">FPS</span>
+            </div>
+          </div>
+
+          <!-- Live Real-Time Trajectory Chart -->
+          <div style="margin-top: 0.8rem; height: 210px; width: 100%; position: relative;">
+            <canvas id="chart-workload-trajectory"></canvas>
+          </div>
+        </div>
+
+        <!-- Evaluation Results / Status Box -->
+        <div id="workload-result-box" class="workload-result-box" style="display: none;">
+          <!-- Dynamically populated upon workload completion or abort -->
+        </div>
+
+      </div>
+
+      <!-- Modal Footer & Action Controls -->
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-subtle);">
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button id="btn-workload-start" class="btn btn-primary" onclick="startWorkloadFromUI()">
+            <span>▶</span> Start Workload
+          </button>
+          <button id="btn-workload-abort" class="btn btn-danger-abort" onclick="emergencyAbortWorkload()" disabled>
+            <span>⚠️</span> Safety Abort
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button id="btn-workload-export-csv" class="btn btn-ghost" onclick="exportWorkloadFromUI('csv')">
+            <span>📥</span> Trajectory CSV
+          </button>
+          <button id="btn-workload-export-json" class="btn btn-ghost" onclick="exportWorkloadFromUI('json')">
+            <span>📥</span> JSON
+          </button>
+          <button type="button" class="btn btn-ghost" onclick="closeWorkloadModal()">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Offscreen client webcam capture elements -->
   <video id="client-webcam-video" autoplay playsinline muted style="display: none;"></video>
+
   <canvas id="client-webcam-canvas" width="640" height="480" style="display: none;"></canvas>
 
   <footer>
