@@ -1007,13 +1007,15 @@ function handleLiveUpdate(data) {
     }
 
     // 12. Hailo-8L NPU Compute Load (%)
-    if (typeof hailoLoadChart !== 'undefined' && hailoLoadChart) {
-      updateChartSeries(hailoLoadChart, nowLabel, [hailoLoadPct, hailoLoadMa]);
+    const targetHailoLoad = window.hailoLoadChart || (typeof hailoLoadChart !== 'undefined' ? hailoLoadChart : null);
+    if (targetHailoLoad && typeof updateChartSeries === 'function') {
+      updateChartSeries(targetHailoLoad, nowLabel, [hailoLoadPct, hailoLoadMa]);
     }
 
     // 13. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C)
-    if (typeof hailoThermalChart !== 'undefined' && hailoThermalChart) {
-      updateChartSeries(hailoThermalChart, nowLabel, [
+    const targetHailoThermal = window.hailoThermalChart || (typeof hailoThermalChart !== 'undefined' ? hailoThermalChart : null);
+    if (targetHailoThermal && typeof updateChartSeries === 'function') {
+      updateChartSeries(targetHailoThermal, nowLabel, [
         hailoJunctionTemp !== null ? hailoJunctionTemp : (hailoTemp || 0),
         hailoTs0 !== null ? hailoTs0 : 0,
         hailoTs1 !== null ? hailoTs1 : 0
@@ -1021,8 +1023,9 @@ function handleLiveUpdate(data) {
     }
 
     // 14. Hailo-8L NPU Core Clock Frequency (MHz)
-    if (typeof hailoClockChart !== 'undefined' && hailoClockChart) {
-      updateChartSeries(hailoClockChart, nowLabel, [
+    const targetHailoClock = window.hailoClockChart || (typeof hailoClockChart !== 'undefined' ? hailoClockChart : null);
+    if (targetHailoClock && typeof updateChartSeries === 'function') {
+      updateChartSeries(targetHailoClock, nowLabel, [
         hailoClockMhz,
         400.0
       ]);

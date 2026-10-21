@@ -65,6 +65,11 @@ let hailoThermalChart = null;
 let hailoClockChart = null;
 let modalSensorChart = null;
 
+// Expose Hailo-8L chart references globally on window for cross-script access
+window.hailoLoadChart = null;
+window.hailoThermalChart = null;
+window.hailoClockChart = null;
+
 function initCharts() {
   // 1. Latency Breakdown History
   const ctxLatency = document.getElementById('chart-latency');
@@ -596,6 +601,12 @@ function initCharts() {
   // 9. Hailo-8L NPU Compute Load (%)
   const ctxHailoLoad = document.getElementById('chart-hailo-load');
   if (ctxHailoLoad) {
+    if (typeof Chart !== 'undefined' && Chart.getChart) {
+      const existing = Chart.getChart(ctxHailoLoad);
+      if (existing) {
+        try { existing.destroy(); } catch (e) { /* ignore */ }
+      }
+    }
     hailoLoadChart = new Chart(ctxHailoLoad, {
       type: 'line',
       data: {
@@ -645,11 +656,18 @@ function initCharts() {
         }
       }
     });
+    window.hailoLoadChart = hailoLoadChart;
   }
 
   // 10. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C)
   const ctxHailoThermal = document.getElementById('chart-hailo-thermal');
   if (ctxHailoThermal) {
+    if (typeof Chart !== 'undefined' && Chart.getChart) {
+      const existing = Chart.getChart(ctxHailoThermal);
+      if (existing) {
+        try { existing.destroy(); } catch (e) { /* ignore */ }
+      }
+    }
     hailoThermalChart = new Chart(ctxHailoThermal, {
       type: 'line',
       data: {
@@ -709,11 +727,18 @@ function initCharts() {
         }
       }
     });
+    window.hailoThermalChart = hailoThermalChart;
   }
 
   // 11. Hailo-8L NPU Core Clock Frequency (MHz)
   const ctxHailoClock = document.getElementById('chart-hailo-clock');
   if (ctxHailoClock) {
+    if (typeof Chart !== 'undefined' && Chart.getChart) {
+      const existing = Chart.getChart(ctxHailoClock);
+      if (existing) {
+        try { existing.destroy(); } catch (e) { /* ignore */ }
+      }
+    }
     hailoClockChart = new Chart(ctxHailoClock, {
       type: 'line',
       data: {
@@ -763,6 +788,7 @@ function initCharts() {
         }
       }
     });
+    window.hailoClockChart = hailoClockChart;
   }
 
   // Initialise benchmark comparison charts
