@@ -418,7 +418,8 @@ def run_compose(args: argparse.Namespace) -> int:
         if should_monitor is None:
             should_monitor = is_up
 
-        monitor_cmd = "python3 scripts/hailo_monitor.py --remote 127.0.0.1 --cli" if getattr(args, "cli", False) else "python3 scripts/hailo_monitor.py --remote 127.0.0.1"
+        display_host_arg = f" --display-host {remote_host}" if remote_host else ""
+        monitor_cmd = f"python3 scripts/hailo_monitor.py --remote 127.0.0.1{display_host_arg} --cli" if getattr(args, "cli", False) else f"python3 scripts/hailo_monitor.py --remote 127.0.0.1{display_host_arg}"
 
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
@@ -769,14 +770,13 @@ def prompt_remote_host_options(deployment_name: str) -> Tuple[int, Optional[Dict
         return 0, {}
 
     print()
+    default_host = os.environ.get("EVM_REMOTE_HOST", "10.199.153.118")
     try:
-        host_input = input(_colourise("Enter remote host IP address or hostname: ", "1;33")).strip()
+        host_prompt = f"Enter remote host IP address or hostname [default: {default_host}]: "
+        host_input = input(_colourise(host_prompt, "1;33")).strip() or default_host
     except (KeyboardInterrupt, EOFError):
         print("\nOperation cancelled.")
         return 0, None
-    if not host_input:
-        log_error("Remote host IP address or hostname is required.")
-        return 1, None
 
     parsed_user = None
     parsed_port = None
@@ -788,7 +788,7 @@ def prompt_remote_host_options(deployment_name: str) -> Tuple[int, Optional[Dict
             parsed_port = int(port_str)
 
     remote_host = host_input
-    default_user = parsed_user or os.getenv("USER") or "root"
+    default_user = parsed_user or os.environ.get("EVM_REMOTE_USER", "iotgwai")
 
     try:
         user_prompt = f"Enter privileged login user (e.g. root, docker-enabled user) [default: {default_user}]: "
@@ -874,6 +874,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             return subprocess.run(ssh_cmd).returncode
 
         args.command = "run"
+        args.remote_host = None
+        args.remote_user = None
         args.service = getattr(args, "service", "all") or "all"
         return run_native(args)
 
@@ -912,6 +914,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             return subprocess.run(ssh_cmd).returncode
 
         args.command = "run"
+        args.remote_host = None
+        args.remote_user = None
         args.service = selected_role
         return run_native(args)
 
@@ -935,8 +939,12 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.command = "compose"
         args.microservices = False
         args.type = "monolith"
-        for k, v in remote_info.items():
-            setattr(args, k, v)
+        if remote_info:
+            for k, v in remote_info.items():
+                setattr(args, k, v)
+        else:
+            args.remote_host = None
+            args.remote_user = None
         if act_choice == "1":
             args.compose_action = "up"
             args.monitor = True
@@ -969,8 +977,12 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
         args.command = "compose"
         args.microservices = True
         args.type = "microservices"
-        for k, v in remote_info.items():
-            setattr(args, k, v)
+        if remote_info:
+            for k, v in remote_info.items():
+                setattr(args, k, v)
+        else:
+            args.remote_host = None
+            args.remote_user = None
 
         if act_choice == "1":
             args.compose_action = "up"
@@ -1031,6 +1043,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             log_info(f"Executing: {' '.join(ssh_cmd)}")
             return subprocess.run(ssh_cmd).returncode
 
+        args.remote_host = None
+        args.remote_user = None
         return run_systemd(args)
 
     elif choice == "6":
@@ -1054,6 +1068,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             log_info(f"Executing: {' '.join(ssh_cmd)}")
             return subprocess.run(ssh_cmd).returncode
 
+        args.remote_host = None
+        args.remote_user = None
         log_step("Executing Hardware Diagnostic Tool")
         try:
             from scripts.diagnose import main as run_diagnostics
@@ -1075,7 +1091,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
 
         if remote_info:
             rdir = remote_info.get("remote_dir", "~/edge-vision-monitor")
-            remote_cmd = f"cd {rdir} && export HAILO_MONITOR=1; python3 scripts/hailo_monitor.py --remote 127.0.0.1"
+            rhost = remote_info["remote_host"]
+            remote_cmd = f"cd {rdir} && export HAILO_MONITOR=1; python3 scripts/hailo_monitor.py --remote 127.0.0.1 --display-host {rhost}"
             ssh_cmd = build_ssh_command(
                 remote_host=remote_info["remote_host"],
                 remote_user=remote_info["remote_user"],
@@ -1088,6 +1105,8 @@ def prompt_deployment_menu(args: argparse.Namespace) -> int:
             log_info(f"Executing: {' '.join(ssh_cmd)}")
             return subprocess.run(ssh_cmd).returncode
 
+        args.remote_host = None
+        args.remote_user = None
         from scripts.hailo_monitor import main as run_hailo_monitor
         return run_hailo_monitor() or 0
 
@@ -1168,14 +1187,18 @@ Examples:
     parser.add_argument(
         "-H", "--remote-host",
         type=str,
+        nargs="?",
+        const=os.environ.get("EVM_REMOTE_HOST", "10.199.153.118"),
         default=None,
-        help="Target remote host IP address or hostname for remote container compose execution (e.g. 192.168.1.100 or user@host)",
+        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.199.153.118 or $EVM_REMOTE_HOST)",
     )
     parser.add_argument(
         "-u", "--remote-user",
         type=str,
+        nargs="?",
+        const=os.environ.get("EVM_REMOTE_USER", "iotgwai"),
         default=None,
-        help="Remote privileged login username (e.g. root, iotgwai)",
+        help="Remote privileged login username (default when flag used without value: iotgwai or $EVM_REMOTE_USER)",
     )
     parser.add_argument(
         "--remote-port",
@@ -1278,14 +1301,18 @@ Examples:
     compose_parser.add_argument(
         "-H", "--remote-host",
         type=str,
+        nargs="?",
+        const=os.environ.get("EVM_REMOTE_HOST", "10.199.153.118"),
         default=None,
-        help="Target remote host IP address or hostname for remote container compose execution (e.g. 192.168.1.100 or user@host)",
+        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.199.153.118 or $EVM_REMOTE_HOST)",
     )
     compose_parser.add_argument(
         "-u", "--remote-user",
         type=str,
+        nargs="?",
+        const=os.environ.get("EVM_REMOTE_USER", "iotgwai"),
         default=None,
-        help="Remote privileged login username (e.g. root, iotgwai)",
+        help="Remote privileged login username (default when flag used without value: iotgwai or $EVM_REMOTE_USER)",
     )
     compose_parser.add_argument(
         "--remote-port",

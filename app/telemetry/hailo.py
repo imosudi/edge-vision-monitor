@@ -77,8 +77,15 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
         )
     )
 
-    # 3. Query Hailo-8L on-die chip temperature via HailoRT control interface
+    # 3. Query Hailo-8L on-die chip temperature & junction temperature via HailoRT control interface
     hailo_temp_c: Optional[float] = None
+    hailo_junction_temp_c: Optional[float] = None
+    hailo_ts0_c: Optional[float] = None
+    hailo_ts1_c: Optional[float] = None
+    hailo_thermal_zone: Optional[int] = None
+    hailo_thermal_level: Optional[int] = None
+    hailo_throttling_active: Optional[float] = None
+    hailo_clock_mhz: Optional[float] = None
     hailo_power_w: Optional[float] = None
 
     try:
@@ -87,7 +94,29 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
         if _devs:
             _d = _ph.Device(_devs[0])
             _temp_info = _d.control.get_chip_temperature()
-            hailo_temp_c = round(float(_temp_info.ts0_temperature), 1)
+            hailo_ts0_c = round(float(_temp_info.ts0_temperature), 1)
+            hailo_ts1_c = round(float(_temp_info.ts1_temperature), 1)
+            # Silicon junction temperature (Tj) is the peak hotspot temperature monitored by firmware
+            hailo_junction_temp_c = round(max(hailo_ts0_c, hailo_ts1_c), 1)
+            hailo_temp_c = hailo_junction_temp_c
+
+            try:
+                _health = _d.control._get_health_information()
+                if _health:
+                    hailo_thermal_zone = getattr(_health, "current_temperature_zone", 0)
+                    hailo_thermal_level = getattr(_health, "current_temperature_throttling_level", -1)
+                    _clock_hz = getattr(_health, "requested_temperature_clock_freq", 400000000)
+                    if _clock_hz:
+                        hailo_clock_mhz = round(float(_clock_hz) / 1e6, 1)
+            except Exception:
+                pass
+
+            # Determine whether active throttling is engaged (level >= 0 or Tj >= 104.0 C)
+            if hailo_thermal_level is not None or hailo_junction_temp_c is not None:
+                is_throttled = (hailo_thermal_level is not None and hailo_thermal_level >= 0) or (
+                    hailo_junction_temp_c is not None and hailo_junction_temp_c >= 104.0
+                )
+                hailo_throttling_active = 1.0 if is_throttled else 0.0
     except Exception:
         pass
 
@@ -99,7 +128,7 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
             text=True,
             timeout=2.0,
             check=False,
-        )
+            )
         if res.returncode == 0:
             for line in res.stdout.splitlines():
                 if "Power" in line and "W" in line:
@@ -115,6 +144,39 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
 
     samples.append(
         TelemetrySample(
+            metric_name="hailo_junction_temperature_c",
+            value=hailo_junction_temp_c,
+            unit="celsius",
+            source="hailort:device_control:junction",
+            availability_status="AVAILABLE" if hailo_junction_temp_c is not None else "UNSUPPORTED",
+            error_message=None if hailo_junction_temp_c is not None else "Hailo on-die junction temperature interface unavailable",
+        )
+    )
+
+    samples.append(
+        TelemetrySample(
+            metric_name="hailo_temp_ts0_c",
+            value=hailo_ts0_c,
+            unit="celsius",
+            source="hailort:device_control:ts0",
+            availability_status="AVAILABLE" if hailo_ts0_c is not None else "UNSUPPORTED",
+            error_message=None if hailo_ts0_c is not None else "Hailo on-die TS0 sensor unavailable",
+        )
+    )
+
+    samples.append(
+        TelemetrySample(
+            metric_name="hailo_temp_ts1_c",
+            value=hailo_ts1_c,
+            unit="celsius",
+            source="hailort:device_control:ts1",
+            availability_status="AVAILABLE" if hailo_ts1_c is not None else "UNSUPPORTED",
+            error_message=None if hailo_ts1_c is not None else "Hailo on-die TS1 sensor unavailable",
+        )
+    )
+
+    samples.append(
+        TelemetrySample(
             metric_name="hailo_temperature_c",
             value=hailo_temp_c,
             unit="celsius",
@@ -123,6 +185,54 @@ def collect_hailo_telemetry() -> List[TelemetrySample]:
             error_message=None if hailo_temp_c is not None else "Hailo on-die temperature interface unavailable",
         )
     )
+
+    if hailo_thermal_zone is not None:
+        samples.append(
+            TelemetrySample(
+                metric_name="hailo_thermal_zone",
+                value=float(hailo_thermal_zone),
+                unit="zone",
+                source="hailort:firmware_health",
+                availability_status="AVAILABLE",
+                error_message=None,
+            )
+        )
+
+    if hailo_thermal_level is not None:
+        samples.append(
+            TelemetrySample(
+                metric_name="hailo_throttling_level",
+                value=float(hailo_thermal_level),
+                unit="level",
+                source="hailort:firmware_health",
+                availability_status="AVAILABLE",
+                error_message=None,
+            )
+        )
+
+    if hailo_throttling_active is not None:
+        samples.append(
+            TelemetrySample(
+                metric_name="hailo_throttling_active",
+                value=hailo_throttling_active,
+                unit="boolean",
+                source="hailort:firmware_health",
+                availability_status="AVAILABLE",
+                error_message=None,
+            )
+        )
+
+    if hailo_clock_mhz is not None:
+        samples.append(
+            TelemetrySample(
+                metric_name="hailo_clock_frequency_mhz",
+                value=hailo_clock_mhz,
+                unit="megahertz",
+                source="hailort:firmware_health",
+                availability_status="AVAILABLE",
+                error_message=None,
+            )
+        )
 
     samples.append(
         TelemetrySample(

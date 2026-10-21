@@ -83,6 +83,25 @@ class TelemetryService:
                     status=self.get_status(),
                 )
 
+                # Capture synchronised trajectory point into TrajectoryEngine
+                try:
+                    from app.telemetry.trajectory import get_trajectory_engine
+                    inf_stats = {}
+                    try:
+                        from app.core.lifecycle import get_lifecycle_manager
+                        mgr = get_lifecycle_manager()
+                        if mgr and mgr.inference_service is not None:
+                            inf_stats = mgr.inference_service.get_stats()
+                    except Exception:
+                        pass
+                    get_trajectory_engine().capture_point(
+                        metrics_snapshot=self._collector.get_latest_snapshot(),
+                        inference_stats=inf_stats,
+                        monotonic_ts=t_start,
+                    )
+                except Exception as traj_err:
+                    logger.debug("Telemetry trajectory capture notice: %s", traj_err)
+
             except Exception as e:
                 logger.error("Exception during telemetry sampling: %s", e, exc_info=True)
 

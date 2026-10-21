@@ -352,16 +352,37 @@ def test_prompt_deployment_menu_microservices_remote():
         assert args.compose_action == "up"
 
 
-def test_prompt_deployment_menu_microservices_remote_empty_host_aborts():
+def test_prompt_deployment_menu_microservices_remote_defaults():
     from main import prompt_deployment_menu
 
     parser = build_parser()
     args = parser.parse_args([])
 
-    with patch("builtins.input", side_effect=["4", "2", ""]), \
+    # Inputs: choice 4, target 2, Enter for default host, Enter for default user, Enter for default port, Enter for password auth, Enter for dir, Enter for action 1
+    with patch("builtins.input", side_effect=["4", "2", "", "", "", "1", "", "1"]), \
+         patch("main.run_compose", return_value=0) as mock_compose:
+        ret = prompt_deployment_menu(args)
+        assert ret == 0
+        mock_compose.assert_called_once()
+        assert args.microservices is True
+        assert args.remote_host == "10.199.153.118"
+        assert args.remote_user == "iotgwai"
+        assert args.remote_port == 22
+        assert args.remote_auth == "password"
+        assert args.remote_dir == "~/edge-vision-monitor"
+        assert args.compose_action == "up"
+
+
+def test_prompt_deployment_menu_microservices_remote_interrupt_cancels():
+    from main import prompt_deployment_menu
+
+    parser = build_parser()
+    args = parser.parse_args([])
+
+    with patch("builtins.input", side_effect=["4", "2", KeyboardInterrupt]), \
          patch("main.run_compose") as mock_compose:
         ret = prompt_deployment_menu(args)
-        assert ret == 1
+        assert ret == 0
         mock_compose.assert_not_called()
 
 

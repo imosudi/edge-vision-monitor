@@ -919,6 +919,74 @@ class TelemetryRepository:
         if output.tell() > 0:
             yield output.getvalue()
 
+    def export_trajectory_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        workload_name: str = "historical",
+        limit: int = 50000,
+    ) -> str:
+        """
+        Export structured time-series trajectory (timestamp, TS0, TS1, Tj, clock,
+        throttling level, FPS, CPU load, fan RPM, latency percentiles) as a CSV string.
+        """
+        from app.telemetry.trajectory import get_trajectory_engine
+
+        engine = get_trajectory_engine()
+        session = engine.reconstruct_from_repository(
+            repository=self,
+            start_time=start_time,
+            end_time=end_time,
+            workload_name=workload_name,
+            limit=limit,
+        )
+        return session.export_csv()
+
+    def export_trajectory_json(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        workload_name: str = "historical",
+        limit: int = 50000,
+    ) -> Dict[str, Any]:
+        """
+        Export structured time-series trajectory as a JSON-serializable dictionary.
+        """
+        from app.telemetry.trajectory import get_trajectory_engine
+
+        engine = get_trajectory_engine()
+        session = engine.reconstruct_from_repository(
+            repository=self,
+            start_time=start_time,
+            end_time=end_time,
+            workload_name=workload_name,
+            limit=limit,
+        )
+        return session.export_json()
+
+    def stream_trajectory_csv(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        workload_name: str = "historical",
+        limit: int = 50000,
+    ) -> Generator[str, None, None]:
+        """
+        Stream structured time-series trajectory chunk by chunk in CSV format.
+        """
+        from app.telemetry.trajectory import get_trajectory_engine
+
+        engine = get_trajectory_engine()
+        session = engine.reconstruct_from_repository(
+            repository=self,
+            start_time=start_time,
+            end_time=end_time,
+            workload_name=workload_name,
+            limit=limit,
+        )
+        for chunk in engine.stream_csv(session_id=session.session_id):
+            yield chunk
+
     # -------------------------------------------------------------------------
     # Diagnostics & Storage Statistics
     # -------------------------------------------------------------------------

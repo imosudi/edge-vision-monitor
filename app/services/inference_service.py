@@ -27,7 +27,7 @@ logger = get_logger("SERVICE.INFERENCE")
 
 
 class RollingLatencyTracker:
-    """Computes rolling percentiles (mean, median, p95, p99, min, max) over a fixed window."""
+    """Computes rolling percentiles (mean, median, p50, p95, p99, min, max) over a fixed window."""
 
     def __init__(self, window_size: int = 100):
         self._window_size = window_size
@@ -38,23 +38,35 @@ class RollingLatencyTracker:
 
     def get_stats(self) -> Dict[str, float]:
         if not self._samples:
-            return {"mean": 0.0, "median": 0.0, "p95": 0.0, "p99": 0.0, "min": 0.0, "max": 0.0}
+            return {
+                "mean": 0.0,
+                "median": 0.0,
+                "p50": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "min": 0.0,
+                "max": 0.0,
+                "count": 0.0,
+            }
 
         sorted_vals = sorted(self._samples)
         n = len(sorted_vals)
 
         mean_val = sum(sorted_vals) / n
         median_val = sorted_vals[n // 2]
+        p50_idx = min(int(n * 0.50), n - 1)
         p95_idx = min(int(n * 0.95), n - 1)
         p99_idx = min(int(n * 0.99), n - 1)
 
         return {
             "mean": round(mean_val, 2),
             "median": round(median_val, 2),
+            "p50": round(sorted_vals[p50_idx], 2),
             "p95": round(sorted_vals[p95_idx], 2),
             "p99": round(sorted_vals[p99_idx], 2),
             "min": round(sorted_vals[0], 2),
             "max": round(sorted_vals[-1], 2),
+            "count": float(n),
         }
 
 
@@ -393,6 +405,15 @@ class InferenceService:
                 "postprocessing_ms": self._lat_postprocess.get_stats(),
                 "total_ms": self._lat_total.get_stats(),
             },
+        }
+
+    def get_latency_percentiles(self) -> Dict[str, Dict[str, float]]:
+        """Return rolling latency percentiles (p50, p95, p99) across all pipeline stages."""
+        return {
+            "preprocessing": self._lat_preprocess.get_stats(),
+            "execution": self._lat_hailo.get_stats(),
+            "postprocessing": self._lat_postprocess.get_stats(),
+            "total": self._lat_total.get_stats(),
         }
 
     def get_latest_jpeg(self) -> Optional[bytes]:
