@@ -40,28 +40,28 @@
     </div>
 
     <div class="header-actions">
-      <!-- Backend Switcher Segmented Control -->
-      <div class="backend-switch-group">
-        <button id="btn-backend-hailo" class="btn btn-backend active" onclick="switchBackend('hailo')" title="Hailo-8L NPU Accelerator">
+      <!-- Unified Workload Selection Segmented Control -->
+      <div class="workload-mode-group" role="group" aria-label="Workload Selection">
+        <button id="btn-backend-hailo" class="btn btn-workload-mode active" onclick="selectWorkloadMode('hailo')" title="Hailo-8L NPU Continuous Inference">
           <span>🚀</span> Hailo-8L
         </button>
-        <button id="btn-backend-cpu" class="btn btn-backend" onclick="switchBackend('cpu')" title="CPU Inference (ONNX Runtime)">
+        <button id="btn-backend-cpu" class="btn btn-workload-mode" onclick="selectWorkloadMode('cpu')" title="Host CPU (ONNX Runtime) Continuous Inference">
           <span>💻</span> CPU (ONNX)
+        </button>
+        <button id="btn-mode-benchmark" class="btn btn-workload-mode" onclick="selectWorkloadMode('benchmark')" title="Automated Dual Benchmark (Hailo-8L vs Host CPU)">
+          <span>⚖️</span> Dual Benchmark
+        </button>
+        <button id="btn-mode-workload-suite" class="btn btn-workload-mode" onclick="selectWorkloadMode('workload_suite')" title="Hailo-8L Throughput &amp; Thermal Stress Workload Suite (Profiles A, B, C, D)">
+          <span>🔥</span> Workload Suite
         </button>
       </div>
 
-      <button id="btn-run-auto-benchmark" class="btn btn-benchmark" onclick="startAutomatedBenchmark()" title="Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider">
-        <span>⚖️</span> Run Automated Dual Benchmark ▶
+      <!-- Master Unified Start / Stop Button for ALL Workloads -->
+      <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleGlobalWorkload()" title="Start or Stop the selected workload">
+        <span id="icon-inference">▶</span>
+        <span id="text-inference">Start Hailo-8L</span>
       </button>
 
-      <button id="btn-open-workload-suite" class="btn btn-warning" onclick="scrollToWorkloadSuite()" title="Jump to Hailo-8L Throughput &amp; Thermal Stress Workload Suite (A, B, C, D)">
-        <span>🔥</span> Workload Suite
-      </button>
-
-      <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleInference()">
-        <span id="icon-inference">⏹</span>
-        <span id="text-inference">Stop Inference</span>
-      </button>
       <button id="btn-open-diagnostics" class="btn btn-ghost" onclick="openDiagnosticsModal()">
         <span>🔧</span> Diagnostics
       </button>
@@ -424,7 +424,7 @@
           <span id="hud-workload-state-badge" class="badge-tag-gray">IDLE</span>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-          <button id="btn-workload-start" class="btn btn-primary" onclick="startWorkloadFromUI()" style="padding: 0.38rem 0.85rem; font-size: 0.82rem;">
+          <button id="btn-workload-start" class="btn btn-primary" onclick="toggleWorkloadSuiteFromUI()" style="padding: 0.38rem 0.85rem; font-size: 0.82rem;">
             <span>▶</span> Start Workload
           </button>
           <button id="btn-workload-abort" class="btn btn-danger-abort" onclick="emergencyAbortWorkload()" style="padding: 0.38rem 0.85rem; font-size: 0.82rem;" disabled>

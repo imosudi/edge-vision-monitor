@@ -7,6 +7,248 @@ let reconnectTimer = null;
 let currentSourceType = 'file';
 let isInferenceRunning = true;
 let isSwitchingBackend = false;
+let activeWorkloadMode = 'hailo'; // 'hailo' | 'cpu' | 'benchmark' | 'workload_suite'
+let isWorkloadSuiteActive = false;
+let isBenchmarkRunning = false;
+let currentActiveBackend = 'hailo';
+let selectedWorkloadType = 'A';
+
+function getActiveRunningWorkload() {
+  if (isWorkloadSuiteActive) return 'workload_suite';
+  if (typeof isBenchmarkRunning !== 'undefined' && isBenchmarkRunning) return 'benchmark';
+  if (isInferenceRunning) {
+    return currentActiveBackend === 'cpu' ? 'cpu' : 'hailo';
+  }
+  return null;
+}
+window.getActiveRunningWorkload = getActiveRunningWorkload;
+
+function syncWorkloadModeSelectorUI(runningWorkload) {
+  const effectiveMode = runningWorkload !== null ? runningWorkload : activeWorkloadMode;
+
+  const btnHailo = document.getElementById('btn-backend-hailo');
+  const btnCpu = document.getElementById('btn-backend-cpu');
+  const btnBench = document.getElementById('btn-mode-benchmark');
+  const btnSuite = document.getElementById('btn-mode-workload-suite');
+
+  if (btnHailo) btnHailo.classList.toggle('active', effectiveMode === 'hailo');
+  if (btnCpu) btnCpu.classList.toggle('active', effectiveMode === 'cpu');
+  if (btnBench) btnBench.classList.toggle('active', effectiveMode === 'benchmark');
+  if (btnSuite) btnSuite.classList.toggle('active', effectiveMode === 'workload_suite');
+}
+
+function syncContextualWorkloadButtons(runningWorkload) {
+  // 1. Workload Suite section in-card controls
+  const btnSuiteStart = document.getElementById('btn-workload-start');
+  const btnSuiteAbort = document.getElementById('btn-workload-abort');
+  if (btnSuiteStart) {
+    if (runningWorkload === 'workload_suite') {
+      btnSuiteStart.className = 'btn btn-danger pulsing-stop';
+      btnSuiteStart.innerHTML = '<span>⏹</span> Stop Workload';
+      btnSuiteStart.disabled = false;
+    } else if (runningWorkload !== null) {
+      btnSuiteStart.className = 'btn btn-primary';
+      btnSuiteStart.innerHTML = '<span>▶</span> Start Workload';
+      btnSuiteStart.disabled = true;
+    } else {
+      btnSuiteStart.className = 'btn btn-primary';
+      btnSuiteStart.innerHTML = '<span>▶</span> Start Workload';
+      btnSuiteStart.disabled = false;
+    }
+  }
+  if (btnSuiteAbort) {
+    btnSuiteAbort.disabled = (runningWorkload !== 'workload_suite');
+  }
+
+  // 2. Dual Benchmark button inside benchmark toolbar
+  const btnAutoBench = document.getElementById('btn-run-auto-benchmark');
+  if (btnAutoBench) {
+    if (runningWorkload === 'benchmark') {
+      btnAutoBench.className = 'btn btn-danger pulsing-stop';
+      btnAutoBench.innerHTML = '<span>⏹</span> Stop Benchmark';
+      btnAutoBench.disabled = false;
+    } else if (runningWorkload !== null) {
+      btnAutoBench.className = 'btn btn-benchmark';
+      btnAutoBench.innerHTML = '<span>▶</span> Run Automated Dual-Phase Benchmark';
+      btnAutoBench.disabled = true;
+    } else {
+      btnAutoBench.className = 'btn btn-benchmark';
+      btnAutoBench.innerHTML = '<span>▶</span> Run Automated Dual-Phase Benchmark';
+      btnAutoBench.disabled = false;
+    }
+  }
+}
+
+function updateMasterWorkloadButton() {
+  const btnInf = document.getElementById('btn-inference-toggle');
+  const txtInf = document.getElementById('text-inference');
+  const icoInf = document.getElementById('icon-inference');
+  if (!btnInf || !txtInf || !icoInf) return;
+
+  const runningWorkload = getActiveRunningWorkload();
+
+  if (runningWorkload !== null) {
+    btnInf.className = 'btn btn-danger pulsing-stop';
+    icoInf.textContent = '⏹';
+
+    if (runningWorkload === 'workload_suite') {
+      const prof = selectedWorkloadType || 'A';
+      txtInf.textContent = `Stop Workload (Profile ${prof})`;
+      btnInf.title = `Stop Active Hailo-8L Stress Workload (Profile ${prof})`;
+    } else if (runningWorkload === 'benchmark') {
+      txtInf.textContent = 'Stop Dual Benchmark';
+      btnInf.title = 'Stop Running Automated Dual Benchmark';
+    } else if (runningWorkload === 'cpu') {
+      txtInf.textContent = 'Stop CPU (ONNX)';
+      btnInf.title = 'Stop Continuous Host CPU Inference';
+    } else {
+      txtInf.textContent = 'Stop Hailo-8L';
+      btnInf.title = 'Stop Continuous Hailo-8L NPU Inference';
+    }
+  } else {
+    btnInf.classList.remove('pulsing-stop', 'btn-danger');
+    icoInf.textContent = '▶';
+
+    if (activeWorkloadMode === 'workload_suite') {
+      btnInf.className = 'btn btn-primary';
+      const prof = selectedWorkloadType || 'A';
+      txtInf.textContent = `Start Workload (Profile ${prof})`;
+      btnInf.title = `Start Hailo-8L Stress Workload (Profile ${prof})`;
+    } else if (activeWorkloadMode === 'benchmark') {
+      btnInf.className = 'btn btn-primary';
+      txtInf.textContent = 'Start Dual Benchmark';
+      btnInf.title = 'Start Automated Dual Benchmark (Hailo-8L vs Host CPU)';
+    } else if (activeWorkloadMode === 'cpu') {
+      btnInf.className = 'btn btn-primary';
+      txtInf.textContent = 'Start CPU (ONNX)';
+      btnInf.title = 'Start Continuous CPU (ONNX) Inference';
+    } else {
+      btnInf.className = 'btn btn-primary';
+      txtInf.textContent = 'Start Hailo-8L';
+      btnInf.title = 'Start Continuous Hailo-8L NPU Inference';
+    }
+  }
+
+  syncWorkloadModeSelectorUI(runningWorkload);
+  syncContextualWorkloadButtons(runningWorkload);
+}
+window.updateMasterWorkloadButton = updateMasterWorkloadButton;
+
+async function selectWorkloadMode(mode) {
+  console.log(`[WORKLOAD] Workload mode selected: ${mode}`);
+  activeWorkloadMode = mode;
+
+  if (mode === 'hailo') {
+    if (currentActiveBackend !== 'hailo' && typeof switchBackend === 'function') {
+      await switchBackend('hailo');
+    }
+  } else if (mode === 'cpu') {
+    if (currentActiveBackend !== 'cpu' && typeof switchBackend === 'function') {
+      await switchBackend('cpu');
+    }
+  } else if (mode === 'benchmark') {
+    const benchPanel = document.getElementById('benchmark-waveforms-panel');
+    if (benchPanel) {
+      benchPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  } else if (mode === 'workload_suite') {
+    if (typeof scrollToWorkloadSuite === 'function') {
+      scrollToWorkloadSuite();
+    }
+  }
+
+  updateMasterWorkloadButton();
+}
+window.selectWorkloadMode = selectWorkloadMode;
+
+async function toggleGlobalWorkload() {
+  const runningWorkload = getActiveRunningWorkload();
+
+  if (runningWorkload !== null) {
+    console.log(`[WORKLOAD] Halting running workload via master button: ${runningWorkload}`);
+    if (runningWorkload === 'workload_suite') {
+      await emergencyAbortWorkload();
+    } else if (runningWorkload === 'benchmark') {
+      if (typeof stopBenchmarkOperations === 'function') {
+        stopBenchmarkOperations('Master Stop requested');
+      }
+      try {
+        await fetch('/api/v1/inference/stop', { method: 'POST' });
+      } catch (e) {
+        console.warn('Failed to stop inference on benchmark abort:', e);
+      }
+    } else {
+      clearDetectionCountdown();
+      if (typeof stopBenchmarkOperations === 'function') {
+        stopBenchmarkOperations('Master Stop requested');
+      }
+      try {
+        await fetch('/api/v1/inference/stop', { method: 'POST' });
+      } catch (e) {
+        console.warn('Failed to stop inference:', e);
+      }
+    }
+    isInferenceRunning = false;
+    updateMasterWorkloadButton();
+    return;
+  }
+
+  console.log(`[WORKLOAD] Starting workload mode via master button: ${activeWorkloadMode}`);
+
+  if (activeWorkloadMode === 'workload_suite') {
+    await startWorkloadFromUI();
+  } else if (activeWorkloadMode === 'benchmark') {
+    await startAutomatedBenchmark();
+  } else if (activeWorkloadMode === 'cpu') {
+    if (currentActiveBackend !== 'cpu' && typeof switchBackend === 'function') {
+      await switchBackend('cpu');
+    }
+    setWaveformsPaused(false, 'CPU Inference Started');
+    await resetTelemetryAndDetectionData();
+    try {
+      const res = await fetch('/api/v1/inference/start', { method: 'POST' });
+      const data = await res.json();
+      console.log('CPU inference start response:', data);
+      isInferenceRunning = true;
+      if (detectionDurationSec > 0) {
+        startDetectionCountdown(detectionDurationSec);
+      }
+    } catch (e) {
+      console.error('Failed to start CPU inference:', e);
+    }
+  } else {
+    if (currentActiveBackend !== 'hailo' && typeof switchBackend === 'function') {
+      await switchBackend('hailo');
+    }
+    setWaveformsPaused(false, 'Hailo-8L Inference Started');
+    await resetTelemetryAndDetectionData();
+    try {
+      const res = await fetch('/api/v1/inference/start', { method: 'POST' });
+      const data = await res.json();
+      console.log('Hailo inference start response:', data);
+      isInferenceRunning = true;
+      if (detectionDurationSec > 0) {
+        startDetectionCountdown(detectionDurationSec);
+      }
+    } catch (e) {
+      console.error('Failed to start Hailo-8L inference:', e);
+    }
+  }
+
+  updateMasterWorkloadButton();
+}
+window.toggleGlobalWorkload = toggleGlobalWorkload;
+window.toggleInference = toggleGlobalWorkload;
+
+async function toggleWorkloadSuiteFromUI() {
+  if (isWorkloadSuiteActive) {
+    await emergencyAbortWorkload();
+  } else {
+    activeWorkloadMode = 'workload_suite';
+    await startWorkloadFromUI();
+  }
+}
+window.toggleWorkloadSuiteFromUI = toggleWorkloadSuiteFromUI;
 
 // Class colour palette matching backend
 const CLASS_COLORS = [
@@ -111,18 +353,8 @@ function handleLiveUpdate(data) {
   if (!isInferenceRunning && wasRunning) {
     clearDetectionCountdown();
   }
-  const btnInf = document.getElementById('btn-inference-toggle');
-  const txtInf = document.getElementById('text-inference');
-  const icoInf = document.getElementById('icon-inference');
-  if (isInferenceRunning) {
-    btnInf.className = 'btn btn-danger';
-    txtInf.textContent = 'Stop Inference';
-    icoInf.textContent = '⏹';
-  } else {
-    btnInf.className = 'btn btn-primary';
-    txtInf.textContent = 'Start Inference';
-    icoInf.textContent = '▶';
-  }
+  currentActiveBackend = inference.active_backend || status.active_backend || 'hailo';
+  updateMasterWorkloadButton();
 
   document.getElementById('label-source').textContent = `Source: ${status.active_source}`;
   const badgeSource = document.getElementById('badge-source');
@@ -978,33 +1210,7 @@ async function resetTelemetryAndDetectionData() {
 }
 
 async function toggleInference() {
-  const willStart = !isInferenceRunning;
-  const endpoint = isInferenceRunning ? '/api/v1/inference/stop' : '/api/v1/inference/start';
-
-  if (willStart) {
-    // Unpause waveforms and reset Sensor Catalogue & Live Data Provenance telemetry and detection data
-    setWaveformsPaused(false, 'Inference Started');
-    await resetTelemetryAndDetectionData();
-  } else {
-    // Stop Inference requested: stop any ongoing automated or manual benchmark operations immediately
-    if (typeof stopBenchmarkOperations === 'function') {
-      stopBenchmarkOperations('Stop Inference requested');
-    }
-    clearDetectionCountdown();
-  }
-
-  try {
-    const res = await fetch(endpoint, { method: 'POST' });
-    const data = await res.json();
-    console.log('Inference toggle response:', data);
-    if (willStart && detectionDurationSec > 0) {
-      startDetectionCountdown(detectionDurationSec);
-    } else if (!willStart) {
-      clearDetectionCountdown();
-    }
-  } catch (e) {
-    console.error('Failed to toggle inference', e);
-  }
+  await toggleGlobalWorkload();
 }
 
 function selectSourceTab(type) {
@@ -1859,13 +2065,11 @@ async function switchBackend(backend) {
       alert(`Backend switch failed: ${err.detail || 'Unknown error'}`);
     } else {
       console.log(`[INFERENCE] Switched backend to ${backend}`);
-      if (backend === 'cpu') {
-        btnHailo?.classList.remove('active');
-        btnCpu?.classList.add('active');
-      } else {
-        btnHailo?.classList.add('active');
-        btnCpu?.classList.remove('active');
+      currentActiveBackend = backend;
+      if (activeWorkloadMode === 'hailo' || activeWorkloadMode === 'cpu') {
+        activeWorkloadMode = backend;
       }
+      updateMasterWorkloadButton();
       // Wait briefly for worker process to reconfigure pipeline
       await new Promise(r => setTimeout(r, 350));
     }
@@ -2161,8 +2365,12 @@ function onAppInit() {
     .then(r => r.json())
     .then(st => {
       if (st) updateWorkloadUI(st);
+      updateMasterWorkloadButton();
     })
-    .catch(err => console.debug('[WORKLOAD] Initial status check:', err));
+    .catch(err => {
+      console.debug('[WORKLOAD] Initial status check:', err);
+      updateMasterWorkloadButton();
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -2186,7 +2394,7 @@ let benchmarkConfList = {
   cpu: []
 };
 
-let isBenchmarkRunning = false;
+isBenchmarkRunning = false;
 let isBenchmarkCancelled = false;
 let currentBenchmarkPhase = null; // 'hailo' | 'cpu' | null
 let benchmarkPhaseStartTime = null;
@@ -2242,6 +2450,7 @@ function stopBenchmarkOperations(reason = 'Inference Stopped') {
   }, 2200);
 
   updateBenchmarkStepperUI();
+  updateMasterWorkloadButton();
 }
 
 async function cleanupCancelledBenchmark() {
@@ -2502,9 +2711,11 @@ async function startAutomatedBenchmark() {
   await resetTelemetryAndDetectionData();
 
   clearBenchmarkData();
+  activeWorkloadMode = 'benchmark';
   isBenchmarkRunning = true;
   isBenchmarkCancelled = false;
   benchmarkPhaseTargetSec = durSec;
+  updateMasterWorkloadButton();
 
   const btnAuto = document.getElementById('btn-run-auto-benchmark');
   const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
@@ -2672,6 +2883,7 @@ async function startAutomatedBenchmark() {
     currentBenchmarkPhase = null;
     if (btnAuto) btnAuto.disabled = false;
     if (btnAutoWb) btnAutoWb.disabled = false;
+    updateMasterWorkloadButton();
   }
 }
 
@@ -2774,7 +2986,7 @@ async function manualRecordBenchmarkPhase(backend) {
    Phase 4: Hailo-8L Workload Suite & Thermal Stress Interactive Controllers
    ========================================================================== */
 
-let selectedWorkloadType = 'A';
+selectedWorkloadType = selectedWorkloadType || 'A';
 let workloadTrajectoryChart = null;
 let lastWorkloadSessionId = null;
 let isWorkloadModalOpen = false;
@@ -2810,6 +3022,9 @@ function selectWorkloadCard(type) {
   if (wrapperStreams) {
     wrapperStreams.style.display = (type === 'B' || type === 'C' || type === 'D') ? 'block' : 'none';
   }
+
+  activeWorkloadMode = 'workload_suite';
+  updateMasterWorkloadButton();
 }
 window.selectWorkloadCard = selectWorkloadCard;
 
@@ -2915,6 +3130,7 @@ function updateWorkloadUI(workload) {
   if (!workload) return;
 
   const isActive = !!workload.active;
+  isWorkloadSuiteActive = isActive;
   if (workload.session_id) {
     lastWorkloadSessionId = workload.session_id;
   }
@@ -3107,6 +3323,20 @@ function updateWorkloadUI(workload) {
 }
 
 async function startWorkloadFromUI() {
+  activeWorkloadMode = 'workload_suite';
+  // If regular continuous inference is active, halt it so workload suite has direct exclusive hardware access
+  if (isInferenceRunning) {
+    try {
+      await fetch('/api/v1/inference/stop', { method: 'POST' });
+      isInferenceRunning = false;
+    } catch (e) {
+      console.warn('Failed to stop background inference prior to workload run:', e);
+    }
+  }
+
+  isWorkloadSuiteActive = true;
+  updateMasterWorkloadButton();
+
   const durVal = parseFloat(document.getElementById('input-workload-duration')?.value || '60');
   const targetTempVal = parseFloat(document.getElementById('input-workload-target-temp')?.value || '100');
   const streamsVal = parseInt(document.getElementById('select-workload-streams')?.value || '4', 10);
@@ -3151,6 +3381,8 @@ async function startWorkloadFromUI() {
   } catch (err) {
     console.error('[WORKLOAD] Start failed:', err);
     alert(`Could not start workload: ${err.message}`);
+    isWorkloadSuiteActive = false;
+    updateMasterWorkloadButton();
     if (btnStart) btnStart.disabled = false;
   }
 }
@@ -3161,10 +3393,14 @@ async function emergencyAbortWorkload() {
     const res = await fetch('/api/v1/workload/stop?reason=Web+Dashboard+Safety+Abort', { method: 'POST' });
     const data = await res.json();
     console.log('[WORKLOAD] Abort response:', data);
+    isWorkloadSuiteActive = false;
     updateWorkloadUI(data.summary || { active: false, state: 'aborted' });
+    updateMasterWorkloadButton();
   } catch (err) {
     console.error('[WORKLOAD] Abort request failed:', err);
     alert(`Failed to abort workload: ${err.message}`);
+    isWorkloadSuiteActive = false;
+    updateMasterWorkloadButton();
   }
 }
 window.emergencyAbortWorkload = emergencyAbortWorkload;
