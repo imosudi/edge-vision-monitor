@@ -646,13 +646,14 @@
         <span id="badge-waveforms-status" class="badge-waveform-paused" style="display: none;" onclick="toggleWaveformsPause()" title="Click to resume or pause waveform streaming">
           ⏸️ Waveforms Paused (Session Elapsed) &bull; <span style="text-decoration: underline; font-size: 0.7rem;">Resume</span>
         </span>
-        <button id="btn-export-complete-waveforms-csv" type="button" class="btn-chart-action btn-export-csv btn-export-all-waveforms" onclick="exportCompleteWaveformsCSV()" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+        <button id="btn-export-complete-waveforms-csv" type="button" class="btn-chart-action btn-export-csv btn-export-all-waveforms" onclick="exportCompleteWaveformsCSV()" title="Export all 15 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
           <span class="icon-csv">📊</span> Export Complete Waveforms CSV
         </button>
         <div class="chart-filter-tabs">
-          <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (12)</button>
+          <button class="tab-btn active" onclick="filterCharts('all', this)">All Diagnostics (15)</button>
+          <button class="tab-btn" onclick="filterCharts('hailo', this)">Hailo-8L NPU (3)</button>
           <button class="tab-btn" onclick="filterCharts('inference', this)">Inference &amp; Vision (5)</button>
-          <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (2)</button>
+          <button class="tab-btn" onclick="filterCharts('thermals', this)">Cooling &amp; Thermals (3)</button>
           <button class="tab-btn" onclick="filterCharts('system', this)">CPU &amp; System (5)</button>
         </div>
       </div>
@@ -702,7 +703,7 @@
         <span class="step-arrow">➔</span>
         <div class="bench-step-compact" id="wb-step-overlay">
           <span class="step-num">4</span>
-          <span class="step-text">Overlaid on 12 Waveforms: <strong id="wb-state-overlay">Awaiting Data</strong></span>
+          <span class="step-text">Overlaid on 15 Waveforms: <strong id="wb-state-overlay">Awaiting Data</strong></span>
         </div>
       </div>
 
@@ -713,7 +714,7 @@
         <span id="wb-progress-pill" class="badge-tag-amber">0s</span>
       </div>
 
-      <!-- KPI Comparison Bar directly above the 12 waveforms -->
+      <!-- KPI Comparison Bar directly above the 15 waveforms -->
       <div id="wb-kpi-bar" class="wb-kpi-bar" style="display: none;">
         <div class="wb-kpi-item">
           <span class="wb-kpi-lbl">⚡ Throughput Speedup</span>
@@ -1029,6 +1030,78 @@
         </div>
       </div>
 
+      <!-- Chart 13: Hailo-8L NPU Compute Load -->
+      <div class="card chart-card" data-cat="hailo">
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>⚡</span> Hailo-8L NPU Compute Load (%)</div>
+            <span id="lbl-hailo-load-stat" class="header-stat-pill">--%</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-hailo-load')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-hailo-load')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-hailo-load')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-hailo-load"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 14: Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) -->
+      <div class="card chart-card" data-cat="thermals hailo">
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>🔥</span> Hailo-8L Silicon Thermals: Tj &amp; Die Sensors (°C)</div>
+            <span id="lbl-hailo-thermal-stat" class="header-stat-pill">Tj: --°C</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-hailo-thermal')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-hailo-thermal')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-hailo-thermal')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-hailo-thermal"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 15: Hailo-8L NPU Core Clock Frequency -->
+      <div class="card chart-card" data-cat="hailo system">
+        <div class="card-header chart-card-header">
+          <div class="card-title-group">
+            <div class="card-title"><span>⏱️</span> Hailo-8L NPU Core Clock Frequency (MHz)</div>
+            <span id="lbl-hailo-clock-stat" class="header-stat-pill">-- MHz</span>
+          </div>
+          <div class="chart-actions-group">
+            <button type="button" class="btn-chart-action btn-enlarge" onclick="openEnlargeChart('chart-hailo-clock')" title="Enlarge waveform view">
+              <span>🔍</span> ENLARGE VIEW
+            </button>
+            <button type="button" class="btn-chart-action btn-export-img" onclick="exportChartImage('chart-hailo-clock')" title="Export chart as PNG image">
+              <span>📷</span> EXPORT IMAGE
+            </button>
+            <button type="button" class="btn-chart-action btn-export-csv" onclick="exportChartCSV('chart-hailo-clock')" title="Export waveform series to CSV">
+              <span class="icon-csv">📊</span> CSV
+            </button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-hailo-clock"></canvas>
+        </div>
+      </div>
+
     </section>
   </main>
 
@@ -1320,7 +1393,7 @@
               <a href="/api/v1/history/export/detections" class="btn btn-ghost" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
                 📥 Export Detections CSV
               </a>
-              <button type="button" class="btn btn-ghost" onclick="exportCompleteWaveformsCSV()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Export all 12 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
+              <button type="button" class="btn btn-ghost" onclick="exportCompleteWaveformsCSV()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Export all 15 Live System &amp; Hardware Telemetry Waveforms into a single complete CSV dataset">
                 📊 Export Waveforms CSV
               </button>
               <button type="button" class="btn btn-ghost" onclick="resetTelemetryAndDetectionData()" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" title="Reset sensor telemetry and detection session data">

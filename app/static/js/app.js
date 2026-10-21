@@ -302,6 +302,7 @@ let sessionConfBins = new Array(10).fill(0);
 let sessionConfTotal = 0;
 let sessionConfSum = 0;
 let lastChartTickSec = -1;
+let hailoLoadMovingWindow = [];
 
 // Waveform streaming pause state (e.g. frozen when detection time elapses)
 let isWaveformsPaused = false;
@@ -880,6 +881,51 @@ function handleLiveUpdate(data) {
     lblDisk.textContent = `${diskUtil.toFixed(1)}% Used`;
   }
 
+  // Hailo NPU Compute Load, Silicon Thermals & Clock Telemetry
+  let hailoClockMhz = null;
+  let hailoUtilPct = null;
+
+  if (metrics.hailo_clock_frequency_mhz && metrics.hailo_clock_frequency_mhz.value !== null) {
+    hailoClockMhz = metrics.hailo_clock_frequency_mhz.value;
+  } else if (data.workload && typeof data.workload.clock_frequency_mhz === 'number') {
+    hailoClockMhz = data.workload.clock_frequency_mhz;
+  } else {
+    hailoClockMhz = 400.0;
+  }
+
+  if (data.workload && typeof data.workload.npu_utilization_percent === 'number') {
+    hailoUtilPct = data.workload.npu_utilization_percent;
+  } else if (metrics.hailo_utilization_percent && metrics.hailo_utilization_percent.value !== null) {
+    hailoUtilPct = metrics.hailo_utilization_percent.value;
+  } else if ((currentActiveBackend === 'hailo' && isInferenceRunning) || isWorkloadSuiteActive) {
+    hailoUtilPct = Math.min(100.0, Math.max(0.0, ((fps || 0) * (npuLat || 0) / 1000.0) * 100.0));
+  } else {
+    hailoUtilPct = 0.0;
+  }
+
+  const hailoLoadPct = Math.round((hailoUtilPct || 0) * 10) / 10;
+  hailoLoadMovingWindow.push(hailoLoadPct);
+  if (hailoLoadMovingWindow.length > 10) hailoLoadMovingWindow.shift();
+  const hailoLoadMa = Math.round((hailoLoadMovingWindow.reduce((a, b) => a + b, 0) / hailoLoadMovingWindow.length) * 10) / 10;
+
+  const lblHailoLoad = document.getElementById('lbl-hailo-load-stat');
+  if (lblHailoLoad) {
+    lblHailoLoad.textContent = `${hailoLoadPct.toFixed(1)}% (MA: ${hailoLoadMa.toFixed(1)}%)`;
+  }
+
+  const lblHailoThermal = document.getElementById('lbl-hailo-thermal-stat');
+  if (lblHailoThermal) {
+    const tjStr = hailoJunctionTemp !== null ? `${hailoJunctionTemp.toFixed(1)}°C` : (hailoTemp !== null ? `${hailoTemp.toFixed(1)}°C` : '--');
+    const ts0Str = hailoTs0 !== null ? `${hailoTs0.toFixed(1)}°C` : '--';
+    const ts1Str = hailoTs1 !== null ? `${hailoTs1.toFixed(1)}°C` : '--';
+    lblHailoThermal.textContent = `Tj: ${tjStr} | TS0: ${ts0Str} | TS1: ${ts1Str}`;
+  }
+
+  const lblHailoClock = document.getElementById('lbl-hailo-clock-stat');
+  if (lblHailoClock) {
+    lblHailoClock.textContent = `${Math.round(hailoClockMhz)} MHz`;
+  }
+
   // Sample waveform series once per second across the full detection duration session
   if (!isWaveformsPaused && shouldTickChart && typeof updateChartSeries === 'function') {
     lastChartTickSec = currentSec;
@@ -945,6 +991,28 @@ function handleLiveUpdate(data) {
       updateChartSeries(diskChart, nowLabel, [diskUtil]);
     }
 
+    // 12. Hailo-8L NPU Compute Load (%)
+    if (typeof hailoLoadChart !== 'undefined' && hailoLoadChart) {
+      updateChartSeries(hailoLoadChart, nowLabel, [hailoLoadPct, hailoLoadMa]);
+    }
+
+    // 13. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C)
+    if (typeof hailoThermalChart !== 'undefined' && hailoThermalChart) {
+      updateChartSeries(hailoThermalChart, nowLabel, [
+        hailoJunctionTemp !== null ? hailoJunctionTemp : (hailoTemp || 0),
+        hailoTs0 !== null ? hailoTs0 : 0,
+        hailoTs1 !== null ? hailoTs1 : 0
+      ]);
+    }
+
+    // 14. Hailo-8L NPU Core Clock Frequency (MHz)
+    if (typeof hailoClockChart !== 'undefined' && hailoClockChart) {
+      updateChartSeries(hailoClockChart, nowLabel, [
+        hailoClockMhz,
+        400.0
+      ]);
+    }
+
     // Benchmark Telemetry Capture (Relative-time aligned point collection)
     if (currentBenchmarkPhase && (currentBenchmarkPhase === 'hailo' || currentBenchmarkPhase === 'cpu')) {
       if (!benchmarkData[currentBenchmarkPhase]) benchmarkData[currentBenchmarkPhase] = [];
@@ -978,6 +1046,11 @@ function handleLiveUpdate(data) {
         proc_cpu: procCpu !== null ? procCpu : 0,
         proc_rss: procRss !== null ? procRss : 0,
         sys_load: sysLoad !== null ? sysLoad : 0,
+        npu_load: hailoLoadPct,
+        hailo_tj: hailoJunctionTemp !== null ? hailoJunctionTemp : (hailoTemp || 0),
+        hailo_ts0: hailoTs0 !== null ? hailoTs0 : 0,
+        hailo_ts1: hailoTs1 !== null ? hailoTs1 : 0,
+        hailo_clock: hailoClockMhz,
         backend: currentBenchmarkPhase
       });
       if (Array.isArray(detections)) {
@@ -1231,6 +1304,14 @@ async function resetTelemetryAndDetectionData() {
   if (lblFps) lblFps.textContent = '-- FPS';
   const lblInter = document.getElementById('lbl-inter-frame');
   if (lblInter) lblInter.textContent = '-- ms';
+
+  hailoLoadMovingWindow = [];
+  const lblHailoLoad = document.getElementById('lbl-hailo-load-stat');
+  if (lblHailoLoad) lblHailoLoad.textContent = '--%';
+  const lblHailoThermal = document.getElementById('lbl-hailo-thermal-stat');
+  if (lblHailoThermal) lblHailoThermal.textContent = 'Tj: --°C';
+  const lblHailoClock = document.getElementById('lbl-hailo-clock-stat');
+  if (lblHailoClock) lblHailoClock.textContent = '-- MHz';
 
   // 5. Call backend reset endpoint to wipe SQLite records
   try {
@@ -2634,7 +2715,7 @@ function updateBenchmarkStepperUI() {
     stepOverlay?.classList.add('completed');
     wbStepOverlay?.classList.add('completed');
     if (stepStateOverlay) stepStateOverlay.textContent = 'Overlaid 📈';
-    if (wbStateOverlay) wbStateOverlay.textContent = 'Overlaid on 12 Waveforms 📈';
+    if (wbStateOverlay) wbStateOverlay.textContent = 'Overlaid on 15 Waveforms 📈';
   } else {
     stepOverlay?.classList.remove('completed');
     wbStepOverlay?.classList.remove('completed');
@@ -2872,9 +2953,9 @@ async function startAutomatedBenchmark() {
     if (isBenchmarkCancelled) { await cleanupCancelledBenchmark(); return; }
 
     // -----------------------------------------------------------------------
-    // OVERLAY: Render Relative-Time Overlays on the 12 Live Waveforms & Reset to Hailo default
+    // OVERLAY: Render Relative-Time Overlays on the 15 Live Waveforms & Reset to Hailo default
     // -----------------------------------------------------------------------
-    setProgressMsg('Benchmark Finished! Rendering relative-time comparison directly on the 12 waveforms below...', 'Complete ✅');
+    setProgressMsg('Benchmark Finished! Rendering relative-time comparison directly on the 15 waveforms below...', 'Complete ✅');
 
     // Switch backend back to Hailo-8L default
     await fetch('/api/v1/inference/backend', {
@@ -2886,7 +2967,7 @@ async function startAutomatedBenchmark() {
       await loadAvailableBackends();
     }
 
-    // Set waveform mode to benchmark and render directly onto the 12 waveforms
+    // Set waveform mode to benchmark and render directly onto the 15 waveforms
     setWaveformViewMode('benchmark');
     if (typeof renderDualBenchmarkOnLiveWaveforms === 'function') {
       renderDualBenchmarkOnLiveWaveforms(benchmarkData.hailo, benchmarkData.cpu, benchmarkConfList.hailo, benchmarkConfList.cpu);

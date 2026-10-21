@@ -60,6 +60,9 @@ let fanChart = null;
 let cpuFreqChart = null;
 let voltageChart = null;
 let procFootprintChart = null;
+let hailoLoadChart = null;
+let hailoThermalChart = null;
+let hailoClockChart = null;
 let modalSensorChart = null;
 
 function initCharts() {
@@ -590,6 +593,178 @@ function initCharts() {
     });
   }
 
+  // 9. Hailo-8L NPU Compute Load (%)
+  const ctxHailoLoad = document.getElementById('chart-hailo-load');
+  if (ctxHailoLoad) {
+    hailoLoadChart = new Chart(ctxHailoLoad, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Hailo-8L NPU Load (%)',
+            data: [],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.10)',
+            fill: true,
+            borderWidth: 2,
+            tension: 0.2,
+            pointRadius: 0
+          },
+          {
+            label: '10s Moving Average (%)',
+            data: [],
+            borderColor: '#14b8a6',
+            backgroundColor: 'transparent',
+            borderDash: [4, 4],
+            borderWidth: 1.8,
+            fill: false,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            max: 100,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val}%`
+            },
+            title: {
+              display: true,
+              text: 'NPU Load (%)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 9, weight: '600' }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 10. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C)
+  const ctxHailoThermal = document.getElementById('chart-hailo-thermal');
+  if (ctxHailoThermal) {
+    hailoThermalChart = new Chart(ctxHailoThermal, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Junction Temp (Tj) (°C)',
+            data: [],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+            fill: false,
+            borderWidth: 2.2,
+            tension: 0.2,
+            pointRadius: 0
+          },
+          {
+            label: 'Die Sensor TS0 (°C)',
+            data: [],
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            borderDash: [4, 3],
+            borderWidth: 1.8,
+            fill: false,
+            pointRadius: 0
+          },
+          {
+            label: 'Die Sensor TS1 (°C)',
+            data: [],
+            borderColor: '#ea580c',
+            backgroundColor: 'transparent',
+            borderDash: [2, 2],
+            borderWidth: 1.8,
+            fill: false,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 30,
+            suggestedMax: 90,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val}°C`
+            },
+            title: {
+              display: true,
+              text: 'Silicon Temp (°C)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 9, weight: '600' }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 11. Hailo-8L NPU Core Clock Frequency (MHz)
+  const ctxHailoClock = document.getElementById('chart-hailo-clock');
+  if (ctxHailoClock) {
+    hailoClockChart = new Chart(ctxHailoClock, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'NPU Core Clock (MHz)',
+            data: [],
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.12)',
+            fill: true,
+            borderWidth: 2,
+            tension: 0.2,
+            pointRadius: 0
+          },
+          {
+            label: '400 MHz Nominal Ref',
+            data: [],
+            borderColor: '#94a3b8',
+            backgroundColor: 'transparent',
+            borderDash: [5, 4],
+            borderWidth: 1.2,
+            fill: false,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        ...chartOptionsBase,
+        scales: {
+          ...chartOptionsBase.scales,
+          y: {
+            ...chartOptionsBase.scales.y,
+            min: 0,
+            suggestedMax: 500,
+            ticks: {
+              ...chartOptionsBase.scales.y.ticks,
+              callback: (val) => `${val} MHz`
+            },
+            title: {
+              display: true,
+              text: 'Core Clock (MHz)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 9, weight: '600' }
+            }
+          }
+        }
+      }
+    });
+  }
+
   // Initialise benchmark comparison charts
   initBenchmarkCharts();
 
@@ -650,7 +825,8 @@ function filterCharts(category, btn) {
   }
   const cards = document.querySelectorAll('.charts-section .chart-card');
   cards.forEach(card => {
-    if (category === 'all' || card.getAttribute('data-cat') === category) {
+    const cats = (card.getAttribute('data-cat') || '').trim().split(/\s+/);
+    if (category === 'all' || cats.includes(category)) {
       card.style.display = 'flex';
     } else {
       card.style.display = 'none';
@@ -758,6 +934,9 @@ function resetAllCharts() {
     applyCleanTemplate(cpuFreqChart, initialLiveChartTemplates.cpuFreq);
     applyCleanTemplate(voltageChart, initialLiveChartTemplates.voltage);
     applyCleanTemplate(procFootprintChart, initialLiveChartTemplates.procFootprint);
+    applyCleanTemplate(hailoLoadChart, initialLiveChartTemplates.hailoLoad);
+    applyCleanTemplate(hailoThermalChart, initialLiveChartTemplates.hailoThermal);
+    applyCleanTemplate(hailoClockChart, initialLiveChartTemplates.hailoClock);
   } else {
     const lineCharts = [
       latencyChart,
@@ -771,6 +950,9 @@ function resetAllCharts() {
       cpuFreqChart,
       voltageChart,
       procFootprintChart,
+      hailoLoadChart,
+      hailoThermalChart,
+      hailoClockChart,
       modalSensorChart
     ];
 
@@ -944,6 +1126,33 @@ const CHART_REGISTRY = {
     desc: 'Edge Vision Monitor application process CPU utilisation (%), Resident Set Size (RSS MB), and Linux 1-minute system load average.',
     yUnit: 'mixed',
     defaultFilename: 'process_footprint_system_load_history'
+  },
+  'chart-hailo-load': {
+    getChart: () => hailoLoadChart,
+    title: 'Hailo-8L NPU Compute Load (%)',
+    icon: '⚡',
+    badge: 'NPU UTILISATION',
+    desc: 'Hailo-8L M.2 AI accelerator compute utilisation percentage tracking active neural network tensor execution load and rolling moving average.',
+    yUnit: '%',
+    defaultFilename: 'hailo_load_history'
+  },
+  'chart-hailo-thermal': {
+    getChart: () => hailoThermalChart,
+    title: 'Hailo-8L Silicon Thermals: Tj & Die Sensors (°C)',
+    icon: '🔥',
+    badge: 'SILICON THERMALS',
+    desc: 'Internal Hailo-8L silicon thermal monitoring tracking firmware junction temperature hotspot (Tj) and dual onboard die temperature sensors (TS0 and TS1) with critical safety threshold indicators.',
+    yUnit: '°C',
+    defaultFilename: 'hailo_thermal_sensors_history'
+  },
+  'chart-hailo-clock': {
+    getChart: () => hailoClockChart,
+    title: 'Hailo-8L NPU Core Clock Frequency (MHz)',
+    icon: '⏱️',
+    badge: 'NPU CLOCK',
+    desc: 'Hailo-8L core clock frequency telemetry tracking hardware operating frequency against the 400 MHz nominal baseline under dynamic workload.',
+    yUnit: 'MHz',
+    defaultFilename: 'hailo_clock_frequency_history'
   }
 };
 
@@ -1074,7 +1283,7 @@ function exportChartCSV(chartId) {
 }
 
 /**
- * Single complete CSV export covering all 12 Live System & Hardware Telemetry Waveforms.
+ * Single complete CSV export covering all 15 Live System & Hardware Telemetry Waveforms.
  * Intelligently exports:
  * - Full multi-channel Live Telemetry session waveforms when in Live mode
  * - Side-by-side Hailo-8L vs CPU comparative curves when in Dual Benchmark Overlay mode
@@ -1103,7 +1312,10 @@ function exportCompleteLiveWaveformsCSV() {
     'chart-fan',
     'chart-cpufreq',
     'chart-voltages',
-    'chart-procfootprint'
+    'chart-procfootprint',
+    'chart-hailo-load',
+    'chart-hailo-thermal',
+    'chart-hailo-clock'
   ];
 
   // 1. Identify master timeline labels
@@ -1265,6 +1477,33 @@ function exportCompleteLiveWaveformsCSV() {
     {
       header: 'System_Load_Average_1m',
       getVal: (i) => getChartDataVal(procFootprintChart, 2, i, masterLabels.length)
+    },
+    // 12. Hailo-8L NPU Compute Load (%) (chart-hailo-load: ds[0]=load, ds[1]=ma)
+    {
+      header: 'Hailo8L_NPU_Compute_Load_pct',
+      getVal: (i) => getChartDataVal(hailoLoadChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'Hailo8L_NPU_Load_10s_MA_pct',
+      getVal: (i) => getChartDataVal(hailoLoadChart, 1, i, masterLabels.length)
+    },
+    // 13. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C) (chart-hailo-thermal: ds[0]=tj, ds[1]=ts0, ds[2]=ts1)
+    {
+      header: 'Hailo8L_Silicon_Tj_degC',
+      getVal: (i) => getChartDataVal(hailoThermalChart, 0, i, masterLabels.length)
+    },
+    {
+      header: 'Hailo8L_Silicon_TS0_degC',
+      getVal: (i) => getChartDataVal(hailoThermalChart, 1, i, masterLabels.length)
+    },
+    {
+      header: 'Hailo8L_Silicon_TS1_degC',
+      getVal: (i) => getChartDataVal(hailoThermalChart, 2, i, masterLabels.length)
+    },
+    // 14. Hailo-8L NPU Core Clock Frequency (MHz) (chart-hailo-clock: ds[0]=clock, ds[1]=ref)
+    {
+      header: 'Hailo8L_Clock_Frequency_MHz',
+      getVal: (i) => getChartDataVal(hailoClockChart, 0, i, masterLabels.length)
     }
   ];
 
@@ -1363,7 +1602,20 @@ function exportCompleteBenchmarkWaveformsCSV() {
     'Hailo8L_Process_RSS_MB',
     'CPU_Process_RSS_MB',
     'Hailo8L_System_Load_1m',
-    'CPU_System_Load_1m'
+    'CPU_System_Load_1m',
+    // 12. Hailo-8L NPU Compute Load
+    'Hailo8L_NPU_Compute_Load_pct',
+    'CPU_NPU_Compute_Load_pct',
+    // 13. Hailo-8L Silicon Thermals (Tj & TS0 / TS1)
+    'Hailo8L_Silicon_Tj_degC',
+    'CPU_Silicon_Tj_degC',
+    'Hailo8L_Silicon_TS0_degC',
+    'CPU_Silicon_TS0_degC',
+    'Hailo8L_Silicon_TS1_degC',
+    'CPU_Silicon_TS1_degC',
+    // 14. Hailo-8L NPU Clock Frequency
+    'Hailo8L_NPU_Clock_MHz',
+    'CPU_NPU_Clock_MHz'
   ].map(h => `"${h}"`).join(',');
 
   const rows = [];
@@ -1392,7 +1644,12 @@ function exportCompleteBenchmarkWaveformsCSV() {
       fmt(h.v_in1), fmt(c.v_in1),
       fmt(h.proc_cpu), fmt(c.proc_cpu),
       fmt(h.proc_rss), fmt(c.proc_rss),
-      fmt(h.sys_load), fmt(c.sys_load)
+      fmt(h.sys_load), fmt(c.sys_load),
+      fmt(h.npu_load), fmt(c.npu_load),
+      fmt(h.hailo_tj), fmt(c.hailo_tj),
+      fmt(h.hailo_ts0), fmt(c.hailo_ts0),
+      fmt(h.hailo_ts1), fmt(c.hailo_ts1),
+      fmt(h.hailo_clock), fmt(c.hailo_clock)
     ].join(','));
   }
 
@@ -1976,7 +2233,10 @@ function captureLiveChartStates() {
     { id: 'fan', chart: fanChart },
     { id: 'cpuFreq', chart: cpuFreqChart },
     { id: 'voltage', chart: voltageChart },
-    { id: 'procFootprint', chart: procFootprintChart }
+    { id: 'procFootprint', chart: procFootprintChart },
+    { id: 'hailoLoad', chart: hailoLoadChart },
+    { id: 'hailoThermal', chart: hailoThermalChart },
+    { id: 'hailoClock', chart: hailoClockChart }
   ];
 
   const states = {};
@@ -2029,6 +2289,9 @@ function restoreLiveWaveforms() {
     applyState(cpuFreqChart, savedLiveChartStates.cpuFreq);
     applyState(voltageChart, savedLiveChartStates.voltage);
     applyState(procFootprintChart, savedLiveChartStates.procFootprint);
+    applyState(hailoLoadChart, savedLiveChartStates.hailoLoad);
+    applyState(hailoThermalChart, savedLiveChartStates.hailoThermal);
+    applyState(hailoClockChart, savedLiveChartStates.hailoClock);
   } else {
     resetAllCharts();
   }
@@ -2046,6 +2309,9 @@ function restoreLiveWaveforms() {
   resetText('lbl-fan-speed', '-- RPM');
   resetText('lbl-cpu-base-tag', '2.4 GHz Base Target');
   resetText('lbl-proc-footprint', '--');
+  resetText('lbl-hailo-load-stat', '--%');
+  resetText('lbl-hailo-thermal-stat', 'Tj: --°C');
+  resetText('lbl-hailo-clock-stat', '-- MHz');
 
   // 3. Hide benchmark KPI bar
   const kpiBar = document.getElementById('wb-kpi-bar');
@@ -2271,6 +2537,41 @@ function renderDualBenchmarkOnLiveWaveforms(hailoPts, cpuPts, hailoConfs = [], c
     procFootprintChart.update('none');
   }
 
+  // 13. Hailo-8L NPU Compute Load (%)
+  if (hailoLoadChart) {
+    hailoLoadChart.data.labels = labels;
+    hailoLoadChart.data.datasets = [
+      { label: 'Hailo-8L NPU Load (%)', data: getSeries(hailoPts, 'npu_load'), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.10)', borderWidth: 2.2, fill: true },
+      { label: 'CPU Run NPU Load (%)', data: getSeries(cpuPts, 'npu_load'), borderColor: '#94a3b8', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [5, 4], fill: false }
+    ];
+    setXAxis(hailoLoadChart);
+    hailoLoadChart.update('none');
+  }
+
+  // 14. Hailo-8L Silicon Thermals: Tj & Die Sensors (TS0 / TS1) (°C)
+  if (hailoThermalChart) {
+    hailoThermalChart.data.labels = labels;
+    hailoThermalChart.data.datasets = [
+      { label: 'Hailo Run Tj Hotspot (°C)', data: getSeries(hailoPts, 'hailo_tj'), borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2.2, fill: false },
+      { label: 'CPU Run Tj Hotspot (°C)', data: getSeries(cpuPts, 'hailo_tj'), borderColor: '#f87171', backgroundColor: 'transparent', borderWidth: 1.8, borderDash: [5, 4], fill: false },
+      { label: 'Hailo Run TS0 Die (°C)', data: getSeries(hailoPts, 'hailo_ts0'), borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 1.5, fill: false },
+      { label: 'Hailo Run TS1 Die (°C)', data: getSeries(hailoPts, 'hailo_ts1'), borderColor: '#ea580c', backgroundColor: 'transparent', borderWidth: 1.5, fill: false }
+    ];
+    setXAxis(hailoThermalChart);
+    hailoThermalChart.update('none');
+  }
+
+  // 15. Hailo-8L NPU Core Clock Frequency (MHz)
+  if (hailoClockChart) {
+    hailoClockChart.data.labels = labels;
+    hailoClockChart.data.datasets = [
+      { label: 'Hailo Run Clock (MHz)', data: getSeries(hailoPts, 'hailo_clock'), borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.12)', borderWidth: 2.2, fill: true },
+      { label: 'CPU Run Clock (MHz)', data: getSeries(cpuPts, 'hailo_clock'), borderColor: '#c4b5fd', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [5, 4], fill: false }
+    ];
+    setXAxis(hailoClockChart);
+    hailoClockChart.update('none');
+  }
+
   // Compute Summary KPI Stats
   const avg = (arr, k) => {
     if (!arr || arr.length === 0) return 0;
@@ -2326,6 +2627,32 @@ function renderDualBenchmarkOnLiveWaveforms(hailoPts, cpuPts, hailoConfs = [], c
   const elCpuFreqPill = document.getElementById('lbl-cpu-base-tag');
   if (elCpuFreqPill) elCpuFreqPill.textContent = `Overlaid t=0s...${maxLen - 1}s`;
 
+  const elHailoLoadPill = document.getElementById('lbl-hailo-load-stat');
+  if (elHailoLoadPill) {
+    const hLoad = avg(hailoPts, 'npu_load');
+    const cLoad = avg(cpuPts, 'npu_load');
+    if (hLoad > 0 || cLoad > 0) {
+      elHailoLoadPill.textContent = `Hailo: ${hLoad.toFixed(1)}% | CPU: ${cLoad.toFixed(1)}%`;
+    }
+  }
+
+  const elHailoThermalPill = document.getElementById('lbl-hailo-thermal-stat');
+  if (elHailoThermalPill) {
+    const hTj = max(hailoPts, 'hailo_tj');
+    const cTj = max(cpuPts, 'hailo_tj');
+    if (hTj > 0 || cTj > 0) {
+      elHailoThermalPill.textContent = `Hailo Tj: ${hTj.toFixed(1)}°C | CPU Tj: ${cTj.toFixed(1)}°C`;
+    }
+  }
+
+  const elHailoClockPill = document.getElementById('lbl-hailo-clock-stat');
+  if (elHailoClockPill) {
+    const hClock = avg(hailoPts, 'hailo_clock');
+    if (hClock > 0) {
+      elHailoClockPill.textContent = `Hailo: ${Math.round(hClock)} MHz`;
+    }
+  }
+
   // Update KPI overview bar above waveforms
   const kpiBar = document.getElementById('wb-kpi-bar');
   if (kpiBar) {
@@ -2372,7 +2699,7 @@ function renderDualBenchmarkOnLiveWaveforms(hailoPts, cpuPts, hailoConfs = [], c
     renderBenchmarkOverlay(hailoPts, cpuPts);
   }
 
-  console.log(`[WAVEFORMS] Rendered dual benchmark overlay directly onto the 12 live telemetry waveforms (${maxLen}s).`);
+  console.log(`[WAVEFORMS] Rendered dual benchmark overlay directly onto the 15 live telemetry waveforms (${maxLen}s).`);
 }
 
 if (document.readyState === 'loading') {
