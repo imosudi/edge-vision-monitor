@@ -933,10 +933,14 @@ function resetAllCharts() {
   isBenchmarkWaveformsMode = false;
   savedLiveChartStates = null;
 
+  const hailoLoad = hailoLoadChart || window.hailoLoadChart;
+  const hailoThermal = hailoThermalChart || window.hailoThermalChart;
+  const hailoClock = hailoClockChart || window.hailoClockChart;
+
   if (initialLiveChartTemplates) {
     const applyCleanTemplate = (chart, template) => {
       if (!chart || !template) return;
-      chart.data.labels = (chart === confHistChart) ? ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '0.9-1.0'] : [];
+      chart.data.labels = (chart === confHistChart) ? ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.9-1.0'] : [];
       chart.data.datasets = template.datasets.map(ds => ({
         ...ds,
         data: (chart === confHistChart) ? [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] : []
@@ -960,50 +964,51 @@ function resetAllCharts() {
     applyCleanTemplate(cpuFreqChart, initialLiveChartTemplates.cpuFreq);
     applyCleanTemplate(voltageChart, initialLiveChartTemplates.voltage);
     applyCleanTemplate(procFootprintChart, initialLiveChartTemplates.procFootprint);
-    applyCleanTemplate(hailoLoadChart, initialLiveChartTemplates.hailoLoad);
-    applyCleanTemplate(hailoThermalChart, initialLiveChartTemplates.hailoThermal);
-    applyCleanTemplate(hailoClockChart, initialLiveChartTemplates.hailoClock);
-  } else {
-    const lineCharts = [
-      latencyChart,
-      fpsChart,
-      interFrameChart,
-      detectionsCountChart,
-      thermalChart,
-      resourceChart,
-      diskChart,
-      fanChart,
-      cpuFreqChart,
-      voltageChart,
-      procFootprintChart,
-      hailoLoadChart,
-      hailoThermalChart,
-      hailoClockChart,
-      modalSensorChart
-    ];
+    applyCleanTemplate(hailoLoad, initialLiveChartTemplates.hailoLoad);
+    applyCleanTemplate(hailoThermal, initialLiveChartTemplates.hailoThermal);
+    applyCleanTemplate(hailoClock, initialLiveChartTemplates.hailoClock);
+  }
 
-    lineCharts.forEach(chart => {
-      if (chart && chart.data) {
-        chart.data.labels = [];
-        if (Array.isArray(chart.data.datasets)) {
-          chart.data.datasets.forEach(ds => {
-            ds.data = [];
-          });
-        }
-        if (chart.options && chart.options.scales && chart.options.scales.x) {
-          if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.display = (chart === confHistChart);
-          if (chart.options.scales.x.title) chart.options.scales.x.title.display = false;
-        }
-        chart.update('none');
-      }
-    });
+  const lineCharts = [
+    latencyChart,
+    fpsChart,
+    interFrameChart,
+    detectionsCountChart,
+    thermalChart,
+    resourceChart,
+    diskChart,
+    fanChart,
+    cpuFreqChart,
+    voltageChart,
+    procFootprintChart,
+    hailoLoad,
+    hailoThermal,
+    hailoClock,
+    modalSensorChart
+  ];
 
-    if (confHistChart && confHistChart.data && Array.isArray(confHistChart.data.datasets)) {
-      if (confHistChart.data.datasets[0]) {
-        confHistChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  lineCharts.forEach(chart => {
+    if (chart && chart.data) {
+      chart.data.labels = [];
+      if (Array.isArray(chart.data.datasets)) {
+        chart.data.datasets.forEach(ds => {
+          ds.data = [];
+        });
       }
-      confHistChart.update('none');
+      if (chart.options && chart.options.scales && chart.options.scales.x) {
+        if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.display = (chart === confHistChart);
+        if (chart.options.scales.x.title) chart.options.scales.x.title.display = false;
+      }
+      chart.update('none');
     }
+  });
+
+  if (confHistChart && confHistChart.data && Array.isArray(confHistChart.data.datasets)) {
+    confHistChart.data.labels = ['0.0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.5', '0.5-0.6', '0.6-0.7', '0.7-0.8', '0.9-1.0'];
+    if (confHistChart.data.datasets[0]) {
+      confHistChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    }
+    confHistChart.update('none');
   }
 
   if (typeof enlargedChart !== 'undefined' && enlargedChart && enlargedChart.data) {
@@ -1014,6 +1019,16 @@ function resetAllCharts() {
       });
     }
     enlargedChart.update('none');
+  }
+
+  if (typeof workloadTrajectoryChart !== 'undefined' && workloadTrajectoryChart && workloadTrajectoryChart.data) {
+    workloadTrajectoryChart.data.labels = [];
+    if (Array.isArray(workloadTrajectoryChart.data.datasets)) {
+      workloadTrajectoryChart.data.datasets.forEach(ds => {
+        ds.data = [];
+      });
+    }
+    workloadTrajectoryChart.update('none');
   }
 
   const kpiBar = document.getElementById('wb-kpi-bar');

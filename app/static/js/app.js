@@ -251,6 +251,10 @@ async function toggleGlobalWorkload() {
 
   console.log(`[WORKLOAD] Starting workload mode via master button: ${activeWorkloadMode}`);
 
+  // Unconditionally reset all live telemetry waveforms, plots, and statistics on Start
+  setWaveformsPaused(false, `${activeWorkloadMode} Started`);
+  await resetTelemetryAndDetectionData();
+
   if (activeWorkloadMode === 'workload_suite') {
     await startWorkloadFromUI();
   } else if (activeWorkloadMode === 'benchmark') {
@@ -259,8 +263,6 @@ async function toggleGlobalWorkload() {
     if (currentActiveBackend !== 'cpu' && typeof switchBackend === 'function') {
       await switchBackend('cpu');
     }
-    setWaveformsPaused(false, 'CPU Inference Started');
-    await resetTelemetryAndDetectionData();
     try {
       const res = await fetch('/api/v1/inference/start', { method: 'POST' });
       const data = await res.json();
@@ -276,8 +278,6 @@ async function toggleGlobalWorkload() {
     if (currentActiveBackend !== 'hailo' && typeof switchBackend === 'function') {
       await switchBackend('hailo');
     }
-    setWaveformsPaused(false, 'Hailo-8L Inference Started');
-    await resetTelemetryAndDetectionData();
     try {
       const res = await fetch('/api/v1/inference/start', { method: 'POST' });
       const data = await res.json();
@@ -3532,6 +3532,12 @@ async function startWorkloadFromUI() {
 
   const btnStart = document.getElementById('btn-workload-start');
   if (btnStart) btnStart.disabled = true;
+
+  // Unconditionally reset all live telemetry waveforms, plots, and statistics on Start
+  setWaveformsPaused(false, 'Workload Suite Started');
+  if (typeof resetTelemetryAndDetectionData === 'function') {
+    await resetTelemetryAndDetectionData();
+  }
 
   // Clear previous trajectory chart data for fresh run
   if (workloadTrajectoryChart) {
