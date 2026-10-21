@@ -142,3 +142,53 @@ def test_video_browser_source_and_frame_endpoint(client):
     assert frame_res.json()["frame_seq"] >= 1
 
 
+def test_workload_api_lifecycle(client):
+    # 1. Initial status check
+    st_res = client.get("/api/v1/workload/status")
+    assert st_res.status_code == 200
+    st_data = st_res.json()
+    assert "active" in st_data
+    assert "state" in st_data
+
+    # 2. Start Workload A via API
+    start_res = client.post(
+        "/api/v1/workload/start",
+        json={
+            "workload_type": "A",
+            "duration_seconds": 10.0,
+            "buffer_size": 20,
+        },
+    )
+    assert start_res.status_code == 200
+    start_data = start_res.json()
+    assert start_data["active"] is True
+    assert start_data["workload_type"] == "A"
+    session_id = start_data.get("session_id")
+
+    # 3. Status during execution
+    active_st = client.get("/api/v1/workload/status")
+    assert active_st.status_code == 200
+    assert active_st.json()["active"] is True
+
+    # 4. Stop Workload
+    stop_res = client.post("/api/v1/workload/stop?reason=Integration+Test")
+    assert stop_res.status_code == 200
+    assert stop_res.json()["stopped"] is True
+
+    # 5. Export CSV trajectory
+    csv_res = client.get(f"/api/v1/workload/export?session_id={session_id}&format=csv")
+    assert csv_res.status_code == 200
+    assert "text/csv" in csv_res.headers.get("content-type", "")
+
+    # 6. Export JSON trajectory
+    json_res = client.get(f"/api/v1/workload/export?session_id={session_id}&format=json")
+    assert json_res.status_code == 200
+    assert "application/json" in json_res.headers.get("content-type", "")
+
+    # 7. Session history check
+    sess_res = client.get("/api/v1/workload/sessions")
+    assert sess_res.status_code == 200
+    assert isinstance(sess_res.json(), list)
+
+
+

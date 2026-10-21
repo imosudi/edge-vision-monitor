@@ -37,6 +37,9 @@ SOURCE_COMMAND_FILE = SHM_DIR / "evm_source_command.json"
 RAW_FRAME_BIN_FILE = SHM_DIR / "evm_raw_frame.bin"
 RAW_FRAME_META_FILE = SHM_DIR / "evm_raw_frame.json"
 
+WORKLOAD_STATUS_FILE = SHM_DIR / "evm_workload_status.json"
+
+
 
 def _atomic_write_json(target_path: Path, data: Any) -> None:
     """Atomically write JSON data using a temporary file and POSIX rename."""
@@ -337,3 +340,18 @@ def get_ipc_raw_frame() -> Optional[Tuple[bytes, Dict[str, Any]]]:
     if not raw_bytes:
         return None
     return raw_bytes, meta
+
+
+# -----------------------------------------------------------------------------
+# 5. Workload & Thermal Profiling Status
+# -----------------------------------------------------------------------------
+
+def publish_workload_status(status: Dict[str, Any]) -> None:
+    """Publish active workload status, progress, and thermal metrics to /dev/shm."""
+    _atomic_write_json(WORKLOAD_STATUS_FILE, status)
+
+
+def get_ipc_workload_status() -> Dict[str, Any]:
+    """Retrieve active or latest workload profiling status from shared memory."""
+    return _read_json(WORKLOAD_STATUS_FILE, default={"active": False, "state": "idle"})
+

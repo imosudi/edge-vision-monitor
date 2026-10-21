@@ -32,6 +32,7 @@ class ApplicationLifecycleManager:
         self.inference_engine: Optional[BaseInferenceEngine] = None
         self.source_manager: Optional[VideoSourceManager] = None
         self.inference_service: Optional[InferenceService] = None
+        self.workload_service: Optional[Any] = None
         self._is_started = False
 
     def startup(self, service_mode: Optional[str] = None) -> None:
@@ -111,6 +112,18 @@ class ApplicationLifecycleManager:
             except Exception as e:
                 logger.debug("Failed publishing initial engine/backends status: %s", e)
 
+        # 6. Workload Service / Thermal Stress Generator
+        try:
+            from app.services.workload_service import WorkloadService
+            self.workload_service = WorkloadService(
+                source_manager=self.source_manager,
+                inference_service=self.inference_service,
+                telemetry_service=self.telemetry_service,
+                event_service=self.event_service,
+            )
+        except Exception as e:
+            logger.debug("Failed initialising WorkloadService: %s", e)
+
         if self.event_service:
             self.event_service.emit(
                 event_type="SYSTEM_STARTUP",
@@ -136,7 +149,14 @@ class ApplicationLifecycleManager:
                 component="CORE",
             )
 
-        # 1. Stop Inference Service first
+        # 0. Stop Workload Service first if active
+        if self.workload_service:
+            try:
+                self.workload_service.stop_workload(reason="Subsystem shutdown")
+            except Exception as e:
+                logger.debug("Failed stopping active workload during shutdown: %s", e)
+
+        # 1. Stop Inference Service
         if self.inference_service:
             self.inference_service.stop(timeout=2.0)
 

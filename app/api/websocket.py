@@ -89,6 +89,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 from app.core.ipc import get_ipc_source_status
                 src_st = get_ipc_source_status()
 
+            if mgr.workload_service:
+                workload_st = mgr.workload_service.get_status()
+            else:
+                from app.core.ipc import get_ipc_workload_status
+                workload_st = get_ipc_workload_status()
+
             payload = {
                 "type": "telemetry_update",
                 "timestamp_utc": now_utc,
@@ -109,7 +115,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 },
                 "detections": detections,
                 "metrics": metrics_snapshot,
+                "workload": workload_st,
             }
+
 
             await websocket.send_text(json.dumps(payload))
 

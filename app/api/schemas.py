@@ -103,3 +103,52 @@ class SystemInfoResponse(BaseModel):
     cpu_model: str
     hailo_device_present: bool
     hailo_runtime_installed: bool
+
+
+class WorkloadStartRequest(BaseModel):
+    workload_type: Literal["A", "B", "C", "D", "a", "b", "c", "d"]
+    duration_seconds: Optional[float] = Field(default=60.0, ge=5.0, le=3600.0)
+    target_temp_c: Optional[float] = Field(default=100.0, ge=50.0, le=102.0)
+    safety_temp_limit_c: Optional[float] = Field(default=102.0, ge=60.0, le=102.0)
+    simulate: Optional[bool] = False
+    stream_count: Optional[int] = Field(default=4, ge=1, le=16)
+    buffer_size: Optional[int] = Field(default=120, ge=10, le=500)
+    media_file: Optional[str] = None
+
+
+class WorkloadStatusResponse(BaseModel):
+    active: bool
+    state: str
+    workload_type: Optional[str] = None
+    workload_name: Optional[str] = None
+    workload_title: Optional[str] = None
+    elapsed_seconds: float = 0.0
+    duration_seconds: float = 60.0
+    progress_percent: float = 0.0
+    target_temp_c: Optional[float] = None
+    safety_temp_limit_c: Optional[float] = None
+    current_tj_c: Optional[float] = None
+    peak_tj_c: Optional[float] = None
+    ts0_c: Optional[float] = None
+    ts1_c: Optional[float] = None
+    clock_frequency_mhz: Optional[float] = None
+    initial_clock_mhz: Optional[float] = None
+    min_clock_mhz: Optional[float] = None
+    throttling_level: Optional[int] = None
+    throttling_active: bool = False
+    throttling_observed: bool = False
+    hysteresis_recovered: bool = False
+    current_fps: float = 0.0
+    mean_fps: float = 0.0
+    samples_count: int = 0
+    abort_reason: Optional[str] = None
+    session_id: Optional[str] = None
+    session_summary: Optional[Dict[str, Any]] = None
+
+
+class WorkloadStopResponse(BaseModel):
+    stopped: bool
+    message: str
+    session_id: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
+

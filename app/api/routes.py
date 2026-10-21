@@ -5,6 +5,7 @@ FastAPI versioned REST endpoints under /api/v1/.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import platform
 import re
@@ -25,6 +26,9 @@ from app.api.schemas import (
     SourceSelectionRequest,
     StatusResponse,
     SystemInfoResponse,
+    WorkloadStartRequest,
+    WorkloadStatusResponse,
+    WorkloadStopResponse,
 )
 from app.core.lifecycle import get_lifecycle_manager
 from app.core.logging_config import get_logger
@@ -774,4 +778,103 @@ def export_waveforms_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=waveforms_telemetry_export.csv"},
     )
+
+
+# -----------------------------------------------------------------------------
+# Workload Suite & Thermal Profiling Endpoints (Phase 3)
+# -----------------------------------------------------------------------------
+
+def _resolve_workload_service():
+    mgr = get_lifecycle_manager()
+    if mgr.workload_service is not None:
+        return mgr.workload_service
+    from app.services.workload_service import get_workload_service
+    return get_workload_service()
+
+
+@api_router.post("/workload/start", response_model=WorkloadStatusResponse)
+def start_workload(req: WorkloadStartRequest) -> WorkloadStatusResponse:
+    """Initiate a supervised thermal stress or throughput benchmarking run (Workload A, B, C, or D)."""
+    svc = _resolve_workload_service()
+    try:
+        st = svc.start_workload(
+            workload_type=req.workload_type,
+            duration_seconds=req.duration_seconds or 60.0,
+            target_temp_c=req.target_temp_c or 100.0,
+            safety_temp_limit_c=req.safety_temp_limit_c or 102.0,
+            simulate=bool(req.simulate),
+            stream_count=req.stream_count or 4,
+            buffer_size=req.buffer_size or 120,
+            media_file=req.media_file,
+        )
+        return WorkloadStatusResponse(**st)
+    except RuntimeError as re_err:
+        raise HTTPException(status_code=409, detail=str(re_err))
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as exc:
+        logger.exception("Failed initiating workload: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to start workload: {exc}")
+
+
+@api_router.get("/workload/status", response_model=WorkloadStatusResponse)
+def get_workload_status() -> WorkloadStatusResponse:
+    """Retrieve real-time progress, thermal states, and throughput for active workload."""
+    mgr = get_lifecycle_manager()
+    if mgr.workload_service is not None:
+        st = mgr.workload_service.get_status()
+    else:
+        from app.core.ipc import get_ipc_workload_status
+        st = get_ipc_workload_status()
+    return WorkloadStatusResponse(**st)
+
+
+@api_router.post("/workload/stop", response_model=WorkloadStopResponse)
+def stop_workload(
+    reason: Optional[str] = Query(None, description="Optional cancellation reason"),
+) -> WorkloadStopResponse:
+    """Manually abort or cancel the currently active workload run."""
+    svc = _resolve_workload_service()
+    st = svc.stop_workload(reason=reason or "Manual abort via API")
+    return WorkloadStopResponse(
+        stopped=True,
+        message=f"Workload stopped (state: {st.get('state')})",
+        session_id=st.get("session_id"),
+        summary=st.get("session_summary"),
+    )
+
+
+@api_router.get("/workload/export")
+def export_workload_trajectory(
+    session_id: Optional[str] = Query(None, description="Optional session ID filter"),
+    format: str = Query("csv", pattern="^(csv|json)$", description="Export format: 'csv' or 'json'"),
+):
+    """Download trajectory time-series dataset as CSV or JSON."""
+    svc = _resolve_workload_service()
+    target_id = session_id or svc.get_status().get("session_id") or "trajectory"
+    clean_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", target_id)
+
+    if format == "json":
+        data = svc.export_trajectory_json(session_id=session_id)
+        content = json.dumps(data, indent=2)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={clean_id}.json"},
+        )
+
+    csv_data = svc.export_trajectory_csv(session_id=session_id)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={clean_id}.csv"},
+    )
+
+
+@api_router.get("/workload/sessions")
+def get_workload_sessions() -> List[Dict[str, Any]]:
+    """Retrieve summary history of completed profiling sessions."""
+    svc = _resolve_workload_service()
+    return svc.get_session_history()
+
 
