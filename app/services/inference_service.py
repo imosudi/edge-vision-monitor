@@ -109,8 +109,10 @@ class InferenceService:
         self._lat_hailo = RollingLatencyTracker(window_size=100)
         self._lat_postprocess = RollingLatencyTracker(window_size=100)
         self._lat_total = RollingLatencyTracker(window_size=100)
+        self._lat_rendering = RollingLatencyTracker(window_size=100)
 
-        # Preview pacing
+        # Preview pacing and benchmark mode
+        self._benchmark_mode = False
         self._last_preview_time = 0.0
         self._preview_interval = 1.0 / max(1.0, float(server_config.preview_max_fps))
 
@@ -205,6 +207,7 @@ class InferenceService:
             self._lat_hailo = RollingLatencyTracker(window_size=100)
             self._lat_postprocess = RollingLatencyTracker(window_size=100)
             self._lat_total = RollingLatencyTracker(window_size=100)
+            self._lat_rendering = RollingLatencyTracker(window_size=100)
             self._recent_fps_timestamps.clear()
 
             if was_running:
@@ -292,6 +295,7 @@ class InferenceService:
 
                 # 3. Render Preview JPEG if interval elapsed
                 if (now - self._last_preview_time) >= self._preview_interval:
+                    t_render_start = time.monotonic()
                     annotated = annotate_frame(vframe.data, result.detections)
                     ret, jpeg_bytes = cv2.imencode(
                         ".jpg",
@@ -301,6 +305,8 @@ class InferenceService:
                     if ret:
                         with self._lock:
                             self._latest_jpeg = jpeg_bytes.tobytes()
+                    render_ms = (time.monotonic() - t_render_start) * 1000.0
+                    self._lat_rendering.add(render_ms)
                     self._last_preview_time = now
 
                 # 4. Cache structured detections and publish to shared-memory IPC
@@ -374,6 +380,7 @@ class InferenceService:
             self._lat_hailo = RollingLatencyTracker(window_size=100)
             self._lat_postprocess = RollingLatencyTracker(window_size=100)
             self._lat_total = RollingLatencyTracker(window_size=100)
+            self._lat_rendering = RollingLatencyTracker(window_size=100)
             self._latest_detections.clear()
             self._latest_result = None
         try:
@@ -393,6 +400,7 @@ class InferenceService:
         return {
             "is_running": self.is_running(),
             "active_backend": active_backend,
+            "benchmark_mode": self._benchmark_mode,
             "engine_status": eng_st,
             "current_fps": self.get_current_fps(),
             "inter_frame_ms": self._last_inter_frame_ms,
@@ -403,9 +411,24 @@ class InferenceService:
                 "execution_ms": self._lat_hailo.get_stats(),
                 "hailo_execution_ms": self._lat_hailo.get_stats(),
                 "postprocessing_ms": self._lat_postprocess.get_stats(),
+                "rendering_ms": self._lat_rendering.get_stats(),
                 "total_ms": self._lat_total.get_stats(),
             },
         }
+
+    def set_benchmark_mode(self, enabled: bool) -> None:
+        """
+        Toggle high-throughput benchmark mode.
+        When enabled, preview encoding is throttled to 2 FPS to decouple CPU image
+        compression from maximum accelerator inference throughput.
+        """
+        with self._lock:
+            self._benchmark_mode = enabled
+            if enabled:
+                self._preview_interval = 0.5  # Max 2 FPS preview during benchmarks
+            else:
+                self._preview_interval = 1.0 / max(1.0, float(self._server_config.preview_max_fps))
+        logger.info("InferenceService benchmark mode %s", "enabled" if enabled else "disabled")
 
     def get_latency_percentiles(self) -> Dict[str, Dict[str, float]]:
         """Return rolling latency percentiles (p50, p95, p99) across all pipeline stages."""
@@ -413,6 +436,7 @@ class InferenceService:
             "preprocessing": self._lat_preprocess.get_stats(),
             "execution": self._lat_hailo.get_stats(),
             "postprocessing": self._lat_postprocess.get_stats(),
+            "rendering": self._lat_rendering.get_stats(),
             "total": self._lat_total.get_stats(),
         }
 

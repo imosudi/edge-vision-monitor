@@ -15,7 +15,9 @@ from app.core.ipc import publish_source_status
 from app.core.logging_config import get_logger
 from app.sources.base import BaseVideoSource, VideoFrame
 from app.sources.browser_source import BrowserCameraSource
+from app.sources.multi_stream_source import MultiStreamSource
 from app.sources.picamera_source import PiCameraSource
+from app.sources.ring_buffer_source import RingBufferVideoSource
 from app.sources.usb_camera_source import USBCameraSource
 from app.sources.video_file_source import VideoFileSource
 
@@ -27,7 +29,7 @@ class VideoSourceManager:
 
     def __init__(self, config: VideoSourceConfig):
         self._config = config
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._active_source: Optional[BaseVideoSource] = None
         self._active_type: str = "none"
         self._source_id: str = "none"
@@ -59,6 +61,8 @@ class VideoSourceManager:
         return {
             "csi_camera_supported": csi_available,
             "browser_camera_supported": True,
+            "ring_buffer_supported": True,
+            "multi_stream_supported": True,
             "usb_devices": usb_devices,
             "media_files": sorted(media_files),
             "current_source_type": self._active_type,
@@ -164,6 +168,41 @@ class VideoSourceManager:
                     new_source = BrowserCameraSource(width=w, height=h, fps=fps)
                     new_id = "browser:client"
 
+                elif source_type in ("ring_buffer", "benchmark_ring_buffer", "workload_a"):
+                    fpath = kwargs.get("file_path", self._config.video_file_path)
+                    if not fpath or not os.path.exists(fpath):
+                        discovered = self.enumerate_sources().get("media_files", [])
+                        if discovered:
+                            fpath = os.path.join(self._config.media_dir, discovered[0])
+                    buf_size = kwargs.get("buffer_size", 120)
+                    unthrottled = kwargs.get("unthrottled", True)
+                    target_fps = kwargs.get("fps", self._config.capture_fps)
+                    new_source = RingBufferVideoSource(
+                        file_path=fpath,
+                        media_dir=self._config.media_dir,
+                        buffer_size=buf_size,
+                        unthrottled=unthrottled,
+                        target_fps=target_fps,
+                    )
+                    base_name = os.path.basename(fpath or "synthetic")
+                    new_id = f"ring_buffer:{base_name}"
+
+                elif source_type in ("multi_stream", "workload_b"):
+                    streams = kwargs.get("stream_count", 4)
+                    paths = kwargs.get("file_paths", None)
+                    buf_size = kwargs.get("buffer_size_per_stream", 60)
+                    q_size = kwargs.get("queue_size", 64)
+                    unthrottled = kwargs.get("unthrottled", True)
+                    new_source = MultiStreamSource(
+                        stream_count=streams,
+                        file_paths=paths,
+                        media_dir=self._config.media_dir,
+                        buffer_size_per_stream=buf_size,
+                        queue_size=q_size,
+                        unthrottled=unthrottled,
+                    )
+                    new_id = f"multi_stream:{streams}_channels"
+
                 else:
                     logger.error("Unknown video source type: %s", source_type)
                     return False
@@ -267,4 +306,42 @@ class VideoSourceManager:
                 self.switch_source("browser")
             if isinstance(self._active_source, BrowserCameraSource):
                 return self._active_source.push_frame(frame_data)
+            return False
+
+    def start_ring_buffer_source(
+        self,
+        file_path: Optional[str] = None,
+        buffer_size: int = 120,
+        unthrottled: bool = True,
+    ) -> bool:
+        """Switch to high-throughput unthrottled ring-buffer source for Workload A benchmarking."""
+        return self.switch_source(
+            "ring_buffer",
+            file_path=file_path,
+            buffer_size=buffer_size,
+            unthrottled=unthrottled,
+        )
+
+    def start_multi_stream_source(
+        self,
+        stream_count: int = 4,
+        file_paths: Optional[List[str]] = None,
+        buffer_size_per_stream: int = 60,
+        unthrottled: bool = True,
+    ) -> bool:
+        """Switch to concurrent multi-stream ingestion feeder for Workload B thermal characterisation."""
+        return self.switch_source(
+            "multi_stream",
+            stream_count=stream_count,
+            file_paths=file_paths,
+            buffer_size_per_stream=buffer_size_per_stream,
+            unthrottled=unthrottled,
+        )
+
+    def set_unthrottled(self, unthrottled: bool) -> bool:
+        """Dynamically toggle unthrottled maximum-rate delivery if active source supports it."""
+        with self._lock:
+            if isinstance(self._active_source, RingBufferVideoSource):
+                self._active_source.set_unthrottled(unthrottled)
+                return True
             return False
