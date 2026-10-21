@@ -78,6 +78,8 @@ class HailoHardwareReader:
         self._available: bool = False
         self._board_name: str = "Hailo-8L"
         self._arch: str = "HAILO8L"
+        self._prev_cpu_total: Optional[int] = None
+        self._prev_cpu_idle: Optional[int] = None
         self._init_device()
 
     def _init_device(self) -> None:
@@ -162,6 +164,31 @@ class HailoHardwareReader:
                     return float(fp.read().strip())
             except Exception:
                 pass
+        return None
+
+    def read_host_cpu_utilisation(self) -> Optional[float]:
+        """Compute host CPU utilisation percentage from successive /proc/stat reads."""
+        try:
+            with open("/proc/stat", "r", encoding="utf-8") as f:
+                line = f.readline()
+            if not line.startswith("cpu "):
+                return None
+            fields = [int(x) for x in line.strip().split()[1:]]
+            idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+            total = sum(fields)
+            if self._prev_cpu_total is None:
+                self._prev_cpu_total = total
+                self._prev_cpu_idle = idle
+                return None
+            delta_total = total - self._prev_cpu_total
+            delta_idle = idle - (self._prev_cpu_idle or 0)
+            self._prev_cpu_total = total
+            self._prev_cpu_idle = idle
+            if delta_total > 0:
+                util = 100.0 * (1.0 - (delta_idle / delta_total))
+                return round(max(0.0, min(100.0, util)), 1)
+        except Exception:
+            return None
         return None
 
 
@@ -310,6 +337,18 @@ def render_dashboard(
         platform_status = api_client.get_status() or {}
         metrics = api_client.get_metrics_current() or {}
 
+        # Resolve active backend and execution state
+        is_infer_running = bool(inf_stats.get("is_running", False))
+        eng_st = inf_stats.get("engine_status", {})
+        active_backend = str(
+            inf_stats.get("active_backend")
+            or platform_status.get("active_backend")
+            or eng_st.get("backend")
+            or ("hailo" if "Hailo" in eng_st.get("type", "") else "cpu" if "CPU" in eng_st.get("type", "") else "hailo")
+        ).lower()
+        is_hailo_active = (active_backend == "hailo")
+        is_cpu_active = (active_backend == "cpu")
+
         # Fallback values if hw_reader is running remotely
         if tj is None:
             tj = (metrics.get("hailo_junction_temperature_c") or metrics.get("hailo_temperature_c") or {}).get("value")
@@ -324,19 +363,37 @@ def render_dashboard(
         if ts1 is None and tj is not None:
             ts1 = tj
 
-        # Load % resolution
-        npu_load = local_load
-        if npu_load is None:
-            # Check if reported by telemetry service
-            npu_load = (metrics.get("hailo_utilization_percent") or {}).get("value")
-        if npu_load is None:
-            # Estimate from inference execution time / inter_frame_ms
+        # NPU Compute Load resolution (strictly 0.0% when Hailo backend is not active)
+        npu_load = 0.0
+        if is_hailo_active and is_infer_running:
+            npu_load = local_load
+            if npu_load is None:
+                # Check if reported by telemetry service
+                npu_load = (metrics.get("hailo_utilization_percent") or {}).get("value")
+            if npu_load is None:
+                # Estimate Hailo NPU duty cycle from inference execution latency
+                cur_fps = inf_stats.get("current_fps", 0.0)
+                mean_lat = inf_stats.get("latencies", {}).get("execution_ms", {}).get("mean", 14.5)
+                if cur_fps > 0 and mean_lat > 0:
+                    npu_load = min(100.0, (cur_fps * mean_lat / 1000.0) * 100.0)
+                else:
+                    npu_load = 0.0
+        else:
+            npu_load = 0.0
+
+        # Host CPU Compute Load resolution
+        host_cpu_load = (
+            (metrics.get("cpu_utilisation") or {}).get("value")
+            or (metrics.get("cpu_utilisation_percent") or {}).get("value")
+            or (metrics.get("cpu_util") or {}).get("value")
+        )
+        if host_cpu_load is None:
+            host_cpu_load = hw_reader.read_host_cpu_utilisation()
+        if host_cpu_load is None and is_cpu_active and is_infer_running:
             cur_fps = inf_stats.get("current_fps", 0.0)
-            mean_lat = inf_stats.get("latencies", {}).get("execution_ms", {}).get("mean", 14.5)
+            mean_lat = inf_stats.get("latencies", {}).get("execution_ms", {}).get("mean", 0.0)
             if cur_fps > 0 and mean_lat > 0:
-                npu_load = min(100.0, (cur_fps * mean_lat / 1000.0) * 100.0)
-            else:
-                npu_load = 0.0
+                host_cpu_load = min(100.0, (cur_fps * mean_lat / 1000.0) * 100.0)
 
         # CPU / RP1 / Fan / Ambient context
         cpu_temp = (
@@ -353,19 +410,53 @@ def render_dashboard(
         ambient_hum = metrics.get("ambient_humidity_percent", {}).get("value")
         ambient_comfort = metrics.get("ambient_temperature_c", {}).get("comfort_status", "Nominal")
 
-        # Pipeline stats
-        is_infer_running = bool(inf_stats.get("is_running", False))
+        # Pipeline stats and model resolution
         fps = inf_stats.get("current_fps", 0.0)
         tot_frames = inf_stats.get("total_frames_processed", 0)
-        active_backend = inf_stats.get("active_backend", "hailo")
-        hef_path = inf_stats.get("engine_status", {}).get("hef_path", "models/yolo11n.hef")
-        model_name = os.path.basename(hef_path).replace(".hef", "")
+
+        if is_cpu_active:
+            model_path = (
+                eng_st.get("model_path")
+                or platform_status.get("model_path")
+                or "models/yolo11n.onnx"
+            )
+            model_name = os.path.basename(model_path).replace(".onnx", "").replace(".hef", "")
+            engine_desc = f"{CLR_CYAN}CPU{CLR_RESET} (ONNX Runtime CPU Inference Engine)"
+            exec_label = "CPU"
+        elif is_hailo_active:
+            model_path = (
+                eng_st.get("hef_path")
+                or platform_status.get("hef_path")
+                or eng_st.get("model_path")
+                or "models/yolo11n.hef"
+            )
+            model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
+            engine_desc = f"{CLR_CYAN}HAILO{CLR_RESET} (HailoRT VStreams Asynchronous Pipeline)"
+            exec_label = "NPU"
+        elif active_backend == "mock":
+            model_path = (
+                eng_st.get("model_path")
+                or eng_st.get("hef_path")
+                or "models/yolo11n.hef"
+            )
+            model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
+            engine_desc = f"{CLR_CYAN}MOCK{CLR_RESET} (Simulated Synthetic Pipeline)"
+            exec_label = "Mock"
+        else:
+            model_path = (
+                eng_st.get("model_path")
+                or eng_st.get("hef_path")
+                or "models/yolo11n"
+            )
+            model_name = os.path.basename(model_path).split(".")[0]
+            engine_desc = f"{CLR_CYAN}{active_backend.upper()}{CLR_RESET} (Inference Pipeline)"
+            exec_label = "Exec"
 
         lat_info = inf_stats.get("latencies", {})
-        npu_ms = lat_info.get("execution_ms", {}).get("mean", 0.0)
+        exec_ms = lat_info.get("execution_ms", {}).get("mean", 0.0)
         pre_ms = lat_info.get("preprocessing_ms", {}).get("mean", 0.0)
         post_ms = lat_info.get("postprocessing_ms", {}).get("mean", 0.0)
-        tot_ms = lat_info.get("total_ms", {}).get("mean", (npu_ms + pre_ms + post_ms))
+        tot_ms = lat_info.get("total_ms", {}).get("mean", (exec_ms + pre_ms + post_ms))
 
         # Clear terminal and jump to top-left
         sys.stdout.write("\033[H\033[2J")
@@ -403,23 +494,29 @@ def render_dashboard(
         elif max_die_temp is not None and max_die_temp >= 75.0:
             throttle_str = f"{CLR_YELLOW}Elevated ({max_die_temp:.1f} °C: normal under heavy compute){CLR_RESET}"
         else:
-            throttle_str = f"{CLR_GREEN}Nominal (Full {target_mhz} MHz operational frequency - Thermal protection armed){CLR_RESET}"
+            throttle_str = f"{CLR_GREEN}Nominal (Full {target_mhz} MHz operational frequency, thermal protection armed){CLR_RESET}"
         print(f"  Thermal Throttling:    {throttle_str}")
 
-        # Live NPU load gauge bar
-        print(f"  NPU Compute Load:      {format_gauge_bar(npu_load or 0.0)}")
+        # Live NPU load gauge bar vs Standby state
+        if is_hailo_active:
+            print(f"  NPU Compute Load:      {format_gauge_bar(npu_load or 0.0)}")
+        else:
+            standby_tag = "Active Engine: CPU" if is_cpu_active else f"Active Engine: {active_backend.upper()}"
+            print(f"  NPU Compute Load:      {CLR_GRAY}[{'·' * 30}]   0.0% (NPU Standby / Idle, {standby_tag}){CLR_RESET}")
+            if host_cpu_load is not None:
+                print(f"  Host CPU Load (Active):{format_gauge_bar(host_cpu_load)}")
 
         # Section 2: Real-Time Inference Performance
         print(f"\n{CLR_WHITE}{CLR_BOLD}[2] REAL-TIME INFERENCE WORKLOAD & THROUGHPUT{CLR_RESET}")
         status_label = f"{CLR_GREEN}● ACTIVE RUNNING{CLR_RESET}" if is_infer_running else f"{CLR_YELLOW}○ IDLE / STANDBY{CLR_RESET}"
         print(f"  Workload State:        {status_label}")
-        print(f"  Neural Network Model:  {CLR_WHITE}{CLR_BOLD}{model_name}{CLR_RESET} ({hef_path})")
-        print(f"  Active Compute Engine: {CLR_CYAN}{active_backend.upper()}{CLR_RESET} (HailoRT VStreams Asynchronous Pipeline)")
+        print(f"  Neural Network Model:  {CLR_WHITE}{CLR_BOLD}{model_name}{CLR_RESET} ({model_path})")
+        print(f"  Active Compute Engine: {engine_desc}")
         
         fps_color = CLR_GREEN if fps >= 20.0 else (CLR_YELLOW if fps >= 10.0 else CLR_RED)
         print(f"  Throughput:            {fps_color}{CLR_BOLD}{fps:5.1f} FPS{CLR_RESET} (Total Frames Evaluated: {tot_frames:,})")
 
-        print(f"  Pipeline Latencies:    NPU: {CLR_MAGENTA}{npu_ms:4.1f} ms{CLR_RESET} | Pre: {CLR_BLUE}{pre_ms:4.1f} ms{CLR_RESET} | Post: {CLR_YELLOW}{post_ms:4.1f} ms{CLR_RESET} | Total: {CLR_WHITE}{tot_ms:4.1f} ms{CLR_RESET}")
+        print(f"  Pipeline Latencies:    {exec_label}: {CLR_MAGENTA}{exec_ms:4.1f} ms{CLR_RESET} | Pre: {CLR_BLUE}{pre_ms:4.1f} ms{CLR_RESET} | Post: {CLR_YELLOW}{post_ms:4.1f} ms{CLR_RESET} | Total: {CLR_WHITE}{tot_ms:4.1f} ms{CLR_RESET}")
 
         # Section 3: Cross-Component Thermal Correlation
         print(f"\n{CLR_WHITE}{CLR_BOLD}[3] HOST & AMBIENT THERMAL PROFILE{CLR_RESET}")
@@ -427,6 +524,8 @@ def render_dashboard(
         rp1_str = f"{rp1_temp:.1f} °C" if rp1_temp is not None else "-- °C"
         fan_str = f"{round(fan_rpm)} RPM" if fan_rpm is not None else "-- RPM"
         print(f"  Raspberry Pi 5 CPU:    {CLR_CYAN}{cpu_str}{CLR_RESET} | RP1 Southbridge: {CLR_CYAN}{rp1_str}{CLR_RESET} | Cooler Fan: {CLR_CYAN}{fan_str}{CLR_RESET}")
+        if host_cpu_load is not None:
+            print(f"  Host CPU Compute Load: {format_gauge_bar(host_cpu_load)}")
 
         if ambient_temp is not None and ambient_hum is not None:
             print(f"  Room Ambient:          {CLR_GREEN}{ambient_temp:.1f} °C{CLR_RESET} ({ambient_hum:.1f}% RH) | Comfort: {CLR_YELLOW}{ambient_comfort}{CLR_RESET} (ESP32-S3)")
@@ -507,12 +606,51 @@ def main():
                 health = hw_reader.read_health_information()
                 throttled = hw_reader.read_throttling_state()
                 util = hw_reader.read_utilization()
-                stats = api_client.get_inference_stats() or {}
+                inf_stats = api_client.get_inference_stats() or {}
+                plat_status = api_client.get_status() or {}
                 mets = api_client.get_metrics_current() or {}
+                eng_st = inf_stats.get("engine_status", {})
+                active_backend = str(
+                    inf_stats.get("active_backend")
+                    or plat_status.get("active_backend")
+                    or eng_st.get("backend")
+                    or ("hailo" if "Hailo" in eng_st.get("type", "") else "cpu" if "CPU" in eng_st.get("type", "") else "hailo")
+                ).lower()
+                is_hailo_active = (active_backend == "hailo")
+                is_cpu_active = (active_backend == "cpu")
+                is_infer_running = bool(inf_stats.get("is_running", False))
+
+                npu_load = 0.0
+                if is_hailo_active and is_infer_running:
+                    npu_load = util
+                    if npu_load is None:
+                        npu_load = (mets.get("hailo_utilization_percent") or {}).get("value")
+                    if npu_load is None:
+                        cur_fps = inf_stats.get("current_fps", 0.0)
+                        mean_lat = inf_stats.get("latencies", {}).get("execution_ms", {}).get("mean", 14.5)
+                        if cur_fps > 0 and mean_lat > 0:
+                            npu_load = min(100.0, (cur_fps * mean_lat / 1000.0) * 100.0)
+                        else:
+                            npu_load = 0.0
+
+                host_cpu_load = (
+                    (mets.get("cpu_utilisation") or {}).get("value")
+                    or (mets.get("cpu_utilisation_percent") or {}).get("value")
+                    or (mets.get("cpu_util") or {}).get("value")
+                )
+                if host_cpu_load is None:
+                    host_cpu_load = hw_reader.read_host_cpu_utilisation()
+                if host_cpu_load is None and is_cpu_active and is_infer_running:
+                    cur_fps = inf_stats.get("current_fps", 0.0)
+                    mean_lat = inf_stats.get("latencies", {}).get("execution_ms", {}).get("mean", 0.0)
+                    if cur_fps > 0 and mean_lat > 0:
+                        host_cpu_load = min(100.0, (cur_fps * mean_lat / 1000.0) * 100.0)
+
                 if tj is None:
                     tj = (mets.get("hailo_junction_temperature_c") or mets.get("hailo_temperature_c") or {}).get("value")
                 sample = {
                     "timestamp": time.time(),
+                    "active_backend": active_backend,
                     "hailo_junction_temp_c": tj,
                     "hailo_temp_ts0_c": ts0 or (mets.get("hailo_temp_ts0_c") or mets.get("hailo_temperature_c") or {}).get("value"),
                     "hailo_temp_ts1_c": ts1 or (mets.get("hailo_temp_ts1_c") or mets.get("hailo_temperature_c") or {}).get("value"),
@@ -520,10 +658,11 @@ def main():
                     "hailo_thermal_zone": health.get("current_temperature_zone") if health else (mets.get("hailo_thermal_zone") or {}).get("value"),
                     "hailo_throttled": throttled,
                     "hailo_protection_armed": hw_reader.is_protection_enabled(),
-                    "hailo_load_percent": util,
-                    "inference_fps": stats.get("current_fps"),
-                    "total_frames": stats.get("total_frames_processed"),
-                    "latencies": stats.get("latencies"),
+                    "hailo_load_percent": round(npu_load, 1) if npu_load is not None else 0.0,
+                    "host_cpu_load_percent": round(host_cpu_load, 1) if host_cpu_load is not None else None,
+                    "inference_fps": inf_stats.get("current_fps"),
+                    "total_frames": inf_stats.get("total_frames_processed"),
+                    "latencies": inf_stats.get("latencies"),
                 }
                 print(json.dumps(sample))
                 sys.stdout.flush()
