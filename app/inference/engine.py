@@ -151,10 +151,74 @@ class HailoInferenceEngine(BaseInferenceEngine):
         try:
             import hailo_platform  # type: ignore
 
-            if hasattr(hailo_platform, "InferModel"):
-                # Modern HailoRT InferModel API supporting asynchronous pipelining
+            configured = False
+
+            # Path 1: Standard and proven InferVStreams API (optimized for Raspberry Pi 5 AI HAT+)
+            if hasattr(hailo_platform, "InferVStreams") and hasattr(hailo_platform, "HEF"):
+                try:
+                    self._hef = hailo_platform.HEF(self._config.hef_path)
+                    self._vdevice = hailo_platform.VDevice()
+                    cfg = hailo_platform.ConfigureParams.create_from_hef(
+                        self._hef, interface=hailo_platform.HailoStreamInterface.PCIe
+                    )
+                    net_groups = self._vdevice.configure(self._hef, cfg)
+                    self._net_group = net_groups[0]
+                    in_params = hailo_platform.InputVStreamParams.make(
+                        self._net_group, quantized=False, format_type=hailo_platform.FormatType.UINT8
+                    )
+                    out_params = hailo_platform.OutputVStreamParams.make(
+                        self._net_group, quantized=False, format_type=hailo_platform.FormatType.FLOAT32
+                    )
+                    self._input_name = list(in_params.keys())[0]
+                    self._activated_network = self._net_group.activate()
+                    self._activated_network.__enter__()
+                    self._infer_pipeline = hailo_platform.InferVStreams(
+                        self._net_group, in_params, out_params
+                    )
+                    self._infer_pipeline.__enter__()
+                    self._use_vstreams = True
+                    self._use_infer_model = False
+                    configured = True
+                    logger.info("Hailo-8L inference engine initialised successfully with InferVStreams: %s", self._config.hef_path)
+                except Exception as vs_err:
+                    logger.warning("InferVStreams initialisation failed: %s; trying InferModel fallback...", vs_err)
+                    if hasattr(self, "_infer_pipeline") and self._infer_pipeline:
+                        try:
+                            self._infer_pipeline.__exit__(None, None, None)
+                        except Exception:
+                            pass
+                        self._infer_pipeline = None
+                    if hasattr(self, "_activated_network") and self._activated_network:
+                        try:
+                            self._activated_network.__exit__(None, None, None)
+                        except Exception:
+                            pass
+                        self._activated_network = None
+                    if self._vdevice:
+                        try:
+                            if hasattr(self._vdevice, "__exit__"):
+                                self._vdevice.__exit__(None, None, None)
+                            elif hasattr(self._vdevice, "release"):
+                                self._vdevice.release()
+                        except Exception:
+                            pass
+                        self._vdevice = None
+
+            # Path 2: Modern InferModel API fallback
+            if not configured and hasattr(hailo_platform, "InferModel"):
                 self._vdevice = hailo_platform.VDevice()
                 self._infer_model = self._vdevice.create_infer_model(self._config.hef_path)
+                if hasattr(self._infer_model, "input"):
+                    try:
+                        self._infer_model.input().set_format_type(hailo_platform.FormatType.UINT8)
+                    except Exception:
+                        pass
+                if hasattr(self._infer_model, "outputs"):
+                    try:
+                        for out in self._infer_model.outputs:
+                            out.set_format_type(hailo_platform.FormatType.FLOAT32)
+                    except Exception:
+                        pass
                 self._configured_infer_model = self._infer_model.configure()
                 self._bindings_pool = [
                     self._configured_infer_model.create_bindings()
@@ -164,32 +228,11 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 self._inflight_queue.clear()
                 self._use_infer_model = True
                 self._use_vstreams = False
-            elif hasattr(hailo_platform, "InferVStreams") and hasattr(hailo_platform, "HEF"):
-                # Standard HailoRT PyHailoRT API (Raspberry Pi OS / AI HAT+)
-                self._hef = hailo_platform.HEF(self._config.hef_path)
-                self._vdevice = hailo_platform.VDevice()
-                cfg = hailo_platform.ConfigureParams.create_from_hef(
-                    self._hef, interface=hailo_platform.HailoStreamInterface.PCIe
-                )
-                net_groups = self._vdevice.configure(self._hef, cfg)
-                self._net_group = net_groups[0]
-                in_params = hailo_platform.InputVStreamParams.make(
-                    self._net_group, quantized=False, format_type=hailo_platform.FormatType.UINT8
-                )
-                out_params = hailo_platform.OutputVStreamParams.make(
-                    self._net_group, quantized=False, format_type=hailo_platform.FormatType.FLOAT32
-                )
-                self._input_name = list(in_params.keys())[0]
-                self._activated_network = self._net_group.activate()
-                self._activated_network.__enter__()
-                self._infer_pipeline = hailo_platform.InferVStreams(
-                    self._net_group, in_params, out_params
-                )
-                self._infer_pipeline.__enter__()
-                self._use_vstreams = True
-                self._use_infer_model = False
-            else:
-                raise RuntimeError("hailo_platform does not provide InferModel or InferVStreams")
+                configured = True
+                logger.info("Hailo-8L inference engine initialised successfully with InferModel: %s", self._config.hef_path)
+
+            if not configured:
+                raise RuntimeError("hailo_platform does not provide working InferVStreams or InferModel")
 
             self._is_ready = True
             logger.info("Hailo-8L inference engine initialised successfully with HEF: %s", self._config.hef_path)
@@ -409,12 +452,19 @@ class HailoInferenceEngine(BaseInferenceEngine):
                     pass
                 self._activated_network = None
             if self._configured_infer_model:
+                try:
+                    if hasattr(self._configured_infer_model, "__exit__"):
+                        self._configured_infer_model.__exit__(None, None, None)
+                except Exception:
+                    pass
                 self._configured_infer_model = None
             if self._infer_model:
                 self._infer_model = None
             if self._vdevice:
                 try:
-                    if hasattr(self._vdevice, "release"):
+                    if hasattr(self._vdevice, "__exit__"):
+                        self._vdevice.__exit__(None, None, None)
+                    elif hasattr(self._vdevice, "release"):
                         self._vdevice.release()
                 except Exception:
                     pass
