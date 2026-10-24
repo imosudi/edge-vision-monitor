@@ -241,7 +241,7 @@ def run_raw_hailortcli(remote_host: Optional[str] = None, user: str = "iotgwai")
             pass
 
     # If remote edge host is specified
-    target = remote_host or os.environ.get("EVM_REMOTE_HOST", "10.199.153.118")
+    target = remote_host or os.environ.get("EVM_REMOTE_HOST", "10.236.235.118")
     login_user = user or os.environ.get("EVM_REMOTE_USER", "iotgwai")
     print(f"Connecting to remote host {target} to attach hailortcli monitor session...")
     ssh_cmd = [

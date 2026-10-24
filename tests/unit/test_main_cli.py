@@ -393,7 +393,7 @@ def test_prompt_deployment_menu_microservices_remote_defaults():
         assert ret == 0
         mock_compose.assert_called_once()
         assert args.microservices is True
-        assert args.remote_host == "10.199.153.118"
+        assert args.remote_host == "10.236.235.118"
         assert args.remote_user == "iotgwai"
         assert args.remote_port == 22
         assert args.remote_auth == "password"

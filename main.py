@@ -776,7 +776,7 @@ def prompt_remote_host_options(deployment_name: str) -> Tuple[int, Optional[Dict
         return 0, {}
 
     print()
-    default_host = os.environ.get("EVM_REMOTE_HOST", "10.199.153.118")
+    default_host = os.environ.get("EVM_REMOTE_HOST", "10.236.235.118")
     try:
         host_prompt = f"Enter remote host IP address or hostname [default: {default_host}]: "
         host_input = input(_colourise(host_prompt, "1;33")).strip() or default_host
@@ -1537,9 +1537,9 @@ Examples:
         "-H", "--remote-host",
         type=str,
         nargs="?",
-        const=os.environ.get("EVM_REMOTE_HOST", "10.199.153.118"),
+        const=os.environ.get("EVM_REMOTE_HOST", "10.236.235.118"),
         default=None,
-        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.199.153.118 or $EVM_REMOTE_HOST)",
+        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.236.235.118 or $EVM_REMOTE_HOST)",
     )
     parser.add_argument(
         "-u", "--remote-user",
@@ -1651,9 +1651,9 @@ Examples:
         "-H", "--remote-host",
         type=str,
         nargs="?",
-        const=os.environ.get("EVM_REMOTE_HOST", "10.199.153.118"),
+        const=os.environ.get("EVM_REMOTE_HOST", "10.236.235.118"),
         default=None,
-        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.199.153.118 or $EVM_REMOTE_HOST)",
+        help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.236.235.118 or $EVM_REMOTE_HOST)",
     )
     compose_parser.add_argument(
         "-u", "--remote-user",
