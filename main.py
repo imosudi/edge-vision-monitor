@@ -376,8 +376,10 @@ def run_compose(args: argparse.Namespace) -> int:
             action_args.append("-d")
         if getattr(args, "build", False):
             action_args.append("--build")
+        action_args.append("--remove-orphans")
     elif action == "down":
         action_args.append("down")
+        action_args.append("--remove-orphans")
         if getattr(args, "volumes", False):
             action_args.append("-v")
     elif action == "restart":
@@ -435,6 +437,24 @@ def run_compose(args: argparse.Namespace) -> int:
         except Exception:
             pass
 
+        # Cleanup conflicting containers and release port 8000 before up
+        pre_cleanup_cmd = ""
+        if is_up:
+            opposite_compose = "compose.yaml" if is_microservices else "compose.microservices.yaml"
+            opposite_containers = (
+                "edge-vision-monitor"
+                if is_microservices
+                else "edge-vision-gateway edge-vision-ingress edge-vision-inference edge-vision-telemetry edge-vision-storage"
+            )
+            pre_cleanup_cmd = (
+                f"(podman compose -f {opposite_compose} down --remove-orphans 2>/dev/null || docker compose -f {opposite_compose} down --remove-orphans 2>/dev/null || true); "
+                f"(docker stop {opposite_containers} 2>/dev/null || podman stop {opposite_containers} 2>/dev/null || true); "
+                f"(docker rm -f {opposite_containers} 2>/dev/null || podman rm -f {opposite_containers} 2>/dev/null || true); "
+                f"CONFLICT_CID=$(docker ps -q --filter publish=8000 2>/dev/null || podman ps -q --filter publish=8000 2>/dev/null || true); "
+                f"if [ -n \"$CONFLICT_CID\" ]; then echo '[NOTICE] Stopping conflicting container(s) binding port 8000...'; (docker stop $CONFLICT_CID 2>/dev/null || podman stop $CONFLICT_CID 2>/dev/null || true); fi; "
+                f"if command -v fuser >/dev/null 2>&1 && fuser 8000/tcp >/dev/null 2>&1; then echo '[NOTICE] Freeing host port 8000/tcp...'; fuser -k 8000/tcp 2>/dev/null || true; sleep 1; fi; "
+            )
+
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && (rm -rf /tmp/hmon_files/* /tmp/nnc_utilization/* 2>/dev/null || true) && (chmod 1777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null || true); "
             f"cd {remote_dir} && (git checkout {current_branch} 2>/dev/null || true) && (git fetch origin {current_branch} 2>/dev/null && git reset --hard origin/{current_branch} 2>/dev/null || git pull origin {current_branch} 2>/dev/null || git pull 2>/dev/null || true); "
@@ -448,6 +468,7 @@ def run_compose(args: argparse.Namespace) -> int:
             f"echo '[NOTICE] Hardware node /dev/ttyUSB0 not found on host. Enabling dynamic hotplug mode in {compose_filename}...'; "
             f"sed -i '/\\/dev\\/ttyUSB0/d' {compose_filename} 2>/dev/null || true; "
             f"fi; "
+            f"{pre_cleanup_cmd}"
             f"export HAILO_MONITOR=1 && "
             f"(podman compose -f {compose_filename} {action_str} 2>/dev/null || docker compose -f {compose_filename} {action_str})"
             f"{f' && {monitor_cmd}' if should_monitor else ''}"
@@ -484,6 +505,33 @@ def run_compose(args: argparse.Namespace) -> int:
         if should_monitor is None:
             should_monitor = is_up
 
+        if is_up and "PYTEST_CURRENT_TEST" not in os.environ:
+            other_file = PROJECT_ROOT / ("compose.yaml" if is_microservices else "compose.microservices.yaml")
+            if other_file.is_file():
+                try:
+                    subprocess.run(
+                        [*compose_cmd, "-f", str(other_file), "down", "--remove-orphans"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=15,
+                    )
+                except Exception:
+                    pass
+            engine = compose_cmd[0]
+            try:
+                cids = subprocess.check_output(
+                    [engine, "ps", "-q", "--filter", "publish=8000"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                ).strip()
+                if cids:
+                    for cid in cids.splitlines():
+                        if cid.strip():
+                            subprocess.run([engine, "stop", cid.strip()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            except Exception:
+                pass
+
         cmd = list(compose_cmd)
         if remote_host:
             login_target = f"{remote_user}@{remote_host}" if remote_user else remote_host
@@ -507,15 +555,8 @@ def run_compose(args: argparse.Namespace) -> int:
                 log_info(f"Please check the target host IP address and ensure '{remote_host}' is reachable on your network.")
                 return proc.returncode
 
-            print_missing_device_notice(
-                device_node="/dev/ttyUSB0",
-                host=remote_host or "localhost",
-            )
-            exc = DeviceGatheringError(
-                device_node="/dev/ttyUSB0",
-                host=remote_host or "localhost",
-            )
-            log_error(f"Container runtime execution error: {exc}")
+            log_error(f"Container runtime execution failed on {remote_host or 'localhost'} with exit code {proc.returncode}.")
+            log_info("Please review the container runtime log output above for specific error diagnostics (e.g. port collision or device error).")
             return proc.returncode
 
         # If local compose up succeeded and monitoring requested, launch live monitor locally
