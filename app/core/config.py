@@ -170,7 +170,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     path_to_try = config_path or os.environ.get("EVM_CONFIG_PATH") or "config/config.yaml"
     raw_dict: Dict[str, Any] = {}
 
-    if path_to_try and os.path.exists(path_to_try):
+    if path_to_try and os.path.isfile(path_to_try):
         try:
             with open(path_to_try, "r", encoding="utf-8") as f:
                 loaded = yaml.safe_load(f)

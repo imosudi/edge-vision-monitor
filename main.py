@@ -422,9 +422,21 @@ def run_compose(args: argparse.Namespace) -> int:
         display_host_arg = f" --display-host {remote_host}" if remote_host else ""
         monitor_cmd = f"python3 scripts/hailo_monitor.py --remote 127.0.0.1{display_host_arg} --cli" if getattr(args, "cli", False) else f"python3 scripts/hailo_monitor.py --remote 127.0.0.1{display_host_arg}"
 
+        current_branch = "main"
+        try:
+            head_path = Path(__file__).resolve().parent / ".git" / "HEAD"
+            if head_path.is_file():
+                head_content = head_path.read_text(encoding="utf-8").strip()
+                if head_content.startswith("ref: refs/heads/"):
+                    current_branch = head_content[len("ref: refs/heads/"):].strip()
+        except Exception:
+            pass
+
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
-            f"cd {remote_dir} && (git pull origin main 2>/dev/null || git pull 2>/dev/null || true); "
+            f"cd {remote_dir} && (git checkout {current_branch} 2>/dev/null || true) && (git pull origin {current_branch} 2>/dev/null || git pull origin main 2>/dev/null || git pull 2>/dev/null || true); "
+            f"if [ -d config/config.yaml ]; then rm -rf config/config.yaml; fi; "
+            f"if [ ! -f config/config.yaml ] && [ -f config/config.example.yaml ]; then cp config/config.example.yaml config/config.yaml; fi; "
             f"if [ ! -e /dev/ttyUSB0 ] && grep -q '/dev/ttyUSB0' {compose_filename} 2>/dev/null; then "
             f"echo '[NOTICE] Hardware node /dev/ttyUSB0 not found on host. Enabling dynamic hotplug mode in {compose_filename}...'; "
             f"sed -i '/\\/dev\\/ttyUSB0/d' {compose_filename} 2>/dev/null || true; "
