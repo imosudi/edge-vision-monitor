@@ -31,7 +31,7 @@ video:
   # USB Camera device path or index
   usb_device_path: "/dev/video0"
   # Prerecorded video file path (relative or absolute)
-  video_file_path: "media/sample.mp4"
+  video_file_path: "media/SHIBUYA CROSSING IN DAYLIGHT! 🚌✨ _#ShibuyaCrossing #TokyoJapan #Shibuya #TokyoViews #JapanTrave.mp4"
   # Restricted directory for prerecorded video files (guards against path traversal)
   media_dir: "media"
   # Video capture dimensions

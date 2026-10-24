@@ -108,10 +108,12 @@ class VideoSourceManager:
 
         # Auto-discover video file if default path configured but does not exist
         fpath = self._config.video_file_path
-        if fpath is not None and not os.path.exists(fpath):
+        if fpath is None or not os.path.exists(fpath):
             discovered = self.enumerate_sources().get("media_files", [])
             if discovered:
-                fpath = os.path.join(self._config.media_dir, discovered[0])
+                shibuya_cands = [m for m in discovered if "shibuya" in m.lower()]
+                chosen = shibuya_cands[0] if shibuya_cands else discovered[0]
+                fpath = os.path.join(self._config.media_dir, chosen)
 
         return self.switch_source(
             "file",

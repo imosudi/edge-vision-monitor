@@ -352,6 +352,23 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                             vframe.frame_seq,
                             vframe.source_id,
                         )
+
+                        # Standby mode: publish unannotated live preview JPEG directly from source
+                        now_ts = time.monotonic()
+                        if (now_ts - getattr(manager, "_last_standby_jpeg_ts", 0.0)) >= 0.066:
+                            manager._last_standby_jpeg_ts = now_ts
+                            try:
+                                from app.core.ipc import get_ipc_inference_stats
+                                inf_st = get_ipc_inference_stats()
+                                if not inf_st.get("is_running", False):
+                                    import cv2
+                                    from app.core.ipc import _atomic_write_bytes, PREVIEW_JPEG_FILE
+                                    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+                                    ok, jpeg_bytes = cv2.imencode(".jpg", vframe.data, encode_params)
+                                    if ok:
+                                        _atomic_write_bytes(PREVIEW_JPEG_FILE, jpeg_bytes.tobytes())
+                            except Exception:
+                                pass
                     else:
                         time.sleep(0.005)
                 except Exception as ipc_err:

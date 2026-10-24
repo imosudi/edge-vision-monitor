@@ -198,11 +198,12 @@
               </select>
             </div>
 
-            <div id="controls-picam" class="source-selectors" style="display: none; align-items: center; gap: 0.5rem;">
+            <div id="controls-picam" class="source-selectors" style="display: none; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <button id="btn-activate-picam" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="switchToPiCamSource()">
                 Activate CSI Camera
               </button>
               <span class="text-xs text-muted" style="font-size: 0.75rem; color: var(--color-text-muted);">(Requires Raspberry Pi OS with libcamera)</span>
+              <div id="picam-status-banner" style="display: none; width: 100%; margin-top: 0.4rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem; line-height: 1.45;"></div>
             </div>
 
             <div id="controls-browser" class="source-selectors" style="display: none; align-items: center; flex-wrap: wrap; gap: 0.5rem;">

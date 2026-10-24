@@ -428,7 +428,7 @@ def render_dashboard(
                 eng_st.get("hef_path")
                 or platform_status.get("hef_path")
                 or eng_st.get("model_path")
-                or "models/yolo11n.hef"
+                or "models/model.hef"
             )
             model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
             engine_desc = f"{CLR_CYAN}HAILO{CLR_RESET} (HailoRT VStreams Asynchronous Pipeline)"
@@ -437,7 +437,7 @@ def render_dashboard(
             model_path = (
                 eng_st.get("model_path")
                 or eng_st.get("hef_path")
-                or "models/yolo11n.hef"
+                or "models/model.hef"
             )
             model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
             engine_desc = f"{CLR_CYAN}MOCK{CLR_RESET} (Simulated Synthetic Pipeline)"

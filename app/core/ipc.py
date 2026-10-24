@@ -181,7 +181,26 @@ def get_ipc_latest_detections() -> Dict[str, Any]:
 def get_ipc_inference_stats() -> Dict[str, Any]:
     """Read rolling inference latencies, FPS, and backend status from /dev/shm."""
     data = _read_json(INFERENCE_LATEST_FILE, default={})
-    return data.get("stats", {})
+    stats = data.get("stats")
+    if stats:
+        return stats
+    eng_st = get_ipc_engine_status()
+    if eng_st:
+        return {
+            "is_running": False,
+            "active_backend": eng_st.get("backend", "hailo"),
+            "engine_status": eng_st,
+            "fps": 0.0,
+            "throughput_fps": 0.0,
+            "total_frames": 0,
+            "latencies": {
+                "npu": 0.0,
+                "preprocess": 0.0,
+                "postprocess": 0.0,
+                "total": 0.0,
+            },
+        }
+    return {}
 
 
 def get_ipc_engine_status() -> Dict[str, Any]:

@@ -26,6 +26,16 @@ class ModelConfig(BaseModel):
     nms_iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0, description="Non-maximum suppression IoU threshold")
     max_detections: int = Field(default=100, ge=1, le=1000, description="Maximum detections per frame")
 
+    @field_validator("hef_path", mode="after")
+    @classmethod
+    def validate_hef_path(cls, v: str) -> str:
+        if v and os.path.isfile(v):
+            return v
+        for cand in ("models/model.hef", "/app/models/model.hef", "models/hailo/model.hef", "/app/models/hailo/model.hef"):
+            if os.path.isfile(cand):
+                return cand
+        return v
+
 
 class VideoSourceConfig(BaseModel):
     """Configuration for video input sources."""
@@ -35,12 +45,32 @@ class VideoSourceConfig(BaseModel):
     )
     picamera_camera_num: int = Field(default=0, ge=0, description="Picamera2 camera sensor index")
     usb_device_path: str = Field(default="/dev/video0", description="USB camera device path or index")
-    video_file_path: Optional[str] = Field(default="media/sample.mp4", description="Prerecorded video file path")
+    video_file_path: Optional[str] = Field(
+        default="media/SHIBUYA CROSSING IN DAYLIGHT! 🚌✨ _#ShibuyaCrossing #TokyoJapan #Shibuya #TokyoViews #JapanTrave.mp4",
+        description="Prerecorded video file path",
+    )
     media_dir: str = Field(default="media", description="Restricted directory for prerecorded video files")
     capture_width: int = Field(default=640, ge=64, le=3840, description="Capture frame width")
     capture_height: int = Field(default=480, ge=64, le=2160, description="Capture frame height")
     capture_fps: int = Field(default=30, ge=1, le=120, description="Requested capture frame rate")
     loop_playback: bool = Field(default=True, description="Loop prerecorded video continuously")
+
+    @field_validator("video_file_path", mode="after")
+    @classmethod
+    def validate_video_file_path(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if os.path.isfile(v):
+            return v
+        for cand in (
+            "media/SHIBUYA CROSSING IN DAYLIGHT! 🚌✨ _#ShibuyaCrossing #TokyoJapan #Shibuya #TokyoViews #JapanTrave.mp4",
+            "/app/media/SHIBUYA CROSSING IN DAYLIGHT! 🚌✨ _#ShibuyaCrossing #TokyoJapan #Shibuya #TokyoViews #JapanTrave.mp4",
+            "media/Категория Туризм Лайт.mp4",
+            "/app/media/Категория Туризм Лайт.mp4",
+        ):
+            if os.path.isfile(cand):
+                return cand
+        return v
 
 
 class TelemetryThresholds(BaseModel):

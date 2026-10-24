@@ -439,6 +439,7 @@ def run_compose(args: argparse.Namespace) -> int:
             f"if [ -d config/config.yaml ]; then rm -rf config/config.yaml; fi; "
             f"if [ ! -f config/config.yaml ] && [ -f config/config.example.yaml ]; then cp config/config.example.yaml config/config.yaml; fi; "
             f"sed -i 's|models/yolo11n.hef|models/model.hef|g' config/config.yaml 2>/dev/null || true; "
+            f"sed -i 's|media/sample.mp4|media/SHIBUYA CROSSING IN DAYLIGHT! 🚌✨ _#ShibuyaCrossing #TokyoJapan #Shibuya #TokyoViews #JapanTrave.mp4|g' config/config.yaml 2>/dev/null || true; "
             f"chmod -R 777 data media models 2>/dev/null || true; "
             f"if [ ! -e /dev/ttyUSB0 ] && grep -q '/dev/ttyUSB0' {compose_filename} 2>/dev/null; then "
             f"echo '[NOTICE] Hardware node /dev/ttyUSB0 not found on host. Enabling dynamic hotplug mode in {compose_filename}...'; "

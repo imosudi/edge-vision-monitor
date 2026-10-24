@@ -1387,6 +1387,24 @@ function selectSourceTab(type, triggerSwitch = false) {
   document.getElementById('controls-file').style.display = type === 'file' ? 'flex' : 'none';
   document.getElementById('controls-usb').style.display = type === 'usb' ? 'flex' : 'none';
   document.getElementById('controls-picam').style.display = type === 'picamera' ? 'flex' : 'none';
+  if (type === 'picamera') {
+    const banner = document.getElementById('picam-status-banner');
+    if (banner && (!banner.textContent || banner.textContent.includes('Probing'))) {
+      if (window._csiCameraSupported) {
+        banner.style.display = 'block';
+        banner.style.background = '#eff6ff';
+        banner.style.border = '1px solid #bfdbfe';
+        banner.style.color = '#1e40af';
+        banner.innerHTML = 'ℹ️ <strong>CSI Camera Subsystem:</strong> libcamera driver detected. Click "Activate CSI Camera" to initialize CAM/DISP0.';
+      } else {
+        banner.style.display = 'block';
+        banner.style.background = '#fffbeb';
+        banner.style.border = '1px solid #fde68a';
+        banner.style.color = '#92400e';
+        banner.innerHTML = '⚠️ <strong>Hardware Status:</strong> 22-pin ribbon cable on CAM/DISP0 port required. Live preview is streaming from Video File.';
+      }
+    }
+  }
   const controlsBrowser = document.getElementById('controls-browser');
   if (controlsBrowser) {
     controlsBrowser.style.display = type === 'browser' ? 'flex' : 'none';
@@ -1410,6 +1428,7 @@ async function loadDiscoveredSources() {
   try {
     const res = await fetch('/api/v1/video/sources');
     const data = await res.json();
+    window._csiCameraSupported = Boolean(data.csi_camera_supported);
 
     // Populate browser client camera devices
     populateBrowserCameras();
@@ -1584,10 +1603,18 @@ async function switchToUsbSource() {
 
 async function switchToPiCamSource() {
   const btn = document.getElementById('btn-activate-picam');
+  const banner = document.getElementById('picam-status-banner');
   const originalText = btn ? btn.textContent : 'Activate CSI Camera';
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Activating...';
+  }
+  if (banner) {
+    banner.style.display = 'block';
+    banner.style.background = '#eff6ff';
+    banner.style.border = '1px solid #bfdbfe';
+    banner.style.color = '#1e40af';
+    banner.textContent = '⏳ Probing Raspberry Pi CSI Camera hardware node on CAM/DISP0...';
   }
   try {
     const res = await fetch('/api/v1/video/source', {
@@ -1603,17 +1630,44 @@ async function switchToPiCamSource() {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Failed to activate CSI camera' }));
-      alert(`Pi Camera Notice:\n\n${err.detail}\n\nTip: If you do not have a physical CSI camera ribbon cable attached to the Pi 5 CAM port, please select "Video File" or "USB Camera".`);
+      const msg = err.detail || 'No physical CSI camera detected at port 0.';
+      if (banner) {
+        banner.style.display = 'block';
+        banner.style.background = '#fef2f2';
+        banner.style.border = '1px solid #fecaca';
+        banner.style.color = '#991b1b';
+        banner.innerHTML = `⚠️ <strong>Hardware Diagnostic:</strong> ${msg}<br><span style="color: var(--color-text-muted);">Tip: Verify the 22-pin flexible flat cable is seated firmly in CAM/DISP0. System will continue streaming from Video File.</span>`;
+      }
     } else {
       const data = await res.json();
-      if (data.source_info && data.source_info.active_type !== 'picamera') {
-        const msg = data.source_info.error_status || 'CSI Camera could not be activated.';
-        alert(`Pi Camera Notice:\n\n${msg}\n\nTip: Verify that the 22-pin ribbon cable is seated firmly in CAM/DISP0 port.`);
+      if (data.source_info && data.source_info.active_type === 'picamera') {
+        if (banner) {
+          banner.style.display = 'block';
+          banner.style.background = '#ecfdf5';
+          banner.style.border = '1px solid #a7f3d0';
+          banner.style.color = '#065f46';
+          banner.innerHTML = `✅ <strong>Pi Camera Active:</strong> Streaming live CSI sensor (cam0 @ 640x480 30fps) to inference preview.`;
+        }
+      } else {
+        const msg = data.source_info?.error_status || 'CSI Camera could not be activated.';
+        if (banner) {
+          banner.style.display = 'block';
+          banner.style.background = '#fffbeb';
+          banner.style.border = '1px solid #fde68a';
+          banner.style.color = '#92400e';
+          banner.innerHTML = `⚠️ <strong>Hardware Diagnostic:</strong> ${msg}<br><span style="color: var(--color-text-muted);">Verify ribbon cable connection to CAM/DISP0 port.</span>`;
+        }
       }
     }
   } catch (e) {
     console.error('Failed to activate CSI camera', e);
-    alert(`Failed to activate CSI camera: ${e.message || e}`);
+    if (banner) {
+      banner.style.display = 'block';
+      banner.style.background = '#fef2f2';
+      banner.style.border = '1px solid #fecaca';
+      banner.style.color = '#991b1b';
+      banner.innerHTML = `⚠️ <strong>Connection Error:</strong> ${e.message || e}`;
+    }
   } finally {
     if (btn) {
       btn.disabled = false;
