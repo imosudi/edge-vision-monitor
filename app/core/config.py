@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 class ModelConfig(BaseModel):
     """Configuration for compiled Hailo/CPU YOLO11 model and post-processing."""
 
-    hef_path: str = Field(default="models/model.hef", description="Path to compiled Hailo HEF model")
+    hef_path: str = Field(default="models/yolo11n.hef", description="Path to compiled Hailo HEF model")
     onnx_path: Optional[str] = Field(default="models/onnx/model.onnx", description="Path to CPU ONNX model")
     active_backend: Literal["hailo", "cpu", "mock"] = Field(default="hailo", description="Initial inference backend ('hailo' or 'cpu')")
     labels_path: Optional[str] = Field(default="models/labels.txt", description="Path to class labels file")
@@ -31,7 +31,14 @@ class ModelConfig(BaseModel):
     def validate_hef_path(cls, v: str) -> str:
         if v and os.path.isfile(v):
             return v
-        for cand in ("models/model.hef", "/app/models/model.hef", "models/hailo/model.hef", "/app/models/hailo/model.hef"):
+        for cand in (
+            "models/yolo11n.hef",
+            "/app/models/yolo11n.hef",
+            "models/model.hef",
+            "/app/models/model.hef",
+            "models/hailo/model.hef",
+            "/app/models/hailo/model.hef",
+        ):
             if os.path.isfile(cand):
                 return cand
         return v

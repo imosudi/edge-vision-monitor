@@ -73,6 +73,8 @@ services:
       - EVM_SERVER__HOST=0.0.0.0
       - EVM_SERVER__PORT=8000
       - EVM_CONFIG_PATH=/app/config/config.yaml
+      - EVM_MODEL__HEF_PATH=models/yolo11n.hef
+      - EVM_MODEL__ACTIVE_BACKEND=hailo
       - EVM_SERVER__LOG_LEVEL=INFO
       - HAILO_MONITOR=1
 

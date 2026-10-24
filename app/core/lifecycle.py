@@ -332,9 +332,11 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
             logger.debug("Failed initial source status IPC publish: %s", e)
     elif service_mode == "inference" and manager.inference_engine:
         try:
-            from app.core.ipc import publish_backends_catalog, publish_engine_status
+            from app.core.ipc import publish_backends_catalog, publish_engine_status, publish_inference_status
             publish_engine_status(manager.inference_engine.get_status())
             publish_backends_catalog(manager.get_available_backends())
+            if manager.inference_service:
+                publish_inference_status(manager.inference_service.get_stats())
         except Exception as e:
             logger.debug("Failed initial inference IPC publish: %s", e)
 
@@ -435,6 +437,16 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                         if manager.inference_engine:
                             publish_engine_status(manager.inference_engine.get_status())
                         publish_backends_catalog(manager.get_available_backends())
+                        if manager.inference_service:
+                            from app.core.ipc import publish_inference_status
+                            publish_inference_status(manager.inference_service.get_stats())
+
+                    # Periodic refresh of engine readiness and inference running status
+                    now_ts = time.monotonic()
+                    if (now_ts - getattr(manager, "_last_inf_ipc_pub_ts", 0.0)) >= 0.5:
+                        manager._last_inf_ipc_pub_ts = now_ts
+                        if manager.inference_engine:
+                            publish_engine_status(manager.inference_engine.get_status())
                         if manager.inference_service:
                             from app.core.ipc import publish_inference_status
                             publish_inference_status(manager.inference_service.get_stats())
