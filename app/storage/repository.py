@@ -176,7 +176,11 @@ class TelemetryRepository:
         Continuously pulls items from bounded queue, executes batched transactions,
         and triggers periodic automated retention pruning.
         """
-        conn = get_connection(self._db_path)
+        try:
+            conn = get_connection(self._db_path)
+        except Exception as e:
+            logger.warning("Could not establish initial writer connection to SQLite (%s). Falling back to memory: %s", self._db_path, e)
+            conn = get_connection(":memory:")
         last_flush = time.monotonic()
         pending_telemetry: List[TelemetrySample] = []
         pending_inference: List[Tuple[InferenceFrameRecord, List[DetectionRecord]]] = []

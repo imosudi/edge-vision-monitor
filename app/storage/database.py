@@ -154,7 +154,21 @@ def get_connection(db_path: str, read_only: bool = False) -> sqlite3.Connection:
         except (sqlite3.OperationalError, OSError):
             pass
 
-    conn = sqlite3.connect(db_path, timeout=15.0)
+    try:
+        path_obj = Path(db_path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=15.0)
+    except (sqlite3.OperationalError, OSError, PermissionError) as exc:
+        logger.warning(
+            "Could not open SQLite database file at '%s' (%s). Falling back to resilient in-memory database.",
+            db_path,
+            exc,
+        )
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(SCHEMA_SQL)
+        except Exception:
+            pass
     conn.row_factory = sqlite3.Row
     for pragma_stmt in [
         "PRAGMA journal_mode = WAL;",
