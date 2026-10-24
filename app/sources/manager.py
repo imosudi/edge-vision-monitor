@@ -111,8 +111,9 @@ class VideoSourceManager:
         if fpath is None or not os.path.exists(fpath):
             discovered = self.enumerate_sources().get("media_files", [])
             if discovered:
+                kat_cands = [m for m in discovered if "туризм" in m.lower() or "категория" in m.lower()]
                 shibuya_cands = [m for m in discovered if "shibuya" in m.lower()]
-                chosen = shibuya_cands[0] if shibuya_cands else discovered[0]
+                chosen = kat_cands[0] if kat_cands else (shibuya_cands[0] if shibuya_cands else discovered[0])
                 fpath = os.path.join(self._config.media_dir, chosen)
 
         return self.switch_source(

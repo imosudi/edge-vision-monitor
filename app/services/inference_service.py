@@ -249,16 +249,17 @@ class InferenceService:
                             w = meta.get("width", 640)
                             h = meta.get("height", 480)
                             c = meta.get("channels", 3)
-                            frame_data = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((h, w, c)).copy()
-                            from app.sources.base import VideoFrame
-                            vframe = VideoFrame(
-                                frame_seq=seq,
-                                data=frame_data,
-                                source_id=meta.get("source_id", "ipc:ingress"),
-                                width=w,
-                                height=h,
-                                monotonic_ts=meta.get("timestamp", time.monotonic()),
-                            )
+                            if len(raw_bytes) == (w * h * c):
+                                frame_data = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((h, w, c)).copy()
+                                from app.sources.base import VideoFrame
+                                vframe = VideoFrame(
+                                    frame_seq=seq,
+                                    data=frame_data,
+                                    source_id=meta.get("source_id", "ipc:ingress"),
+                                    width=w,
+                                    height=h,
+                                    monotonic_ts=meta.get("timestamp", time.monotonic()),
+                                )
                 except Exception as e:
                     logger.warning("Error reading raw frame from IPC: %s", e)
 

@@ -435,8 +435,7 @@ def run_compose(args: argparse.Namespace) -> int:
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
             f"cd {remote_dir} && (git checkout {current_branch} 2>/dev/null || true) && (git fetch origin {current_branch} 2>/dev/null && git reset --hard origin/{current_branch} 2>/dev/null || git pull origin {current_branch} 2>/dev/null || git pull 2>/dev/null || true); "
-            f"mkdir -p data media models && chmod 777 data media models 2>/dev/null; "
-            f"(cd models && ln -sf model.hef yolo11n.hef 2>/dev/null || true; ln -sf onnx/model.onnx yolo11n.onnx 2>/dev/null || true; ln -sf onnx/model.onnx model.onnx 2>/dev/null || true); "
+            f"(cd models && (test -f hailo/model.hef && ln -sf hailo/model.hef yolo11n.hef || ln -sf model.hef yolo11n.hef 2>/dev/null || true); (test -f hailo/model.hef && ln -sf hailo/model.hef model.hef 2>/dev/null || true); ln -sf onnx/model.onnx yolo11n.onnx 2>/dev/null || true; ln -sf onnx/model.onnx model.onnx 2>/dev/null || true); "
             f"if [ -d config/config.yaml ]; then rm -rf config/config.yaml; fi; "
             f"if [ ! -f config/config.yaml ] && [ -f config/config.example.yaml ]; then cp config/config.example.yaml config/config.yaml; fi; "
             f"sed -i 's|models/model.hef|models/yolo11n.hef|g' config/config.yaml 2>/dev/null || true; "

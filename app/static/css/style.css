@@ -336,6 +336,30 @@ header {
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
 }
 
+/* Standalone Workload Suite Navbar Button */
+.btn-workload-suite {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1e1b4b;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-workload-suite:hover {
+  background: #ffffff;
+  color: #312e81;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
 .btn-benchmark-pill {
   background: #ede9fe;
   color: #6d28d9;

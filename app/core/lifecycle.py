@@ -108,9 +108,10 @@ class ApplicationLifecycleManager:
             )
             self.inference_service.start()
             try:
-                from app.core.ipc import publish_backends_catalog, publish_engine_status
+                from app.core.ipc import publish_backends_catalog, publish_engine_status, publish_inference_status
                 publish_engine_status(self.inference_engine.get_status())
                 publish_backends_catalog(self.get_available_backends())
+                publish_inference_status(self.inference_service.get_stats())
             except Exception as e:
                 logger.debug("Failed publishing initial engine/backends status: %s", e)
 

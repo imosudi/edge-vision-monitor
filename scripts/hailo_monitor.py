@@ -338,7 +338,7 @@ def render_dashboard(
         metrics = api_client.get_metrics_current() or {}
 
         # Resolve active backend and execution state
-        is_infer_running = bool(inf_stats.get("is_running", False))
+        is_infer_running = bool(inf_stats.get("is_running", False)) or bool(platform_status.get("inference_running", False))
         eng_st = inf_stats.get("engine_status", {})
         active_backend = str(
             inf_stats.get("active_backend")
@@ -428,7 +428,7 @@ def render_dashboard(
                 eng_st.get("hef_path")
                 or platform_status.get("hef_path")
                 or eng_st.get("model_path")
-                or "models/model.hef"
+                or "models/yolo11n.hef"
             )
             model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
             engine_desc = f"{CLR_CYAN}HAILO{CLR_RESET} (HailoRT VStreams Asynchronous Pipeline)"
@@ -437,7 +437,7 @@ def render_dashboard(
             model_path = (
                 eng_st.get("model_path")
                 or eng_st.get("hef_path")
-                or "models/model.hef"
+                or "models/yolo11n.hef"
             )
             model_name = os.path.basename(model_path).replace(".hef", "").replace(".onnx", "")
             engine_desc = f"{CLR_CYAN}MOCK{CLR_RESET} (Simulated Synthetic Pipeline)"
@@ -446,17 +446,24 @@ def render_dashboard(
             model_path = (
                 eng_st.get("model_path")
                 or eng_st.get("hef_path")
-                or "models/yolo11n"
+                or "models/yolo11n.hef"
             )
             model_name = os.path.basename(model_path).split(".")[0]
             engine_desc = f"{CLR_CYAN}{active_backend.upper()}{CLR_RESET} (Inference Pipeline)"
             exec_label = "Exec"
 
         lat_info = inf_stats.get("latencies", {})
-        exec_ms = lat_info.get("execution_ms", {}).get("mean", 0.0)
-        pre_ms = lat_info.get("preprocessing_ms", {}).get("mean", 0.0)
-        post_ms = lat_info.get("postprocessing_ms", {}).get("mean", 0.0)
-        tot_ms = lat_info.get("total_ms", {}).get("mean", (exec_ms + pre_ms + post_ms))
+        def _extract_lat(val):
+            if isinstance(val, dict):
+                return float(val.get("mean", 0.0))
+            elif isinstance(val, (int, float)):
+                return float(val)
+            return 0.0
+
+        exec_ms = _extract_lat(lat_info.get("execution_ms") or lat_info.get("hailo_execution_ms") or lat_info.get("npu"))
+        pre_ms = _extract_lat(lat_info.get("preprocessing_ms") or lat_info.get("preprocess"))
+        post_ms = _extract_lat(lat_info.get("postprocessing_ms") or lat_info.get("postprocess"))
+        tot_ms = _extract_lat(lat_info.get("total_ms") or lat_info.get("total")) or (exec_ms + pre_ms + post_ms)
 
         # Clear terminal and jump to top-left
         sys.stdout.write("\033[H\033[2J")

@@ -164,11 +164,17 @@ class HailoInferenceEngine(BaseInferenceEngine):
         skip_postprocessing: bool = False,
     ) -> DetectionResult:
         if not self._is_ready:
-            return DetectionResult(
-                frame_seq=frame_seq,
-                source_id=source_id,
-                error_status="Engine not ready",
-            )
+            now_mono = time.monotonic()
+            if (now_mono - getattr(self, "_last_init_retry_ts", 0.0)) >= 2.0:
+                self._last_init_retry_ts = now_mono
+                logger.info("Attempting automatic Hailo engine initialization during inference...")
+                self.initialize()
+            if not self._is_ready:
+                return DetectionResult(
+                    frame_seq=frame_seq,
+                    source_id=source_id,
+                    error_status="Engine not ready",
+                )
 
         orig_h, orig_w = frame.shape[:2]
         t_start = time.monotonic()
@@ -315,9 +321,11 @@ class ONNXInferenceEngine(BaseInferenceEngine):
         # Candidate paths to locate ONNX model
         search_paths = [
             self._onnx_path,
+            "models/yolo11n.onnx",
             "models/onnx/model.onnx",
             "models/model.onnx",
             "models/pytorch/best.onnx",
+            "/app/models/yolo11n.onnx",
             "/app/models/onnx/model.onnx",
             "/app/models/model.onnx",
             "/app/models/pytorch/best.onnx",
@@ -413,11 +421,17 @@ class ONNXInferenceEngine(BaseInferenceEngine):
         skip_postprocessing: bool = False,
     ) -> DetectionResult:
         if not self._is_ready or self._session is None:
-            return DetectionResult(
-                frame_seq=frame_seq,
-                source_id=source_id,
-                error_status="CPU ONNX engine not ready",
-            )
+            now_mono = time.monotonic()
+            if (now_mono - getattr(self, "_last_init_retry_ts", 0.0)) >= 2.0:
+                self._last_init_retry_ts = now_mono
+                logger.info("Attempting automatic CPU ONNX engine initialization during inference...")
+                self.initialize()
+            if not self._is_ready or self._session is None:
+                return DetectionResult(
+                    frame_seq=frame_seq,
+                    source_id=source_id,
+                    error_status="CPU ONNX engine not ready",
+                )
 
         orig_h, orig_w = frame.shape[:2]
         t_start = time.monotonic()
