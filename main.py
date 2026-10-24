@@ -297,8 +297,11 @@ def run_compose(args: argparse.Namespace) -> int:
 
     log_step("Managing Container Compose Deployment")
 
-    # Determine architecture deployment option (Monolithic vs Microservices)
-    is_microservices = getattr(args, "microservices", False) or getattr(args, "type", None) == "microservices"
+    is_microservices = (
+        getattr(args, "microservices", False)
+        or getattr(args, "type", None) == "microservices"
+        or getattr(args, "mode", None) == "microservices"
+    )
     custom_file = getattr(args, "file", None)
 
     if custom_file:
@@ -1550,7 +1553,8 @@ Examples:
         help="Server host/IP binding interface (default: 0.0.0.0)",
     )
     parser.add_argument(
-        "-H", "--remote-host",
+        "-H", "--remote-host", "--remote",
+        dest="remote_host",
         type=str,
         nargs="?",
         const=os.environ.get("EVM_REMOTE_HOST", "10.236.235.118"),
@@ -1558,7 +1562,8 @@ Examples:
         help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.236.235.118 or $EVM_REMOTE_HOST)",
     )
     parser.add_argument(
-        "-u", "--remote-user",
+        "-u", "--remote-user", "--user",
+        dest="remote_user",
         type=str,
         nargs="?",
         const=os.environ.get("EVM_REMOTE_USER", "iotgwai"),
@@ -1664,7 +1669,8 @@ Examples:
         help="Container architecture deployment option (monolith | microservices)",
     )
     compose_parser.add_argument(
-        "-H", "--remote-host",
+        "-H", "--remote-host", "--remote",
+        dest="remote_host",
         type=str,
         nargs="?",
         const=os.environ.get("EVM_REMOTE_HOST", "10.236.235.118"),
@@ -1672,7 +1678,8 @@ Examples:
         help="Target remote host IP address or hostname for remote container compose execution (default when flag used without value: 10.236.235.118 or $EVM_REMOTE_HOST)",
     )
     compose_parser.add_argument(
-        "-u", "--remote-user",
+        "-u", "--remote-user", "--user",
+        dest="remote_user",
         type=str,
         nargs="?",
         const=os.environ.get("EVM_REMOTE_USER", "iotgwai"),
@@ -1814,7 +1821,8 @@ Examples:
         help="Export format for trajectory output (default: csv)",
     )
     bench_parser.add_argument(
-        "-H", "--remote-host",
+        "-H", "--remote-host", "--remote",
+        dest="remote_host",
         type=str,
         default=None,
         help="Target remote host IP for benchmark execution via API (default: 127.0.0.1 or direct)",
