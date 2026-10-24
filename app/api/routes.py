@@ -418,10 +418,15 @@ async def upload_video_file(file: UploadFile = File(...)) -> Dict[str, Any]:
 
     os.makedirs(media_dir, exist_ok=True)
 
-    # Sanitize filename (remove directory components, restrict characters)
+    # Sanitize filename (remove directory components, preserve unicode characters, restrict dangerous characters)
     original_name = os.path.basename(file.filename or "video.mp4")
-    name_clean = re.sub(r"[^a-zA-Z0-9_.-]", "_", original_name)
-    ext = os.path.splitext(name_clean)[1].lower()
+    base_raw, ext = os.path.splitext(original_name)
+    ext = ext.lower()
+    base_clean = re.sub(r"[^\w\s.-]", "_", base_raw, flags=re.UNICODE).strip()
+    base_clean = re.sub(r"[\s_]+", "_", base_clean)
+    if not base_clean:
+        base_clean = "uploaded_video"
+    name_clean = f"{base_clean}{ext}"
 
     if ext not in ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(
