@@ -483,6 +483,11 @@ def run_compose(args: argparse.Namespace) -> int:
     try:
         proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env)
         if proc.returncode != 0 and "up" in action_args:
+            if remote_host and proc.returncode == 255:
+                log_error(f"SSH connection to remote host '{remote_host}' failed (Connection timed out or host unreachable).")
+                log_info(f"Please check the target host IP address and ensure '{remote_host}' is reachable on your network.")
+                return proc.returncode
+
             print_missing_device_notice(
                 device_node="/dev/ttyUSB0",
                 host=remote_host or "localhost",
