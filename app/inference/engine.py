@@ -84,6 +84,8 @@ class HailoInferenceEngine(BaseInferenceEngine):
             cfg_height=self._config.input_height,
         )
         self._labels = self._validation.labels
+        if self._validation.hef_path and os.path.isfile(self._validation.hef_path):
+            self._config.hef_path = self._validation.hef_path
 
         if not self._validation.is_valid:
             logger.warning(
@@ -304,12 +306,22 @@ class ONNXInferenceEngine(BaseInferenceEngine):
             "models/onnx/model.onnx",
             "models/model.onnx",
             "models/pytorch/best.onnx",
+            "/app/models/onnx/model.onnx",
+            "/app/models/model.onnx",
+            "/app/models/pytorch/best.onnx",
         ]
         found_path = None
         for p in search_paths:
             if p and os.path.isfile(p):
                 found_path = p
                 break
+        if not found_path:
+            import glob
+            for pattern in ["models/**/*.onnx", "/app/models/**/*.onnx"]:
+                matches = [m for m in glob.glob(pattern, recursive=True) if os.path.isfile(m)]
+                if matches:
+                    found_path = matches[0]
+                    break
 
         if not found_path:
             self._is_ready = False

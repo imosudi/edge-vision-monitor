@@ -507,7 +507,7 @@ class TelemetryRepository:
         fetch_limit = min(limit * max(1, downsample) * (5 if target_points else 1), 20000)
         params.append(fetch_limit)
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             rows = [dict(r) for r in cursor.fetchall()]
@@ -534,6 +534,9 @@ class TelemetryRepository:
                 return rows[-limit:]
 
             return rows
+        except (sqlite3.OperationalError, OSError) as exc:
+            logger.warning("Telemetry query error on %s: %s", self._db_path, exc)
+            return []
         finally:
             conn.close()
 
@@ -577,12 +580,15 @@ class TelemetryRepository:
         query += " ORDER BY id DESC LIMIT ?"
         params.append(min(limit, 5000))
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             rows = [dict(r) for r in cursor.fetchall()]
             rows.reverse()
             return rows
+        except (sqlite3.OperationalError, OSError) as exc:
+            logger.warning("Inference history query error on %s: %s", self._db_path, exc)
+            return []
         finally:
             conn.close()
 
@@ -610,12 +616,15 @@ class TelemetryRepository:
         query += " ORDER BY id DESC LIMIT ?"
         params.append(min(limit, 2000))
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             rows = [dict(r) for r in cursor.fetchall()]
             rows.reverse()
             return rows
+        except (sqlite3.OperationalError, OSError) as exc:
+            logger.warning("Detections history query error on %s: %s", self._db_path, exc)
+            return []
         finally:
             conn.close()
 
@@ -639,10 +648,13 @@ class TelemetryRepository:
         query += " ORDER BY id DESC LIMIT ?"
         params.append(min(limit, 500))
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             return [dict(r) for r in cursor.fetchall()]
+        except (sqlite3.OperationalError, OSError) as exc:
+            logger.warning("System events query error on %s: %s", self._db_path, exc)
+            return []
         finally:
             conn.close()
 
@@ -734,7 +746,7 @@ class TelemetryRepository:
         header = "timestamp_utc,metric_name,value,unit,source,availability_status\r\n"
         yield header
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             output = io.StringIO()
@@ -799,7 +811,7 @@ class TelemetryRepository:
         header = "timestamp_utc,frame_seq,class_id,class_name,confidence,box_xmin,box_ymin,box_xmax,box_ymax\r\n"
         yield header
 
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             cursor = conn.execute(query, params)
             output = io.StringIO()
@@ -845,7 +857,7 @@ class TelemetryRepository:
         Stream multi-channel time-aligned waveforms joining hardware telemetry
         and computer vision inference metrics into unified rows.
         """
-        conn = get_connection(self._db_path)
+        conn = get_connection(self._db_path, read_only=self._read_only)
         try:
             t_query = "SELECT timestamp_utc, metric_name, value FROM telemetry_samples WHERE 1=1"
             t_params: List[Any] = []

@@ -115,6 +115,30 @@ def check_hailo_device_node() -> bool:
     return os.path.exists("/dev/hailo0")
 
 
+def resolve_hef_path(configured_path: Optional[str] = None) -> Optional[str]:
+    """Resolve an existing HEF model path, checking candidates and glob patterns."""
+    candidates = []
+    if configured_path:
+        candidates.append(configured_path)
+    candidates.extend([
+        "models/model.hef",
+        "models/hailo/model.hef",
+        "models/yolo11n.hef",
+        "/app/models/model.hef",
+        "/app/models/hailo/model.hef",
+        "/app/models/yolo11n.hef",
+    ])
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            return cand
+    import glob
+    for pattern in ["models/**/*.hef", "/app/models/**/*.hef"]:
+        matches = [m for m in glob.glob(pattern, recursive=True) if os.path.isfile(m)]
+        if matches:
+            return matches[0]
+    return configured_path
+
+
 def validate_model_artifacts(
     hef_path: str,
     labels_path: Optional[str] = None,
@@ -133,20 +157,24 @@ def validate_model_artifacts(
     width = cfg_width or 640
     height = cfg_height or 640
 
-    # 1. Check HEF file existence
+    # 1. Check HEF file existence with candidate auto-discovery
     if not os.path.exists(hef_path):
-        return ModelValidationResult(
-            is_valid=False,
-            status="FILE_NOT_FOUND",
-            hef_path=hef_path,
-            labels_count=len(labels),
-            labels=labels,
-            input_width=width,
-            input_height=height,
-            error_message=f"Model HEF file not found at '{hef_path}'",
-            hailo_runtime_available=runtime_ok,
-            device_available=device_ok,
-        )
+        resolved = resolve_hef_path(hef_path)
+        if resolved and os.path.isfile(resolved):
+            hef_path = resolved
+        else:
+            return ModelValidationResult(
+                is_valid=False,
+                status="FILE_NOT_FOUND",
+                hef_path=hef_path,
+                labels_count=len(labels),
+                labels=labels,
+                input_width=width,
+                input_height=height,
+                error_message=f"Model HEF file not found at '{hef_path}'",
+                hailo_runtime_available=runtime_ok,
+                device_available=device_ok,
+            )
 
     # 2. Check HEF readability and size
     try:

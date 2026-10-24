@@ -53,10 +53,14 @@ class VideoSourceManager:
 
         # 3. Check Media Files
         media_files = []
-        if os.path.isdir(self._config.media_dir):
-            for ext in ("*.mp4", "*.avi", "*.mkv", "*.mov", "*.m4v"):
-                for fpath in glob.glob(os.path.join(self._config.media_dir, ext)):
-                    media_files.append(os.path.basename(fpath))
+        candidate_dirs = [self._config.media_dir, "media", "/app/media"]
+        for mdir in candidate_dirs:
+            if mdir and os.path.isdir(mdir):
+                for ext in ("*.mp4", "*.avi", "*.mkv", "*.mov", "*.m4v"):
+                    for fpath in glob.glob(os.path.join(mdir, ext)):
+                        bname = os.path.basename(fpath)
+                        if bname not in media_files:
+                            media_files.append(bname)
 
         return {
             "csi_camera_supported": csi_available,
@@ -151,6 +155,10 @@ class VideoSourceManager:
 
                 elif source_type == "file":
                     fpath = kwargs.get("file_path", self._config.video_file_path)
+                    if not fpath or not os.path.exists(fpath):
+                        discovered = self.enumerate_sources().get("media_files", [])
+                        if discovered:
+                            fpath = os.path.join(self._config.media_dir, discovered[0])
                     loop = kwargs.get("loop", self._config.loop_playback)
                     fps = kwargs.get("fps", self._config.capture_fps)
                     new_source = VideoFileSource(

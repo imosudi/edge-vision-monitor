@@ -7,7 +7,7 @@
 # Hailo YOLO11 Model & Accelerator Settings
 model:
   # Path to compiled Hailo Executable Format (HEF) file
-  hef_path: "models/yolo11n.hef"
+  hef_path: "models/model.hef"
   # Path to text file containing class labels (one per line) or YAML
   labels_path: "models/labels.txt"
   # Optional model metadata configuration file

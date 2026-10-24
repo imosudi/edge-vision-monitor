@@ -197,6 +197,8 @@ services:
     volumes:
       - "/dev/shm:/dev/shm"
       - "./data:/app/data:z"
+      - "./media:/app/media:ro,z"
+      - "./models:/app/models:ro,z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
       - "./main.py:/app/main.py:ro"

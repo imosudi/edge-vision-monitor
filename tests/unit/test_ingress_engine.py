@@ -89,6 +89,20 @@ def test_multi_stream_source_concurrency(temp_dir):
     assert source.is_active() is False
 
 
+def test_multi_stream_source_high_concurrency(temp_dir):
+    for streams in (12, 16, 20):
+        source = MultiStreamSource(
+            stream_count=streams,
+            media_dir=temp_dir,
+            buffer_size_per_stream=10,
+            queue_size=32,
+            unthrottled=True,
+        )
+        assert source.start() is True
+        assert source.get_status()["stream_count"] == streams
+        source.stop()
+
+
 def test_video_source_manager_workload_switching(temp_dir):
     cfg = VideoSourceConfig(
         default_source_type="file",

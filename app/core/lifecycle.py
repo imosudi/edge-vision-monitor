@@ -219,17 +219,21 @@ class ApplicationLifecycleManager:
 
     def get_available_backends(self) -> dict:
         """Check hardware and model file availability for Hailo and CPU backends."""
-        from app.inference.model_validation import check_hailo_device_node, check_hailo_runtime_installed
+        from app.inference.model_validation import check_hailo_device_node, check_hailo_runtime_installed, resolve_hef_path
 
         hailo_rt, _ = check_hailo_runtime_installed()
         hailo_dev = check_hailo_device_node()
-        hailo_hef_exists = os.path.isfile(self.config.model.hef_path) if self.config.model.hef_path else False
+        resolved_hef = resolve_hef_path(self.config.model.hef_path)
+        hailo_hef_exists = os.path.isfile(resolved_hef) if resolved_hef else False
 
         onnx_candidates = [
             getattr(self.config.model, "onnx_path", None),
             "models/onnx/model.onnx",
             "models/model.onnx",
             "models/pytorch/best.onnx",
+            "/app/models/onnx/model.onnx",
+            "/app/models/model.onnx",
+            "/app/models/pytorch/best.onnx",
         ]
         active_onnx = next((p for p in onnx_candidates if p and os.path.isfile(p)), None)
 
@@ -254,7 +258,7 @@ class ApplicationLifecycleManager:
                 "hailo": {
                     "name": "Hailo-8L NPU",
                     "available": hailo_available,
-                    "model_path": self.config.model.hef_path,
+                    "model_path": resolved_hef or self.config.model.hef_path,
                     "device_node": "/dev/hailo0",
                     "runtime_installed": hailo_rt_installed,
                 },

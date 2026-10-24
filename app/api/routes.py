@@ -685,13 +685,20 @@ def get_system_info() -> SystemInfoResponse:
     except ImportError:
         pass
 
+    hailo_dev = os.path.exists("/dev/hailo0")
+    if not hailo_dev:
+        from app.core.ipc import get_ipc_telemetry_metrics
+        tel_m = get_ipc_telemetry_metrics()
+        if tel_m and "hailo_device_present" in tel_m:
+            hailo_dev = bool(tel_m["hailo_device_present"].get("value", 0))
+
     return SystemInfoResponse(
         hostname=platform.node(),
         platform=platform.platform(),
         os_kernel=platform.release(),
         python_version=sys.version.split()[0],
         cpu_model=cpu_model,
-        hailo_device_present=os.path.exists("/dev/hailo0"),
+        hailo_device_present=hailo_dev,
         hailo_runtime_installed=hailo_pkg,
     )
 

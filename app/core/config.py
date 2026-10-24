@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 class ModelConfig(BaseModel):
     """Configuration for compiled Hailo/CPU YOLO11 model and post-processing."""
 
-    hef_path: str = Field(default="models/yolo11n.hef", description="Path to compiled Hailo HEF model")
+    hef_path: str = Field(default="models/model.hef", description="Path to compiled Hailo HEF model")
     onnx_path: Optional[str] = Field(default="models/onnx/model.onnx", description="Path to CPU ONNX model")
     active_backend: Literal["hailo", "cpu", "mock"] = Field(default="hailo", description="Initial inference backend ('hailo' or 'cpu')")
     labels_path: Optional[str] = Field(default="models/labels.txt", description="Path to class labels file")

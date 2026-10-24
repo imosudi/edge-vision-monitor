@@ -426,3 +426,30 @@ def test_workload_microservices_ipc_dispatch():
         assert any(c[0] == ("set_benchmark_mode",) and c[1].get("enabled") is False for c in mock_inf_cmd.call_args_list)
         assert any(c[0] == ("switch_source",) and c[1].get("source_type") == "file" for c in mock_src_cmd.call_args_list)
 
+
+def test_workload_high_concurrency_stream_options(workload_env):
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    evt_svc = workload_env["evt_svc"]
+    engine = workload_env["engine"]
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        event_service=evt_svc,
+        trajectory_engine=engine,
+    )
+
+    for streams in (12, 16, 20):
+        status = svc.start_workload(
+            workload_type="B",
+            duration_seconds=5.0,
+            stream_count=streams,
+            simulate=True,
+        )
+        assert status["stream_count"] == streams
+        svc.stop_workload()
+
+

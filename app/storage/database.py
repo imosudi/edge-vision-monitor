@@ -128,14 +128,31 @@ def get_connection(db_path: str, read_only: bool = False) -> sqlite3.Connection:
     Get a new configured SQLite connection with row factory, WAL mode, and 10s busy timeout.
     Enables dictionary-like row access and memory page caching. Supports graceful read_only fallback.
     """
-    if read_only and not os.path.exists(db_path):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
+    if read_only:
+        if not os.path.exists(db_path):
+            conn = sqlite3.connect(":memory:")
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.executescript(SCHEMA_SQL)
+            except Exception:
+                pass
+            return conn
         try:
-            conn.executescript(SCHEMA_SQL)
-        except Exception:
+            abs_path = os.path.abspath(db_path)
+            conn = sqlite3.connect(f"file:{abs_path}?mode=ro", uri=True, timeout=15.0)
+            conn.row_factory = sqlite3.Row
+            for pragma_stmt in [
+                "PRAGMA busy_timeout = 10000;",
+                "PRAGMA cache_size = -64000;",
+                "PRAGMA temp_store = MEMORY;",
+            ]:
+                try:
+                    conn.execute(pragma_stmt)
+                except sqlite3.OperationalError:
+                    pass
+            return conn
+        except (sqlite3.OperationalError, OSError):
             pass
-        return conn
 
     conn = sqlite3.connect(db_path, timeout=15.0)
     conn.row_factory = sqlite3.Row

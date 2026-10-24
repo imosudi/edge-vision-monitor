@@ -191,4 +191,25 @@ def test_workload_api_lifecycle(client):
     assert isinstance(sess_res.json(), list)
 
 
+def test_workload_api_concurrent_streams_options(client):
+    for streams in (12, 16, 20):
+        res = client.post(
+            "/api/v1/workload/start",
+            json={
+                "workload_type": "B",
+                "duration_seconds": 5.0,
+                "stream_count": streams,
+                "simulate": True,
+            },
+        )
+        assert res.status_code == 200, f"Failed for stream_count={streams}: {res.text}"
+        data = res.json()
+        assert data["active"] is True
+        assert data["stream_count"] == streams
+
+        stop_res = client.post("/api/v1/workload/stop?reason=Streams+Test")
+        assert stop_res.status_code == 200
+
+
+
 
