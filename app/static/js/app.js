@@ -34,29 +34,25 @@ function syncWorkloadModeSelectorUI(runningWorkload) {
   if (btnHailo) {
     btnHailo.classList.toggle('active', effectiveMode === 'hailo');
     if (!isSwitchingBackend) {
-      // Disabled ONLY when Hailo-8L inference is actively running
-      btnHailo.disabled = (runningWorkload === 'hailo');
+      btnHailo.disabled = false;
     }
   }
   if (btnCpu) {
     btnCpu.classList.toggle('active', effectiveMode === 'cpu');
     if (!isSwitchingBackend) {
-      // Disabled ONLY when CPU ONNX inference is actively running
-      btnCpu.disabled = (runningWorkload === 'cpu');
+      btnCpu.disabled = false;
     }
   }
   if (btnBench) {
     btnBench.classList.toggle('active', effectiveMode === 'benchmark');
     if (!isSwitchingBackend) {
-      // Disabled ONLY when dual NPU and CPU benchmark is actively running
-      btnBench.disabled = (runningWorkload === 'benchmark');
+      btnBench.disabled = false;
     }
   }
   if (btnSuite) {
     btnSuite.classList.toggle('active', effectiveMode === 'workload_suite');
     if (!isSwitchingBackend) {
-      // Disabled ONLY when Workload Suite is actively running
-      btnSuite.disabled = (runningWorkload === 'workload_suite');
+      btnSuite.disabled = false;
     }
   }
 
@@ -2645,6 +2641,11 @@ async function seedInferenceAndDetectionHistory() {
 }
 
 function onAppInit() {
+  activeWorkloadMode = 'hailo';
+  currentActiveBackend = 'hailo';
+  isInferenceRunning = true;
+  updateMasterWorkloadButton();
+
   checkInitialReadiness();
   loadAvailableBackends();
   loadDiscoveredSources();
@@ -2656,6 +2657,29 @@ function onAppInit() {
   seedProcFootprintHistory();
   seedDiskHistory();
   seedInferenceAndDetectionHistory();
+
+  // Ensure Hailo-8L inference is active by default running inference
+  fetch('/api/v1/status')
+    .then(r => r.json())
+    .then(st => {
+      if (st) {
+        if (!st.inference_running) {
+          fetch('/api/v1/inference/start', { method: 'POST' })
+            .then(() => {
+              isInferenceRunning = true;
+              updateMasterWorkloadButton();
+            })
+            .catch(() => {});
+        } else {
+          isInferenceRunning = true;
+          updateMasterWorkloadButton();
+        }
+      }
+    })
+    .catch(() => {
+      updateMasterWorkloadButton();
+    });
+
   fetch('/api/v1/workload/status')
     .then(r => r.json())
     .then(st => {

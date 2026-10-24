@@ -57,9 +57,9 @@
       </div>
 
       <!-- Master Unified Start / Stop Button for ALL Workloads -->
-      <button id="btn-inference-toggle" class="btn btn-primary" onclick="toggleGlobalWorkload()" title="Start or Stop the selected workload">
-        <span id="icon-inference">▶</span>
-        <span id="text-inference">Start Hailo-8L</span>
+      <button id="btn-inference-toggle" class="btn btn-danger pulsing-stop" onclick="toggleGlobalWorkload()" title="Stop Active Hailo-8L NPU Inference">
+        <span id="icon-inference">■</span>
+        <span id="text-inference">Stop Hailo-8L</span>
       </button>
 
       <button id="btn-open-diagnostics" class="btn btn-ghost" onclick="openDiagnosticsModal()">
@@ -1474,7 +1474,7 @@
     <span class="footer-cite-key">EdgeVisionMonitor2026</span> &bull; Isiaka Mosudi (FHTW) &bull; &copy; 2026
   </footer>
 
-  <script src="/static/js/charts.js?v=4.35-runtime-workload-disabling"></script>
-  <script src="/static/js/app.js?v=4.35-runtime-workload-disabling"></script>
+  <script src="/static/js/charts.js?v=4.36-hailo8l-active-default"></script>
+  <script src="/static/js/app.js?v=4.36-hailo8l-active-default"></script>
 </body>
 </html>
