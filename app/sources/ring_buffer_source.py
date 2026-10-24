@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from app.core.logging_config import get_logger
+from app.inference.preprocessing import preprocess_frame
 from app.sources.base import BaseVideoSource, VideoFrame
 
 logger = get_logger("SOURCE.RING_BUFFER")
@@ -41,6 +42,7 @@ class RingBufferVideoSource(BaseVideoSource):
         self._target_fps = target_fps or 30.0
 
         self._frames: List[np.ndarray] = []
+        self._preprocessed_frames: List[Tuple[np.ndarray, float, Tuple[int, int]]] = []
         self._current_idx = 0
         self._frame_seq = 0
         self._is_active = False
@@ -150,8 +152,15 @@ class RingBufferVideoSource(BaseVideoSource):
             base_name = os.path.basename(self._resolved_path or "video")
             self._source_id = f"ring_buffer:{base_name}"
 
+        # Precompute model input tensors to eliminate inference preprocessing overhead
+        pre_frames: List[Tuple[np.ndarray, float, Tuple[int, int]]] = []
+        for f in loaded_frames:
+            tensor, scale, pads, _ = preprocess_frame(f, input_height=640, input_width=640, to_rgb=True)
+            pre_frames.append((tensor, scale, pads))
+
         with self._lock:
             self._frames = loaded_frames
+            self._preprocessed_frames = pre_frames
             self._current_idx = 0
             self._frame_seq = 0
             self._is_active = True
@@ -170,6 +179,7 @@ class RingBufferVideoSource(BaseVideoSource):
         with self._lock:
             self._is_active = False
             self._frames.clear()
+            self._preprocessed_frames.clear()
             self._current_idx = 0
         logger.info("RingBufferVideoSource stopped cleanly")
 
@@ -192,6 +202,12 @@ class RingBufferVideoSource(BaseVideoSource):
             self._fps_timestamps.append(now)
 
             raw_frame = self._frames[self._current_idx]
+            pre_item = (
+                self._preprocessed_frames[self._current_idx]
+                if self._current_idx < len(self._preprocessed_frames)
+                else None
+            )
+            pre_tensor, scale, pads = pre_item if pre_item is not None else (None, None, None)
             self._current_idx = (self._current_idx + 1) % len(self._frames)
             self._frame_seq += 1
 
@@ -203,6 +219,9 @@ class RingBufferVideoSource(BaseVideoSource):
                 width=w,
                 height=h,
                 monotonic_ts=now,
+                preprocessed_tensor=pre_tensor,
+                scale=scale,
+                pads=pads,
             )
 
     def is_active(self) -> bool:

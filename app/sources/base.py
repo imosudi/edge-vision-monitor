@@ -7,13 +7,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 
 @dataclass
 class VideoFrame:
-    """A single captured video frame with capture metadata."""
+    """A single captured video frame with capture metadata and optional preprocessed tensor cache."""
 
     frame_seq: int
     data: np.ndarray
@@ -22,6 +22,9 @@ class VideoFrame:
     height: int
     timestamp_utc: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     monotonic_ts: float = 0.0
+    preprocessed_tensor: Optional[np.ndarray] = None
+    scale: Optional[float] = None
+    pads: Optional[Tuple[int, int]] = None
 
 
 class BaseVideoSource(ABC):

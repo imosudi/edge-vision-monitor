@@ -425,6 +425,12 @@ function handleLiveUpdate(data) {
   let curFreq = 2400.0;
   let throttleDrop = 0.0;
 
+  const isWorkloadActive = Boolean(
+    data.workload &&
+    (data.workload.active || data.workload.state === 'running' || data.workload.state === 'starting') &&
+    typeof data.workload.current_tj_c === 'number'
+  );
+
   if (metrics) {
     // 1. Direct key lookups for Hailo NPU thermals
     if (metrics.hailo_junction_temperature_c && metrics.hailo_junction_temperature_c.value !== null) {
@@ -462,6 +468,18 @@ function handleLiveUpdate(data) {
       hailoJunctionTemp = Math.max(hailoTs0 ?? 0, hailoTs1 ?? 0);
     }
     hailoTemp = hailoJunctionTemp;
+
+    // Prioritise active supervised workload silicon thermals to ensure curves and stats sync with Live Accelerator Envelope
+    if (isWorkloadActive) {
+      hailoJunctionTemp = data.workload.current_tj_c;
+      if (typeof data.workload.ts0_c === 'number') {
+        hailoTs0 = data.workload.ts0_c;
+      }
+      if (typeof data.workload.ts1_c === 'number') {
+        hailoTs1 = data.workload.ts1_c;
+      }
+      hailoTemp = hailoJunctionTemp;
+    }
 
     // Ambient Sensor Telemetry (ESP32-S3 / DHT22)
     if (metrics.ambient_temperature_c && metrics.ambient_temperature_c.value !== null) {
@@ -830,7 +848,9 @@ function handleLiveUpdate(data) {
   let hailoClockMhz = null;
   let hailoUtilPct = null;
 
-  if (metrics.hailo_clock_frequency_mhz && metrics.hailo_clock_frequency_mhz.value !== null) {
+  if (isWorkloadActive && typeof data.workload.clock_frequency_mhz === 'number') {
+    hailoClockMhz = data.workload.clock_frequency_mhz;
+  } else if (metrics && metrics.hailo_clock_frequency_mhz && metrics.hailo_clock_frequency_mhz.value !== null) {
     hailoClockMhz = metrics.hailo_clock_frequency_mhz.value;
   } else if (data.workload && typeof data.workload.clock_frequency_mhz === 'number') {
     hailoClockMhz = data.workload.clock_frequency_mhz;
@@ -838,9 +858,11 @@ function handleLiveUpdate(data) {
     hailoClockMhz = 400.0;
   }
 
-  if (data.workload && typeof data.workload.npu_utilization_percent === 'number') {
+  if (isWorkloadActive && typeof data.workload.npu_utilization_percent === 'number') {
     hailoUtilPct = data.workload.npu_utilization_percent;
-  } else if (metrics.hailo_utilization_percent && metrics.hailo_utilization_percent.value !== null) {
+  } else if (data.workload && typeof data.workload.npu_utilization_percent === 'number') {
+    hailoUtilPct = data.workload.npu_utilization_percent;
+  } else if (metrics && metrics.hailo_utilization_percent && metrics.hailo_utilization_percent.value !== null) {
     hailoUtilPct = metrics.hailo_utilization_percent.value;
   } else if ((currentActiveBackend === 'hailo' && isInferenceRunning) || isWorkloadSuiteActive) {
     hailoUtilPct = Math.min(100.0, Math.max(0.0, ((fps || 0) * (npuLat || 0) / 1000.0) * 100.0));
@@ -3423,6 +3445,19 @@ function updateWorkloadUI(workload) {
   if (workload.ts0_c !== null && workload.ts1_c !== null && workload.ts0_c !== undefined) {
     const elDie = document.getElementById('val-hailo-die-temp');
     if (elDie) elDie.textContent = `${Number(workload.ts0_c).toFixed(0)} / ${Number(workload.ts1_c).toFixed(0)} °C`;
+  }
+
+  // Update header stat pill for Hailo-8L Silicon Thermals in sync with active workload envelope
+  const lblHailoThermal = document.getElementById('lbl-hailo-thermal-stat');
+  if (lblHailoThermal && workload.current_tj_c !== null && workload.current_tj_c !== undefined) {
+    const tjStr = `${Number(workload.current_tj_c).toFixed(1)}°C`;
+    const ts0Str = workload.ts0_c !== null && workload.ts0_c !== undefined ? `${Number(workload.ts0_c).toFixed(1)}°C` : '--';
+    const ts1Str = workload.ts1_c !== null && workload.ts1_c !== undefined ? `${Number(workload.ts1_c).toFixed(1)}°C` : '--';
+    lblHailoThermal.textContent = `Tj: ${tjStr} | TS0: ${ts0Str} | TS1: ${ts1Str}`;
+  }
+  const lblHailoClock = document.getElementById('lbl-hailo-clock-stat');
+  if (lblHailoClock && workload.clock_frequency_mhz !== null && workload.clock_frequency_mhz !== undefined) {
+    lblHailoClock.textContent = `${Math.round(workload.clock_frequency_mhz)} MHz`;
   }
 
   // 2. Update Modal Controls and Metrics HUD if open

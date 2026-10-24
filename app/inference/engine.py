@@ -5,12 +5,13 @@ and mock test engine.
 
 from __future__ import annotations
 
+import collections
 import glob
 import math
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from app.core.config import ModelConfig
@@ -44,9 +45,25 @@ class BaseInferenceEngine(ABC):
         frame_seq: int,
         source_id: str,
         skip_postprocessing: bool = False,
-    ) -> DetectionResult:
+        preprocessed_tensor: Optional[np.ndarray] = None,
+        scale: Optional[float] = None,
+        pads: Optional[Tuple[int, int]] = None,
+        wait_flush: bool = False,
+    ) -> Optional[DetectionResult]:
         """Run preprocessing, model execution, and post-processing on a video frame."""
         pass
+
+    def flush(self) -> List[DetectionResult]:
+        """Flush and return any inflight asynchronous inference pipeline jobs."""
+        return []
+
+    @property
+    def input_width(self) -> int:
+        return 640
+
+    @property
+    def input_height(self) -> int:
+        return 640
 
     @abstractmethod
     def close(self) -> None:
@@ -67,7 +84,7 @@ class BaseInferenceEngine(ABC):
 class HailoInferenceEngine(BaseInferenceEngine):
     """Production Hailo-8L accelerator inference engine using HailoRT."""
 
-    def __init__(self, config: ModelConfig, hef_path: Optional[str] = None):
+    def __init__(self, config: ModelConfig, hef_path: Optional[str] = None, pipeline_depth: int = 2):
         self._config = config
         from app.inference.model_validation import resolve_hef_path
         if hef_path:
@@ -80,9 +97,30 @@ class HailoInferenceEngine(BaseInferenceEngine):
         self._vdevice: Any = None
         self._infer_model: Any = None
         self._configured_infer_model: Any = None
-        self._bindings: Any = None
+        self._bindings_pool: List[Any] = []
+        self._binding_idx: int = 0
+        self._inflight_queue: collections.deque = collections.deque()
+        self._pipeline_depth: int = max(1, min(4, pipeline_depth))
+        self._use_infer_model: bool = False
+        self._use_vstreams: bool = False
         self._labels: List[str] = []
         self._is_ready: bool = False
+
+    @property
+    def input_width(self) -> int:
+        return (
+            self._validation.input_width
+            if (self._validation and self._validation.input_width)
+            else (self._config.input_width or 640)
+        )
+
+    @property
+    def input_height(self) -> int:
+        return (
+            self._validation.input_height
+            if (self._validation and self._validation.input_height)
+            else (self._config.input_height or 640)
+        )
 
     def initialize(self) -> ModelValidationResult:
         from app.inference.model_validation import resolve_hef_path
@@ -113,7 +151,20 @@ class HailoInferenceEngine(BaseInferenceEngine):
         try:
             import hailo_platform  # type: ignore
 
-            if hasattr(hailo_platform, "InferVStreams") and hasattr(hailo_platform, "HEF"):
+            if hasattr(hailo_platform, "InferModel"):
+                # Modern HailoRT InferModel API supporting asynchronous pipelining
+                self._vdevice = hailo_platform.VDevice()
+                self._infer_model = self._vdevice.create_infer_model(self._config.hef_path)
+                self._configured_infer_model = self._infer_model.configure()
+                self._bindings_pool = [
+                    self._configured_infer_model.create_bindings()
+                    for _ in range(self._pipeline_depth)
+                ]
+                self._binding_idx = 0
+                self._inflight_queue.clear()
+                self._use_infer_model = True
+                self._use_vstreams = False
+            elif hasattr(hailo_platform, "InferVStreams") and hasattr(hailo_platform, "HEF"):
                 # Standard HailoRT PyHailoRT API (Raspberry Pi OS / AI HAT+)
                 self._hef = hailo_platform.HEF(self._config.hef_path)
                 self._vdevice = hailo_platform.VDevice()
@@ -136,15 +187,9 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 )
                 self._infer_pipeline.__enter__()
                 self._use_vstreams = True
-            elif hasattr(hailo_platform, "InferModel"):
-                # Alternative InferModel API
-                self._vdevice = hailo_platform.VDevice()
-                self._infer_model = self._vdevice.create_infer_model(self._config.hef_path)
-                self._configured_infer_model = self._infer_model.configure()
-                self._bindings = self._configured_infer_model.create_bindings()
-                self._use_vstreams = False
+                self._use_infer_model = False
             else:
-                raise RuntimeError("hailo_platform does not provide InferVStreams or InferModel")
+                raise RuntimeError("hailo_platform does not provide InferModel or InferVStreams")
 
             self._is_ready = True
             logger.info("Hailo-8L inference engine initialised successfully with HEF: %s", self._config.hef_path)
@@ -158,13 +203,66 @@ class HailoInferenceEngine(BaseInferenceEngine):
             self._validation.error_message = str(e)
             return self._validation
 
+    def _drain_job_ctx(self, ctx: Dict[str, Any]) -> DetectionResult:
+        ctx["job"].wait(timeout_ms=1000)
+        hailo_ms = (time.monotonic() - ctx["t_hailo_start"]) * 1000.0
+        raw_outputs = {}
+        for out_name in self._infer_model.output_names:
+            raw_outputs[out_name] = ctx["binding"].output(out_name).get_buffer()
+
+        if ctx["skip_postprocessing"]:
+            detections = []
+            post_ms = 0.0
+        else:
+            detections, post_ms = decode_yolo11_detections(
+                raw_outputs=raw_outputs,
+                orig_w=ctx["orig_w"],
+                orig_h=ctx["orig_h"],
+                scale=ctx["scale"],
+                pad_offsets=ctx["pads"],
+                labels=self._labels,
+                confidence_threshold=self._config.confidence_threshold,
+                nms_iou_threshold=self._config.nms_iou_threshold,
+                max_detections=self._config.max_detections,
+            )
+
+        total_latency_ms = (time.monotonic() - ctx["t_start"]) * 1000.0
+        return DetectionResult(
+            frame_seq=ctx["frame_seq"],
+            source_id=ctx["source_id"],
+            monotonic_ts=time.monotonic(),
+            detections=detections,
+            image_width=ctx["orig_w"],
+            image_height=ctx["orig_h"],
+            preprocessing_ms=ctx["prep_ms"],
+            hailo_exec_ms=hailo_ms,
+            postprocessing_ms=post_ms,
+            total_latency_ms=total_latency_ms,
+        )
+
+    def flush(self) -> List[DetectionResult]:
+        """Drain any inflight async inference jobs and return completed detection results."""
+        results: List[DetectionResult] = []
+        while self._inflight_queue:
+            ctx = self._inflight_queue.popleft()
+            try:
+                res = self._drain_job_ctx(ctx)
+                results.append(res)
+            except Exception as e:
+                logger.error("Error draining inflight Hailo inference job: %s", e)
+        return results
+
     def infer(
         self,
         frame: np.ndarray,
         frame_seq: int,
         source_id: str,
         skip_postprocessing: bool = False,
-    ) -> DetectionResult:
+        preprocessed_tensor: Optional[np.ndarray] = None,
+        scale: Optional[float] = None,
+        pads: Optional[Tuple[int, int]] = None,
+        wait_flush: bool = False,
+    ) -> Optional[DetectionResult]:
         if not self._is_ready:
             now_mono = time.monotonic()
             if (now_mono - getattr(self, "_last_init_retry_ts", 0.0)) >= 2.0:
@@ -181,31 +279,103 @@ class HailoInferenceEngine(BaseInferenceEngine):
         orig_h, orig_w = frame.shape[:2]
         t_start = time.monotonic()
 
-        # 1. Preprocess
-        input_w = self._validation.input_width if self._validation else 640
-        input_h = self._validation.input_height if self._validation else 640
-        input_tensor, scale, pads, prep_ms = preprocess_frame(
-            frame, input_height=input_h, input_width=input_w, to_rgb=True
-        )
+        # 1. Preprocess or adopt cached tensor
+        input_w = self.input_width
+        input_h = self.input_height
+
+        if preprocessed_tensor is not None:
+            input_tensor = preprocessed_tensor
+            prep_ms = 0.0
+            if scale is None:
+                scale = min(input_w / orig_w, input_h / orig_h)
+            if pads is None:
+                new_w = int(round(orig_w * scale))
+                new_h = int(round(orig_h * scale))
+                pads = ((input_w - new_w) // 2, (input_h - new_h) // 2)
+        else:
+            input_tensor, scale, pads, prep_ms = preprocess_frame(
+                frame, input_height=input_h, input_width=input_w, to_rgb=True
+            )
 
         # 2. Hailo Accelerator Execution
         t_hailo_start = time.monotonic()
         try:
-            if getattr(self, "_use_vstreams", False):
-                batch_tensor = input_tensor if input_tensor.ndim == 4 else np.expand_dims(input_tensor, axis=0)
-                raw_outputs = self._infer_pipeline.infer({self._input_name: batch_tensor})
-            else:
+            if getattr(self, "_use_infer_model", False):
+                cur_binding = self._bindings_pool[self._binding_idx]
+                self._binding_idx = (self._binding_idx + 1) % self._pipeline_depth
+
                 input_names = self._infer_model.input_names
-                if input_names:
-                    self._bindings.input(input_names[0]).set_buffer(input_tensor)
+                try:
+                    if input_names:
+                        cur_binding.input(input_names[0]).set_buffer(input_tensor)
+                    else:
+                        cur_binding.input().set_buffer(input_tensor)
+                except Exception:
+                    # Adapt 3D / 4D shape if required
+                    buf = np.squeeze(input_tensor, axis=0) if input_tensor.ndim == 4 else np.expand_dims(input_tensor, axis=0)
+                    if input_names:
+                        cur_binding.input(input_names[0]).set_buffer(buf)
+                    else:
+                        cur_binding.input().set_buffer(buf)
 
                 self._configured_infer_model.wait_for_async_ready(timeout_ms=1000)
-                job = self._configured_infer_model.run_async([self._bindings])
-                job.wait(timeout_ms=1000)
+                job = self._configured_infer_model.run_async([cur_binding])
 
-                raw_outputs = {}
-                for out_name in self._infer_model.output_names:
-                    raw_outputs[out_name] = self._bindings.output(out_name).get_buffer()
+                frame_ctx = {
+                    "job": job,
+                    "binding": cur_binding,
+                    "frame_seq": frame_seq,
+                    "source_id": source_id,
+                    "orig_w": orig_w,
+                    "orig_h": orig_h,
+                    "scale": scale,
+                    "pads": pads,
+                    "prep_ms": prep_ms,
+                    "t_hailo_start": t_hailo_start,
+                    "t_start": t_start,
+                    "skip_postprocessing": skip_postprocessing,
+                }
+                self._inflight_queue.append(frame_ctx)
+
+                if wait_flush or len(self._inflight_queue) >= self._pipeline_depth:
+                    completed_ctx = self._inflight_queue.popleft()
+                    return self._drain_job_ctx(completed_ctx)
+                return None
+
+            else:
+                batch_tensor = input_tensor if input_tensor.ndim == 4 else np.expand_dims(input_tensor, axis=0)
+                raw_outputs = self._infer_pipeline.infer({self._input_name: batch_tensor})
+                hailo_ms = (time.monotonic() - t_hailo_start) * 1000.0
+
+                if skip_postprocessing:
+                    detections = []
+                    post_ms = 0.0
+                else:
+                    detections, post_ms = decode_yolo11_detections(
+                        raw_outputs=raw_outputs,
+                        orig_w=orig_w,
+                        orig_h=orig_h,
+                        scale=scale,
+                        pad_offsets=pads,
+                        labels=self._labels,
+                        confidence_threshold=self._config.confidence_threshold,
+                        nms_iou_threshold=self._config.nms_iou_threshold,
+                        max_detections=self._config.max_detections,
+                    )
+
+                total_latency_ms = (time.monotonic() - t_start) * 1000.0
+                return DetectionResult(
+                    frame_seq=frame_seq,
+                    source_id=source_id,
+                    monotonic_ts=time.monotonic(),
+                    detections=detections,
+                    image_width=orig_w,
+                    image_height=orig_h,
+                    preprocessing_ms=prep_ms,
+                    hailo_exec_ms=hailo_ms,
+                    postprocessing_ms=post_ms,
+                    total_latency_ms=total_latency_ms,
+                )
 
         except Exception as e:
             hailo_ms = (time.monotonic() - t_hailo_start) * 1000.0
@@ -219,42 +389,12 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 error_status=str(e),
             )
 
-        hailo_ms = (time.monotonic() - t_hailo_start) * 1000.0
-
-        # 3. Post-process (skipped in benchmark mode to maximize NPU compute duty cycle)
-        if skip_postprocessing:
-            detections = []
-            post_ms = 0.0
-        else:
-            detections, post_ms = decode_yolo11_detections(
-                raw_outputs=raw_outputs,
-                orig_w=orig_w,
-                orig_h=orig_h,
-                scale=scale,
-                pad_offsets=pads,
-                labels=self._labels,
-                confidence_threshold=self._config.confidence_threshold,
-                nms_iou_threshold=self._config.nms_iou_threshold,
-                max_detections=self._config.max_detections,
-            )
-
-        total_latency_ms = (time.monotonic() - t_start) * 1000.0
-
-        return DetectionResult(
-            frame_seq=frame_seq,
-            source_id=source_id,
-            monotonic_ts=time.monotonic(),
-            detections=detections,
-            image_width=orig_w,
-            image_height=orig_h,
-            preprocessing_ms=prep_ms,
-            hailo_exec_ms=hailo_ms,
-            postprocessing_ms=post_ms,
-            total_latency_ms=total_latency_ms,
-        )
-
     def close(self) -> None:
         self._is_ready = False
+        try:
+            self.flush()
+        except Exception:
+            pass
         try:
             if hasattr(self, "_infer_pipeline") and self._infer_pipeline:
                 try:
@@ -296,6 +436,7 @@ class HailoInferenceEngine(BaseInferenceEngine):
             "hef_path": self._config.hef_path,
             "error_message": self._validation.error_message if self._validation else None,
             "is_mock": False,
+            "pipeline_depth": self._pipeline_depth if getattr(self, "_use_infer_model", False) else 1,
         }
 
 
@@ -415,12 +556,24 @@ class ONNXInferenceEngine(BaseInferenceEngine):
             )
             return self._validation
 
+    @property
+    def input_width(self) -> int:
+        return self._input_width
+
+    @property
+    def input_height(self) -> int:
+        return self._input_height
+
     def infer(
         self,
         frame: np.ndarray,
         frame_seq: int,
         source_id: str,
         skip_postprocessing: bool = False,
+        preprocessed_tensor: Optional[np.ndarray] = None,
+        scale: Optional[float] = None,
+        pads: Optional[Tuple[int, int]] = None,
+        wait_flush: bool = False,
     ) -> DetectionResult:
         if not self._is_ready or self._session is None:
             now_mono = time.monotonic()
@@ -440,13 +593,26 @@ class ONNXInferenceEngine(BaseInferenceEngine):
 
         # 1. Preprocess: letterbox + normalize float32 [0.0, 1.0] in NCHW format
         t_prep_start = time.monotonic()
-        input_tensor, scale, pads, _ = preprocess_frame(
-            frame, input_height=self._input_height, input_width=self._input_width, to_rgb=True
-        )
+        if preprocessed_tensor is not None:
+            input_tensor = preprocessed_tensor
+            prep_ms = 0.0
+            if scale is None:
+                scale = min(self._input_width / orig_w, self._input_height / orig_h)
+            if pads is None:
+                new_w = int(round(orig_w * scale))
+                new_h = int(round(orig_h * scale))
+                pads = ((self._input_width - new_w) // 2, (self._input_height - new_h) // 2)
+        else:
+            input_tensor, scale, pads, _ = preprocess_frame(
+                frame, input_height=self._input_height, input_width=self._input_width, to_rgb=True
+            )
+            prep_ms = (time.monotonic() - t_prep_start) * 1000.0
+
         img_f32 = input_tensor.astype(np.float32) / 255.0
+        if img_f32.ndim == 3:
+            img_f32 = np.expand_dims(img_f32, axis=0)
         # input_tensor is [1, H, W, C]; permute to [1, C, H, W]
         nchw_tensor = np.transpose(img_f32, (0, 3, 1, 2))
-        prep_ms = (time.monotonic() - t_prep_start) * 1000.0
 
         # 2. CPU ONNX Execution
         t_exec_start = time.monotonic()
@@ -530,6 +696,14 @@ class MockInferenceEngine(BaseInferenceEngine):
         self._is_ready = False
         self._validation: Optional[ModelValidationResult] = None
 
+    @property
+    def input_width(self) -> int:
+        return self._config.input_width or 640
+
+    @property
+    def input_height(self) -> int:
+        return self._config.input_height or 640
+
     def initialize(self) -> ModelValidationResult:
         self._is_ready = True
         self._validation = ModelValidationResult(
@@ -552,6 +726,10 @@ class MockInferenceEngine(BaseInferenceEngine):
         frame_seq: int,
         source_id: str,
         skip_postprocessing: bool = False,
+        preprocessed_tensor: Optional[np.ndarray] = None,
+        scale: Optional[float] = None,
+        pads: Optional[Tuple[int, int]] = None,
+        wait_flush: bool = False,
     ) -> DetectionResult:
         orig_h, orig_w = frame.shape[:2]
         t_start = time.monotonic()
@@ -593,7 +771,7 @@ class MockInferenceEngine(BaseInferenceEngine):
                 )
             post_ms = 0.8
 
-        prep_ms = 1.2
+        prep_ms = 0.0 if preprocessed_tensor is not None else 1.2
         hailo_ms = 4.8
         total_latency_ms = (time.monotonic() - t_start) * 1000.0 + (prep_ms + hailo_ms + post_ms)
 

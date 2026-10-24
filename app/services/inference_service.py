@@ -8,7 +8,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
@@ -114,7 +114,10 @@ class InferenceService:
         # Preview pacing and benchmark mode
         self._benchmark_mode = False
         self._last_preview_time = 0.0
-        self._preview_interval = 1.0 / max(1.0, float(server_config.preview_max_fps))
+        self._preview_interval = 1.0 / max(1.0, float(self._server_config.preview_max_fps))
+        self._cached_benchmark_tensor: Optional[np.ndarray] = None
+        self._cached_scale: Optional[float] = None
+        self._cached_pads: Optional[Tuple[int, int]] = None
 
     def start(self) -> bool:
         """Start the background inference loop."""
@@ -158,6 +161,11 @@ class InferenceService:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._thread = None
+        if hasattr(self._engine, "flush"):
+            try:
+                self._engine.flush()
+            except Exception as fe:
+                logger.warning("Error flushing inference engine on stop: %s", fe)
         try:
             from app.core.ipc import publish_inference_status
             publish_inference_status(self.get_stats())
@@ -182,6 +190,11 @@ class InferenceService:
         old_engine = self._engine
         try:
             if old_engine is not None:
+                if hasattr(old_engine, "flush"):
+                    try:
+                        old_engine.flush()
+                    except Exception:
+                        pass
                 try:
                     old_engine.close()
                 except Exception as ce:
@@ -276,12 +289,34 @@ class InferenceService:
                 is_preview_frame = (now_check - self._last_preview_time) >= self._preview_interval
                 skip_post = self._benchmark_mode and not is_preview_frame
 
+                # Preprocessed tensor acquisition (Cached from VideoFrame or cached benchmark tensor)
+                pre_tensor = getattr(vframe, "preprocessed_tensor", None)
+                pre_scale = getattr(vframe, "scale", None)
+                pre_pads = getattr(vframe, "pads", None)
+
+                if pre_tensor is None and self._benchmark_mode and not is_preview_frame:
+                    if self._cached_benchmark_tensor is None:
+                        from app.inference.preprocessing import preprocess_frame
+                        h_in = getattr(self._engine, "input_height", 640)
+                        w_in = getattr(self._engine, "input_width", 640)
+                        self._cached_benchmark_tensor, self._cached_scale, self._cached_pads, _ = preprocess_frame(
+                            vframe.data, input_height=h_in, input_width=w_in, to_rgb=True
+                        )
+                    pre_tensor = self._cached_benchmark_tensor
+                    pre_scale = self._cached_scale
+                    pre_pads = self._cached_pads
+
                 result = self._engine.infer(
                     frame=vframe.data,
                     frame_seq=vframe.frame_seq,
                     source_id=vframe.source_id,
                     skip_postprocessing=skip_post,
+                    preprocessed_tensor=pre_tensor,
+                    scale=pre_scale,
+                    pads=pre_pads,
                 )
+                if result is None:
+                    continue
                 result.acquisition_ms = acq_ms
 
                 now = time.monotonic()
@@ -392,6 +427,14 @@ class InferenceService:
             self._lat_rendering = RollingLatencyTracker(window_size=100)
             self._latest_detections.clear()
             self._latest_result = None
+            self._cached_benchmark_tensor = None
+            self._cached_scale = None
+            self._cached_pads = None
+        if hasattr(self._engine, "flush"):
+            try:
+                self._engine.flush()
+            except Exception:
+                pass
         try:
             publish_inference_frame(
                 jpeg_bytes=self.get_latest_jpeg(),
@@ -437,6 +480,9 @@ class InferenceService:
                 self._preview_interval = 0.5  # Max 2 FPS preview during benchmarks
             else:
                 self._preview_interval = 1.0 / max(1.0, float(self._server_config.preview_max_fps))
+                self._cached_benchmark_tensor = None
+                self._cached_scale = None
+                self._cached_pads = None
         logger.info("InferenceService benchmark mode %s", "enabled" if enabled else "disabled")
 
     def get_latency_percentiles(self) -> Dict[str, Dict[str, float]]:

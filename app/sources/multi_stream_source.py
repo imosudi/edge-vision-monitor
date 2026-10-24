@@ -12,11 +12,12 @@ import os
 import queue
 import threading
 import time
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
 from app.core.logging_config import get_logger
+from app.inference.preprocessing import preprocess_frame
 from app.sources.base import BaseVideoSource, VideoFrame
 
 logger = get_logger("SOURCE.MULTI_STREAM")
@@ -46,6 +47,7 @@ class MultiStreamSource(BaseVideoSource):
 
         self._frame_queue: queue.Queue[VideoFrame] = queue.Queue(maxsize=self._queue_size)
         self._stream_buffers: List[List[np.ndarray]] = []
+        self._preprocessed_buffers: List[List[Tuple[np.ndarray, float, Tuple[int, int]]]] = []
         self._stream_indices: List[int] = []
         self._stream_counters: List[int] = []
         self._stream_names: List[str] = []
@@ -124,6 +126,7 @@ class MultiStreamSource(BaseVideoSource):
         """Preload and initialise multi-stream buffers and start background ingestion."""
         candidate_files = self._discover_candidate_files()
         self._stream_buffers.clear()
+        self._preprocessed_buffers.clear()
         self._stream_indices.clear()
         self._stream_counters.clear()
         self._stream_names.clear()
@@ -158,7 +161,14 @@ class MultiStreamSource(BaseVideoSource):
             if not loaded:
                 loaded = self._generate_synthetic_stream(s_idx, self._buffer_size_per_stream)
 
+            # Precompute model input tensors to eliminate per-frame host resizing overhead
+            pre_loaded: List[Tuple[np.ndarray, float, Tuple[int, int]]] = []
+            for f in loaded:
+                tensor, scale, pads, _ = preprocess_frame(f, input_height=640, input_width=640, to_rgb=True)
+                pre_loaded.append((tensor, scale, pads))
+
             self._stream_buffers.append(loaded)
+            self._preprocessed_buffers.append(pre_loaded)
 
         # Clear queue and start ingestion thread
         while not self._frame_queue.empty():
@@ -198,6 +208,7 @@ class MultiStreamSource(BaseVideoSource):
                 break
 
         self._stream_buffers.clear()
+        self._preprocessed_buffers.clear()
         logger.info("MultiStreamSource stopped cleanly")
 
     def _feeder_loop(self) -> None:
@@ -210,10 +221,18 @@ class MultiStreamSource(BaseVideoSource):
                 continue
 
             buf = self._stream_buffers[curr_stream]
+            pre_buf = (
+                self._preprocessed_buffers[curr_stream]
+                if curr_stream < len(self._preprocessed_buffers)
+                else None
+            )
             idx = self._stream_indices[curr_stream]
             self._stream_indices[curr_stream] = (idx + 1) % len(buf)
             self._stream_counters[curr_stream] += 1
             raw_frame = buf[idx]
+            pre_tensor, scale, pads = (None, None, None)
+            if pre_buf and idx < len(pre_buf):
+                pre_tensor, scale, pads = pre_buf[idx]
 
             h, w = raw_frame.shape[:2]
             vframe = VideoFrame(
@@ -223,6 +242,9 @@ class MultiStreamSource(BaseVideoSource):
                 width=w,
                 height=h,
                 monotonic_ts=time.monotonic(),
+                preprocessed_tensor=pre_tensor,
+                scale=scale,
+                pads=pads,
             )
 
             try:

@@ -711,8 +711,8 @@ function initCharts() {
           ...chartOptionsBase.scales,
           y: {
             ...chartOptionsBase.scales.y,
-            min: 30,
-            suggestedMax: 90,
+            min: 25,
+            max: 110,
             ticks: {
               ...chartOptionsBase.scales.y.ticks,
               callback: (val) => `${val}°C`

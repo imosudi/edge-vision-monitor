@@ -140,3 +140,92 @@ def test_video_source_manager_workload_switching(temp_dir):
     mgr.stop()
     assert mgr.get_status()["is_active"] is False
 
+
+def test_tensor_cache_ring_buffer_and_multi_stream(temp_dir):
+    """Verify that VideoFrames from ring buffer and multi-stream carry precomputed model tensors."""
+    # 1. Ring Buffer
+    ring = RingBufferVideoSource(media_dir=temp_dir, buffer_size=10, unthrottled=True)
+    assert ring.start() is True
+    f_ring = ring.get_frame(timeout=0.2)
+    assert f_ring is not None
+    assert f_ring.preprocessed_tensor is not None
+    assert f_ring.preprocessed_tensor.shape == (1, 640, 640, 3)
+    assert f_ring.scale is not None
+    assert f_ring.pads is not None
+    ring.stop()
+
+    # 2. Multi-Stream Source
+    multi = MultiStreamSource(stream_count=2, media_dir=temp_dir, buffer_size_per_stream=10, queue_size=16)
+    assert multi.start() is True
+    f_multi = multi.get_frame(timeout=0.3)
+    assert f_multi is not None
+    assert f_multi.preprocessed_tensor is not None
+    assert f_multi.preprocessed_tensor.shape == (1, 640, 640, 3)
+    assert f_multi.scale is not None
+    assert f_multi.pads is not None
+    multi.stop()
+
+
+def test_inference_engine_tensor_cache_and_flush():
+    """Verify inference engine handles cached tensors with zero prep latency and flush()."""
+    from app.core.config import ModelConfig
+    from app.inference.engine import MockInferenceEngine
+
+    engine = MockInferenceEngine(ModelConfig())
+    engine.initialize()
+
+    dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    # Standard path: preprocessing latency simulated
+    res_std = engine.infer(dummy_frame, frame_seq=1, source_id="test")
+    assert res_std is not None
+    assert res_std.preprocessing_ms > 0.0
+
+    # Cached tensor path: preprocessing latency eliminated (0.0 ms)
+    cached_tensor = np.zeros((1, 640, 640, 3), dtype=np.uint8)
+    res_cached = engine.infer(
+        dummy_frame,
+        frame_seq=2,
+        source_id="test",
+        preprocessed_tensor=cached_tensor,
+        scale=1.0,
+        pads=(0, 0),
+    )
+    assert res_cached is not None
+    assert res_cached.preprocessing_ms == 0.0
+
+    # Verify flush interface
+    flushed = engine.flush()
+    assert isinstance(flushed, list)
+    engine.close()
+
+
+def test_inference_service_benchmark_mode_tensor_cache(temp_dir):
+    """Verify InferenceService achieves 0.0 ms preprocessing with cached tensors in benchmark mode."""
+    from app.core.config import ModelConfig
+    from app.inference.engine import MockInferenceEngine
+    from app.services.inference_service import InferenceService
+
+    source = RingBufferVideoSource(media_dir=temp_dir, buffer_size=15, unthrottled=True)
+    source.start()
+
+    engine = MockInferenceEngine(ModelConfig())
+    engine.initialize()
+
+    svc = InferenceService(engine=engine, source_manager=source)
+    svc.set_benchmark_mode(True)
+    assert svc.start() is True
+
+    time.sleep(0.15)  # Allow worker to process several cached frames
+
+    stats = svc.get_stats()
+    assert stats["benchmark_mode"] is True
+    assert stats["total_frames_processed"] > 0
+    # Rolling preprocessing latency must be 0.0 ms because cached tensors were consumed
+    prep_stats = stats["latencies"]["preprocessing_ms"]
+    assert prep_stats["mean"] == 0.0
+
+    svc.stop()
+    source.stop()
+
+

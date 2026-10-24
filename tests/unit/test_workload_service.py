@@ -668,3 +668,49 @@ def test_workload_high_concurrency_stream_options(workload_env):
         svc.stop_workload()
 
 
+def test_metrics_current_synchronized_with_active_workload(workload_env):
+    """
+    Verify that when a supervised workload is active, get_current_metrics()
+    synchronizes its silicon thermal, clock frequency, and throttling readings
+    with the workload accelerator envelope.
+    """
+    from app.api.routes import get_current_metrics
+    from app.core.lifecycle import get_lifecycle_manager
+
+    mgr = get_lifecycle_manager()
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    evt_svc = workload_env["evt_svc"]
+    engine = workload_env["engine"]
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        event_service=evt_svc,
+        trajectory_engine=engine,
+    )
+    old_workload_svc = mgr.workload_service
+    mgr.workload_service = svc
+
+    try:
+        # Start Workload D in simulation mode
+        svc.start_workload(workload_type="D", duration_seconds=10.0, simulate=True)
+        time.sleep(0.2)
+
+        metrics = get_current_metrics()
+        assert "hailo_junction_temperature_c" in metrics
+        tj_val = metrics["hailo_junction_temperature_c"]["value"]
+        assert tj_val >= 90.0, f"Expected active workload thermal >= 90.0°C, got {tj_val}"
+        assert "hailo_temp_ts0_c" in metrics
+        assert "hailo_temp_ts1_c" in metrics
+        assert "hailo_clock_frequency_mhz" in metrics
+        assert metrics["hailo_clock_frequency_mhz"]["value"] in (200.0, 400.0)
+
+        svc.stop_workload()
+    finally:
+        mgr.workload_service = old_workload_svc
+
+
+

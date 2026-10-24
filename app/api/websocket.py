@@ -95,6 +95,59 @@ async def websocket_endpoint(websocket: WebSocket):
                 from app.core.ipc import get_ipc_workload_status
                 workload_st = get_ipc_workload_status()
 
+            # Synchronize metrics_snapshot silicon thermals and clock with active workload envelope
+            if workload_st and (workload_st.get("active") or workload_st.get("state") in ("running", "starting")):
+                if metrics_snapshot is None:
+                    metrics_snapshot = {}
+                else:
+                    metrics_snapshot = dict(metrics_snapshot)
+
+                cur_tj = workload_st.get("current_tj_c")
+                if cur_tj is not None:
+                    metrics_snapshot["hailo_junction_temperature_c"] = {
+                        "name": "hailo_junction_temperature_c",
+                        "value": float(cur_tj),
+                        "unit": "celsius",
+                        "category": "hailo",
+                    }
+                    metrics_snapshot["hailo_temperature_c"] = {
+                        "name": "hailo_temperature_c",
+                        "value": float(cur_tj),
+                        "unit": "celsius",
+                        "category": "hailo",
+                    }
+                ts0 = workload_st.get("ts0_c")
+                if ts0 is not None:
+                    metrics_snapshot["hailo_temp_ts0_c"] = {
+                        "name": "hailo_temp_ts0_c",
+                        "value": float(ts0),
+                        "unit": "celsius",
+                        "category": "hailo",
+                    }
+                ts1 = workload_st.get("ts1_c")
+                if ts1 is not None:
+                    metrics_snapshot["hailo_temp_ts1_c"] = {
+                        "name": "hailo_temp_ts1_c",
+                        "value": float(ts1),
+                        "unit": "celsius",
+                        "category": "hailo",
+                    }
+                clk = workload_st.get("clock_frequency_mhz")
+                if clk is not None:
+                    metrics_snapshot["hailo_clock_frequency_mhz"] = {
+                        "name": "hailo_clock_frequency_mhz",
+                        "value": float(clk),
+                        "unit": "megahertz",
+                        "category": "hailo",
+                    }
+                if workload_st.get("throttling_active") is not None:
+                    metrics_snapshot["hailo_throttling_active"] = {
+                        "name": "hailo_throttling_active",
+                        "value": 1.0 if workload_st.get("throttling_active") else 0.0,
+                        "unit": "status",
+                        "category": "hailo",
+                    }
+
             payload = {
                 "type": "telemetry_update",
                 "timestamp_utc": now_utc,

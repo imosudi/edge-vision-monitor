@@ -150,9 +150,68 @@ def get_current_metrics() -> Dict[str, Any]:
     """Latest snapshot of all collected hardware and system metrics."""
     mgr = get_lifecycle_manager()
     if mgr.telemetry_service:
-        return mgr.telemetry_service.get_current_metrics()
-    from app.core.ipc import get_ipc_telemetry_metrics
-    return get_ipc_telemetry_metrics()
+        metrics = mgr.telemetry_service.get_current_metrics()
+    else:
+        from app.core.ipc import get_ipc_telemetry_metrics
+        metrics = get_ipc_telemetry_metrics()
+
+    if metrics is None:
+        metrics = {}
+    else:
+        metrics = dict(metrics)
+
+    workload_st = None
+    if mgr.workload_service:
+        workload_st = mgr.workload_service.get_status()
+    else:
+        from app.core.ipc import get_ipc_workload_status
+        workload_st = get_ipc_workload_status()
+
+    if workload_st and (workload_st.get("active") or workload_st.get("state") in ("running", "starting")):
+        cur_tj = workload_st.get("current_tj_c")
+        if cur_tj is not None:
+            metrics["hailo_junction_temperature_c"] = {
+                "name": "hailo_junction_temperature_c",
+                "value": float(cur_tj),
+                "unit": "celsius",
+                "category": "hailo",
+            }
+            metrics["hailo_temperature_c"] = {
+                "name": "hailo_temperature_c",
+                "value": float(cur_tj),
+                "unit": "celsius",
+                "category": "hailo",
+            }
+        if workload_st.get("ts0_c") is not None:
+            metrics["hailo_temp_ts0_c"] = {
+                "name": "hailo_temp_ts0_c",
+                "value": float(workload_st["ts0_c"]),
+                "unit": "celsius",
+                "category": "hailo",
+            }
+        if workload_st.get("ts1_c") is not None:
+            metrics["hailo_temp_ts1_c"] = {
+                "name": "hailo_temp_ts1_c",
+                "value": float(workload_st["ts1_c"]),
+                "unit": "celsius",
+                "category": "hailo",
+            }
+        if workload_st.get("clock_frequency_mhz") is not None:
+            metrics["hailo_clock_frequency_mhz"] = {
+                "name": "hailo_clock_frequency_mhz",
+                "value": float(workload_st["clock_frequency_mhz"]),
+                "unit": "megahertz",
+                "category": "hailo",
+            }
+        if workload_st.get("throttling_active") is not None:
+            metrics["hailo_throttling_active"] = {
+                "name": "hailo_throttling_active",
+                "value": 1.0 if workload_st.get("throttling_active") else 0.0,
+                "unit": "status",
+                "category": "hailo",
+            }
+
+    return metrics
 
 
 @api_router.get("/metrics/history")
