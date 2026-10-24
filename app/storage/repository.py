@@ -55,8 +55,10 @@ class TelemetryRepository:
         retention_hours: Optional[float] = None,
         prune_interval_seconds: float = 3600.0,
         max_db_size_mb: Optional[float] = 500.0,
+        read_only: bool = False,
     ):
         self._db_path = db_path
+        self._read_only = read_only
         self._batch_size = max(1, batch_size)
         self._flush_interval = max(0.01, flush_interval_seconds)
         self._max_queue_size = max(1, max_queue_size)
@@ -83,8 +85,9 @@ class TelemetryRepository:
         self._last_prune_timestamp_utc: Optional[str] = None
         self._last_prune_summary: Dict[str, Any] = {}
 
-        # Ensure database and WAL mode are initialised
-        init_database(self._db_path)
+        # Ensure database and WAL mode are initialised (writers only)
+        if not self._read_only:
+            init_database(self._db_path)
 
     def start(self) -> None:
         """Start the background batched writer and automated pruning thread."""

@@ -435,6 +435,7 @@ def run_compose(args: argparse.Namespace) -> int:
         remote_exec = (
             f"mkdir -p /tmp/hmon_files /tmp/nnc_utilization && chmod 777 /tmp/hmon_files /tmp/nnc_utilization 2>/dev/null; "
             f"cd {remote_dir} && (git checkout {current_branch} 2>/dev/null || true) && (git fetch origin {current_branch} 2>/dev/null && git reset --hard origin/{current_branch} 2>/dev/null || git pull origin {current_branch} 2>/dev/null || git pull 2>/dev/null || true); "
+            f"mkdir -p data media models && chmod 777 data media models 2>/dev/null; "
             f"if [ -d config/config.yaml ]; then rm -rf config/config.yaml; fi; "
             f"if [ ! -f config/config.yaml ] && [ -f config/config.example.yaml ]; then cp config/config.example.yaml config/config.yaml; fi; "
             f"if [ ! -e /dev/ttyUSB0 ] && grep -q '/dev/ttyUSB0' {compose_filename} 2>/dev/null; then "

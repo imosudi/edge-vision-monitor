@@ -154,7 +154,7 @@ class WorkloadService:
             self._target_temp_c = safe_target_temp
             self._safety_temp_limit_c = safe_safety_limit
             self._simulate = simulate
-            self._stream_count = max(1, min(16, int(stream_count)))
+            self._stream_count = max(1, min(32, int(stream_count)))
             self._buffer_size = max(10, min(500, int(buffer_size)))
             self._media_file = media_file
 
@@ -739,6 +739,7 @@ class WorkloadService:
                 "progress_percent": prog,
                 "target_temp_c": self._target_temp_c,
                 "safety_temp_limit_c": self._safety_temp_limit_c,
+                "stream_count": self._stream_count if self._workload_type in ("B", "C", "D") else None,
                 "current_tj_c": self._current_tj_c,
                 "peak_tj_c": self._peak_tj_c,
                 "ts0_c": self._current_ts0_c,

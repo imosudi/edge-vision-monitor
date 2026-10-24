@@ -125,7 +125,7 @@ services:
       - "/sys:/sys:ro"
       - "/tmp/hmon_files:/tmp/hmon_files:ro"
       - "/tmp/nnc_utilization:/tmp/nnc_utilization:ro"
-      - "./data:/app/data:Z"
+      - "./data:/app/data:z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
       - "./main.py:/app/main.py:ro"
@@ -141,7 +141,7 @@ services:
   # ----------------------------------------------------------------------------
   # 4. Storage Service (SQLite WAL Time-Series & Downsampling Engine)
   # Hardware: None (No device nodes)
-  # Volumes: ./data:/app/data:Z (Persistent database storage)
+  # Volumes: ./data:/app/data:z (Persistent database storage)
   # Failure Domain: Disk write stalls and retention pruning do not induce video jitter
   # ----------------------------------------------------------------------------
   edge-vision-storage:
@@ -158,7 +158,7 @@ services:
       - EVM_SERVER__LOG_LEVEL=INFO
     volumes:
       - "/dev/shm:/dev/shm"
-      - "./data:/app/data:Z"
+      - "./data:/app/data:z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
       - "./main.py:/app/main.py:ro"
@@ -196,7 +196,7 @@ services:
       - "8000:8000"
     volumes:
       - "/dev/shm:/dev/shm"
-      - "./data:/app/data:ro,Z"
+      - "./data:/app/data:z"
       - "./config/config.yaml:/app/config/config.yaml:ro,Z"
       - "./app:/app/app:ro"
       - "./main.py:/app/main.py:ro"

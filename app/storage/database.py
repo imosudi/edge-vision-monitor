@@ -104,35 +104,53 @@ def init_database(db_path: str) -> None:
     Ensure the parent directory exists and execute the schema creation statements.
     Configures SQLite in Write-Ahead-Logging (WAL) mode for concurrent read/write operations.
     """
-    path_obj = Path(db_path)
-    path_obj.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path_obj = Path(db_path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(db_path, timeout=15.0) as conn:
-        conn.executescript(SCHEMA_SQL)
-        # Verify WAL mode is active
-        cur = conn.execute("PRAGMA journal_mode;")
-        row = cur.fetchone()
-        journal_mode = row[0].lower() if row else "unknown"
-        if journal_mode != "wal":
-            logger.warning("Database journal mode is '%s' instead of 'wal'", journal_mode)
-        conn.commit()
+        with sqlite3.connect(db_path, timeout=15.0) as conn:
+            conn.executescript(SCHEMA_SQL)
+            # Verify WAL mode is active
+            cur = conn.execute("PRAGMA journal_mode;")
+            row = cur.fetchone()
+            journal_mode = row[0].lower() if row else "unknown"
+            if journal_mode != "wal":
+                logger.warning("Database journal mode is '%s' instead of 'wal'", journal_mode)
+            conn.commit()
 
-    logger.info("Database initialised in WAL mode at '%s'", db_path)
+        logger.info("Database initialised in WAL mode at '%s'", db_path)
+    except (sqlite3.OperationalError, OSError, PermissionError) as exc:
+        logger.warning("Could not initialise database at '%s' (%s). Continuing in deferred/read-only mode.", db_path, exc)
 
 
-def get_connection(db_path: str) -> sqlite3.Connection:
+def get_connection(db_path: str, read_only: bool = False) -> sqlite3.Connection:
     """
     Get a new configured SQLite connection with row factory, WAL mode, and 10s busy timeout.
-    Enables dictionary-like row access and memory page caching.
+    Enables dictionary-like row access and memory page caching. Supports graceful read_only fallback.
     """
+    if read_only and not os.path.exists(db_path):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.executescript(SCHEMA_SQL)
+        except Exception:
+            pass
+        return conn
+
     conn = sqlite3.connect(db_path, timeout=15.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA busy_timeout = 10000;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA cache_size = -64000;")
-    conn.execute("PRAGMA temp_store = MEMORY;")
+    for pragma_stmt in [
+        "PRAGMA journal_mode = WAL;",
+        "PRAGMA busy_timeout = 10000;",
+        "PRAGMA synchronous = NORMAL;",
+        "PRAGMA foreign_keys = ON;",
+        "PRAGMA cache_size = -64000;",
+        "PRAGMA temp_store = MEMORY;",
+    ]:
+        try:
+            conn.execute(pragma_stmt)
+        except sqlite3.OperationalError:
+            pass
     return conn
 
 

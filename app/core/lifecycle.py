@@ -49,6 +49,7 @@ class ApplicationLifecycleManager:
 
         # 1. Storage Repository (Needed by storage, telemetry, gateway, and all)
         if mode in ("all", "storage", "telemetry", "gateway"):
+            is_gateway = (mode == "gateway")
             self.repository = TelemetryRepository(
                 db_path=self.config.storage.db_path,
                 batch_size=self.config.storage.batch_size,
@@ -58,9 +59,10 @@ class ApplicationLifecycleManager:
                 retention_hours=self.config.storage.retention_hours,
                 prune_interval_seconds=self.config.storage.prune_interval_seconds,
                 max_db_size_mb=self.config.storage.max_db_size_mb,
+                read_only=is_gateway,
             )
-            # Gateway has a read-only volume mount (:ro); dedicated storage service handles writes
-            if mode != "gateway":
+            # Gateway has dedicated storage service handling writes
+            if not is_gateway:
                 self.repository.start()
 
         # 2. Event Service (Needed by event emitters and consumers)

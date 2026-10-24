@@ -111,7 +111,7 @@ class WorkloadStartRequest(BaseModel):
     target_temp_c: Optional[float] = Field(default=100.0, ge=50.0, le=102.0)
     safety_temp_limit_c: Optional[float] = Field(default=102.0, ge=60.0, le=102.0)
     simulate: Optional[bool] = False
-    stream_count: Optional[int] = Field(default=4, ge=1, le=16)
+    stream_count: Optional[int] = Field(default=4, ge=1, le=32)
     buffer_size: Optional[int] = Field(default=120, ge=10, le=500)
     media_file: Optional[str] = None
 
@@ -127,6 +127,7 @@ class WorkloadStatusResponse(BaseModel):
     progress_percent: float = 0.0
     target_temp_c: Optional[float] = None
     safety_temp_limit_c: Optional[float] = None
+    stream_count: Optional[int] = None
     current_tj_c: Optional[float] = None
     peak_tj_c: Optional[float] = None
     ts0_c: Optional[float] = None

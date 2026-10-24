@@ -37,7 +37,7 @@ class MultiStreamSource(BaseVideoSource):
         queue_size: int = 64,
         unthrottled: bool = True,
     ):
-        self._stream_count = max(1, min(16, stream_count))
+        self._stream_count = max(1, min(32, stream_count))
         self._file_paths = file_paths or []
         self._media_dir = os.path.abspath(media_dir)
         self._buffer_size_per_stream = max(10, buffer_size_per_stream)
