@@ -116,7 +116,7 @@ function updateMasterWorkloadButton() {
 
   if (isSelectedRunning) {
     btnInf.className = 'btn btn-danger pulsing-stop';
-    icoInf.textContent = '⏹';
+    icoInf.textContent = '■';
 
     if (activeWorkloadMode === 'workload_suite') {
       const prof = selectedWorkloadType || 'A';
@@ -434,6 +434,21 @@ function handleLiveUpdate(data) {
     } else {
       hailoBadge.className = 'badge warning';
       hailoLabel.textContent = 'Hailo-8L: Missing';
+    }
+  }
+
+  // Synchronise header YOLO11 model badge in real-time
+  const modelBadge = document.getElementById('badge-model');
+  const modelLabel = document.getElementById('label-model');
+  if (modelBadge && modelLabel) {
+    const engSt = inference?.engine_status || {};
+    const isModelReady = Boolean(engSt.ready || (engSt.status === 'READY'));
+    if (isModelReady) {
+      modelBadge.className = 'badge active';
+      modelLabel.textContent = `YOLO11: ${engSt.status || 'READY'}`;
+    } else if (engSt.status && engSt.status !== 'UNINITIALIZED') {
+      modelBadge.className = 'badge warning';
+      modelLabel.textContent = `YOLO11: ${engSt.status}`;
     }
   }
 
@@ -3273,7 +3288,6 @@ function selectWorkloadCard(type) {
     wrapperStreams.style.display = (type === 'B' || type === 'C' || type === 'D') ? 'block' : 'none';
   }
 
-  activeWorkloadMode = 'workload_suite';
   updateMasterWorkloadButton();
 }
 window.selectWorkloadCard = selectWorkloadCard;
