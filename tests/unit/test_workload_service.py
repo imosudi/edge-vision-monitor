@@ -239,7 +239,13 @@ def test_workload_c_safety_abort(workload_env):
     assert "THERMAL_SAFETY_ABORT" in critical_events[0]["type"]
 
 
-def test_workload_d_throttling_simulation(workload_env):
+def test_workload_d_throttling_simulation_full_sequence(workload_env):
+    """
+    Workload D simulation test: verifies full throttle-and-recovery sequence,
+    alert events, governor step-down (400 -> 200 MHz), and hysteresis recovery
+    below 99.0°C without heating the physical device, approaching just below
+    the critical limit to protect the hardware.
+    """
     src_mgr = workload_env["src_mgr"]
     inf_svc = workload_env["inf_svc"]
     tel_svc = workload_env["tel_svc"]
@@ -261,15 +267,224 @@ def test_workload_d_throttling_simulation(workload_env):
         simulate=True,
     )
     assert status["workload_type"] == "D"
+    assert status["active"] is True
+    assert inf_svc.benchmark_mode is True
 
-    # Allow simulation steps to advance temperature
+    # Poll through the two-phase simulation cycle (ramp up to ~101°C, then cooldown to <99°C)
+    throttling_hit = False
+    recovery_hit = False
+    deadline = time.monotonic() + 3.0
+
+    while time.monotonic() < deadline:
+        st = svc.get_status()
+        if st.get("throttling_observed"):
+            throttling_hit = True
+        if st.get("hysteresis_recovered"):
+            recovery_hit = True
+            break
+        time.sleep(0.05)
+
+    assert throttling_hit is True, "Governor throttling was not engaged during simulation ramp"
+    assert recovery_hit is True, "Hysteresis recovery below 99.0°C was not achieved during cooldown"
+
+    live_st = svc.get_status()
+    # 1. Assert governor clock step-down occurred
+    assert live_st["min_clock_mhz"] == 200.0
+    # 2. Assert clock returned to nominal after recovery
+    assert live_st["clock_frequency_mhz"] == 400.0
+    assert live_st["throttling_active"] is False
+    assert live_st["hysteresis_recovered"] is True
+
+    # 3. Assert peak junction temperature approached just below critical limit to protect hardware
+    peak_tj = live_st["peak_tj_c"]
+    assert peak_tj is not None
+    assert 100.0 <= peak_tj < HARD_SAFETY_LIMIT_C, f"Peak {peak_tj}°C must stay below {HARD_SAFETY_LIMIT_C}°C"
+    assert live_st["state"] == "running", "Workload should not abort when remaining below critical safety limit"
+
+    # 4. Assert alert and recovery events were emitted
+    engaged_events = [e for e in evt_svc.events if e["type"] == "THROTTLING_ENGAGED"]
+    assert len(engaged_events) >= 1
+    assert engaged_events[0]["severity"] == "WARNING"
+    assert engaged_events[0]["component"] == "SAFETY"
+
+    recovered_events = [e for e in evt_svc.events if e["type"] == "THROTTLING_RECOVERED"]
+    assert len(recovered_events) >= 1
+    assert recovered_events[0]["severity"] == "INFO"
+    assert recovered_events[0]["component"] == "SAFETY"
+
+    # 5. Stop cleanly and verify trajectory summary audit trail
+    stop_st = svc.stop_workload(reason="Full sequence validated")
+    assert stop_st["active"] is False
+    eval_info = stop_st["session_summary"]["workload_evaluation"]
+    assert eval_info["throttling_observed"] is True
+    assert eval_info["hysteresis_recovered"] is True
+    assert eval_info["safety_abort_triggered"] is False
+    assert eval_info["peak_tj_c"] < HARD_SAFETY_LIMIT_C
+
+
+def test_workload_d_simulation_safety_abort(workload_env):
+    """
+    Workload D simulation test: verifies software's safety abort path when
+    junction temperature breaches the critical limit, protecting hardware.
+    """
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    evt_svc = workload_env["evt_svc"]
+    engine = workload_env["engine"]
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        event_service=evt_svc,
+        trajectory_engine=engine,
+    )
+
+    # Set safety limit below the simulation ramp target (e.g. 98.5°C) to test abort path
+    status = svc.start_workload(
+        workload_type="D",
+        duration_seconds=5.0,
+        safety_temp_limit_c=98.5,
+        simulate=True,
+    )
+    assert status["active"] is True
+
+    # Wait for temperature to exceed 98.5°C and trigger safety abort
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline and svc.get_status()["active"]:
+        time.sleep(0.05)
+
+    final_st = svc.get_status()
+    assert final_st["active"] is False
+    assert final_st["state"] == "aborted"
+    assert "Safety abort triggered" in (final_st["abort_reason"] or "")
+    assert inf_svc.benchmark_mode is False
+
+    # Verify critical event was emitted to alert system
+    abort_events = [e for e in evt_svc.events if e["type"] == "THERMAL_SAFETY_ABORT"]
+    assert len(abort_events) >= 1
+    assert abort_events[0]["severity"] == "CRITICAL"
+
+
+def test_workload_d_hardware_approach_below_critical_limit_and_recovery(workload_env):
+    """
+    Workload D hardware telemetry test: simulates real hardware readings
+    approaching just below the critical limit (101.4°C < 102.0°C) to protect
+    the physical hardware, verifying throttling alert and hysteresis recovery.
+    """
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    tel_svc.tj_c = 55.0
+    tel_svc.clock_mhz = 400.0
+    evt_svc = workload_env["evt_svc"]
+    engine = workload_env["engine"]
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        event_service=evt_svc,
+        trajectory_engine=engine,
+    )
+
+    status = svc.start_workload(
+        workload_type="D",
+        duration_seconds=10.0,
+        safety_temp_limit_c=HARD_SAFETY_LIMIT_C,
+        simulate=False,
+    )
+    assert status["active"] is True
+
+    # 1. Hardware approaches just below the critical limit (101.4°C < 102.0°C)
+    tel_svc.tj_c = 101.4
+    tel_svc.clock_mhz = 200.0
+    tel_svc.throttling_level = 1
+    tel_svc.throttling_active = 1.0
+
     time.sleep(0.3)
     live_st = svc.get_status()
-    assert live_st["current_tj_c"] is not None
-    assert live_st["clock_frequency_mhz"] in (200.0, 400.0)
+    assert live_st["active"] is True, "Must not abort when temperature is strictly below critical limit"
+    assert live_st["throttling_observed"] is True
+    assert live_st["throttling_active"] is True
+    assert live_st["clock_frequency_mhz"] == 200.0
+    assert live_st["peak_tj_c"] == 101.4
 
-    svc.stop_workload()
-    assert svc.get_status()["active"] is False
+    # Verify warning alert was emitted
+    alert_events = [e for e in evt_svc.events if e["type"] == "THROTTLING_ENGAGED"]
+    assert len(alert_events) >= 1
+    assert alert_events[0]["severity"] == "WARNING"
+
+    # 2. Hardware cools down below the hysteresis recovery threshold (< 99.0°C)
+    tel_svc.tj_c = 98.2
+    tel_svc.clock_mhz = 400.0
+    tel_svc.throttling_level = 0
+    tel_svc.throttling_active = 0.0
+
+    time.sleep(0.3)
+    live_st2 = svc.get_status()
+    assert live_st2["hysteresis_recovered"] is True
+    assert live_st2["throttling_active"] is False
+    assert live_st2["clock_frequency_mhz"] == 400.0
+
+    # Verify recovery event was emitted
+    recovery_events = [e for e in evt_svc.events if e["type"] == "THROTTLING_RECOVERED"]
+    assert len(recovery_events) >= 1
+    assert recovery_events[0]["severity"] == "INFO"
+
+    # Stop and verify evaluation summary
+    stop_st = svc.stop_workload(reason="Hardware telemetry verified")
+    assert stop_st["active"] is False
+    eval_info = stop_st["session_summary"]["workload_evaluation"]
+    assert eval_info["throttling_observed"] is True
+    assert eval_info["hysteresis_recovered"] is True
+    assert eval_info["safety_abort_triggered"] is False
+    assert eval_info["peak_tj_c"] == 101.4
+
+
+def test_workload_d_hardware_safety_abort_when_critical_limit_exceeded(workload_env):
+    """
+    Workload D hardware telemetry test: verifies that if real hardware temperature
+    exceeds HARD_SAFETY_LIMIT_C (102.0°C), the safety abort triggers instantly
+    to protect physical silicon.
+    """
+    src_mgr = workload_env["src_mgr"]
+    inf_svc = workload_env["inf_svc"]
+    tel_svc = workload_env["tel_svc"]
+    tel_svc.tj_c = 55.0
+    evt_svc = workload_env["evt_svc"]
+    engine = workload_env["engine"]
+
+    svc = WorkloadService(
+        source_manager=src_mgr,
+        inference_service=inf_svc,
+        telemetry_service=tel_svc,
+        event_service=evt_svc,
+        trajectory_engine=engine,
+    )
+
+    status = svc.start_workload(
+        workload_type="D",
+        duration_seconds=10.0,
+        safety_temp_limit_c=HARD_SAFETY_LIMIT_C,
+        simulate=False,
+    )
+    assert status["active"] is True
+
+    # Hardware exceeds critical safety threshold
+    tel_svc.tj_c = 102.5
+    time.sleep(0.35)
+
+    final_st = svc.get_status()
+    assert final_st["active"] is False
+    assert final_st["state"] == "aborted"
+    assert "Safety abort triggered" in (final_st["abort_reason"] or "")
+    assert inf_svc.benchmark_mode is False
+
+    abort_events = [e for e in evt_svc.events if e["type"] == "THERMAL_SAFETY_ABORT"]
+    assert len(abort_events) >= 1
+    assert abort_events[0]["severity"] == "CRITICAL"
 
 
 def test_trajectory_exports_csv_and_json(workload_env):

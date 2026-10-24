@@ -414,7 +414,7 @@ class WorkloadService:
         Runs at 10 Hz (0.1s interval) for responsive thermal threshold reaction.
         """
         check_interval = 0.1
-        simulated_temp = 50.0
+        simulated_temp = 96.0 if self._workload_type == "D" else 50.0
 
         try:
             while not self._stop_event.is_set():
@@ -501,14 +501,25 @@ class WorkloadService:
             tj = round(sim_temp, 1)
             ts0 = round(sim_temp - 0.5, 1)
             ts1 = round(sim_temp + 0.5, 1)
-            if tj >= 100.0:
-                clock_mhz = 200.0
-                throttling_lvl = 1
-                throttling_act = True
+            # Hysteresis governor logic for simulation:
+            if self._throttling_active:
+                if tj < THROTTLING_RECOVERY_TEMP_C:
+                    throttling_act = False
+                    throttling_lvl = 0
+                    clock_mhz = 400.0
+                else:
+                    throttling_act = True
+                    throttling_lvl = 1
+                    clock_mhz = 200.0
             else:
-                clock_mhz = 400.0
-                throttling_lvl = 0
-                throttling_act = False
+                if tj >= 100.0:
+                    throttling_act = True
+                    throttling_lvl = 1
+                    clock_mhz = 200.0
+                else:
+                    throttling_act = False
+                    throttling_lvl = 0
+                    clock_mhz = 400.0
             fps = 28.5 if not throttling_act else 14.2
         else:
             def _extract(key: str) -> Optional[float]:
@@ -559,6 +570,20 @@ class WorkloadService:
                     self._min_clock_mhz = clock_mhz
 
             if throttling_act:
+                if not self._throttling_observed:
+                    if self._event_service is not None:
+                        try:
+                            self._event_service.emit(
+                                event_type="THROTTLING_ENGAGED",
+                                message=(
+                                    f"Throttling engaged on Hailo-8L: Junction temperature reached {tj:.1f}°C, "
+                                    f"governor clock reduced to {clock_mhz or 200:.0f} MHz"
+                                ),
+                                severity="WARNING",
+                                component="SAFETY",
+                            )
+                        except Exception as e:
+                            logger.debug("Failed emitting throttling engaged event: %s", e)
                 self._throttling_observed = True
 
             # Track hysteresis recovery for Workload D:
@@ -566,6 +591,20 @@ class WorkloadService:
             # with clock stepping back up to nominal.
             if self._throttling_observed and not throttling_act:
                 if tj is not None and tj < THROTTLING_RECOVERY_TEMP_C:
+                    if not self._hysteresis_recovered:
+                        if self._event_service is not None:
+                            try:
+                                self._event_service.emit(
+                                    event_type="THROTTLING_RECOVERED",
+                                    message=(
+                                        f"Thermal hysteresis recovery achieved: Junction temperature dropped "
+                                        f"to {tj:.1f}°C (< {THROTTLING_RECOVERY_TEMP_C:.1f}°C), nominal 400 MHz clock restored"
+                                    ),
+                                    severity="INFO",
+                                    component="SAFETY",
+                                )
+                            except Exception as e:
+                                logger.debug("Failed emitting throttling recovered event: %s", e)
                     self._hysteresis_recovered = True
 
             if fps > 0:
@@ -611,18 +650,35 @@ class WorkloadService:
 
     def _advance_simulation(self, elapsed: float, current_sim_temp: float) -> float:
         """Simulate realistic thermal trajectory curve for software validation."""
-        # Simulated thermal ramp: rises asymptotically toward an equilibrium
-        # For Workload C / D, target near 101.5°C to test threshold detection
-        if self._workload_type in ("C", "D"):
+        if self._workload_type == "D":
+            # For Workload D: Two-phase thermal cycle (ramp to throttling, then cool to recovery)
+            # Ramps toward 101.2°C, approaching just below HARD_SAFETY_LIMIT_C (102.0°C) to protect hardware
+            if not self._throttling_observed:
+                target_equilibrium = 101.2
+                rate = 0.25
+            elif not self._hysteresis_recovered:
+                target_equilibrium = 96.5
+                rate = 0.30
+            else:
+                target_equilibrium = 97.5
+                rate = 0.15
+            delta = (target_equilibrium - current_sim_temp) * rate
+            return current_sim_temp + delta
+        elif self._workload_type == "C":
             target_equilibrium = 101.5
+            rate = 0.08
+            delta = (target_equilibrium - current_sim_temp) * rate * 0.1
+            return current_sim_temp + delta
         elif self._workload_type == "B":
             target_equilibrium = 78.0
+            rate = 0.08
+            delta = (target_equilibrium - current_sim_temp) * rate * 0.1
+            return current_sim_temp + delta
         else:
             target_equilibrium = 65.0
-
-        rate = 0.08  # Thermal rise velocity constant
-        delta = (target_equilibrium - current_sim_temp) * rate * 0.1
-        return current_sim_temp + delta
+            rate = 0.08
+            delta = (target_equilibrium - current_sim_temp) * rate * 0.1
+            return current_sim_temp + delta
 
     def _get_latest_metrics(self) -> Dict[str, Any]:
         """Fetch latest telemetry metrics dictionary from service or IPC."""
