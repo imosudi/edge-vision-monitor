@@ -54,25 +54,63 @@ class VideoFileSource(BaseVideoSource):
         if not self._requested_path:
             return None
 
-        # Guard against path traversal
-        abs_target = os.path.abspath(self._requested_path)
-        # Check if inside media_dir or directly accessible
-        if not abs_target.startswith(self._media_dir) and not os.path.exists(abs_target):
-            # Attempt to look inside media_dir
-            candidate = os.path.join(self._media_dir, os.path.basename(self._requested_path))
-            if os.path.exists(candidate):
-                abs_target = candidate
+        import urllib.parse
+        raw = urllib.parse.unquote(str(self._requested_path)).strip()
+        if not raw or raw.lower() in ("none", "synthetic", "synthetic_fallback"):
+            return None
 
-        if not os.path.exists(abs_target):
+        bname = os.path.basename(raw)
+        allowed_exts = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".webm"}
+
+        # Candidate filename variants (handling spaces <-> underscores)
+        name_variants = [raw, bname, bname.replace("_", " "), bname.replace(" ", "_")]
+        candidate_dirs = [
+            self._media_dir,
+            os.path.abspath(self._media_dir),
+        ]
+        if os.path.basename(self._media_dir) == "media":
+            for extra in ("media", os.path.abspath("media"), "/app/media"):
+                if extra not in candidate_dirs:
+                    candidate_dirs.append(extra)
+        if os.path.dirname(raw):
+            candidate_dirs.append(os.path.dirname(os.path.abspath(raw)))
+
+        found_path: Optional[str] = None
+        for d in candidate_dirs:
+            if not d or not os.path.isdir(d):
+                continue
+            for name in name_variants:
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    found_path = os.path.abspath(p)
+                    break
+            if found_path:
+                break
+
+            # Case-insensitive and whitespace-normalized fuzzy match
+            bname_norm = bname.lower().replace("_", " ").strip()
+            try:
+                for entry in os.listdir(d):
+                    entry_p = os.path.join(d, entry)
+                    if os.path.isfile(entry_p):
+                        if entry.lower().replace("_", " ").strip() == bname_norm:
+                            found_path = os.path.abspath(entry_p)
+                            break
+            except Exception:
+                pass
+            if found_path:
+                break
+
+        if not found_path or not os.path.exists(found_path):
             return None
 
         # Verify extension
-        ext = os.path.splitext(abs_target)[1].lower()
-        if ext not in [".mp4", ".avi", ".mkv", ".mov", ".m4v"]:
+        ext = os.path.splitext(found_path)[1].lower()
+        if ext not in allowed_exts:
             self._error_status = f"Unsupported video file format '{ext}'"
             return None
 
-        return abs_target
+        return found_path
 
     def start(self) -> bool:
         self._resolved_path = self._resolve_and_validate_path()
@@ -85,6 +123,7 @@ class VideoFileSource(BaseVideoSource):
                 self._native_fps = fps_val if fps_val > 0 else float(self._target_fps)
                 self._total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 self._synthetic_mode = False
+                self._error_status = None
                 logger.info(
                     "Opened video file '%s' (%d frames @ %.1f fps)",
                     self._resolved_path,
@@ -92,10 +131,15 @@ class VideoFileSource(BaseVideoSource):
                     self._native_fps,
                 )
             else:
-                logger.warning("Could not open video file '%s'; falling back to synthetic generator", self._resolved_path)
+                self._error_status = f"OpenCV failed to open video file: {self._resolved_path}"
+                logger.warning("Could not open video file '%s'; falling back to synthetic generator: %s", self._resolved_path, self._error_status)
                 self._synthetic_mode = True
         else:
-            logger.info("Video file '%s' not found; using synthetic video generator", self._requested_path)
+            if self._requested_path and self._requested_path not in ("none", "synthetic", ""):
+                self._error_status = f"Video file not found: {self._requested_path}"
+                logger.warning(self._error_status)
+            else:
+                self._error_status = None
             self._synthetic_mode = True
             self._native_fps = float(self._target_fps)
             self._total_frames = 1000

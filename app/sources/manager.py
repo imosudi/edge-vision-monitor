@@ -53,7 +53,11 @@ class VideoSourceManager:
 
         # 3. Check Media Files
         media_files = []
-        candidate_dirs = [self._config.media_dir, "media", "/app/media"]
+        candidate_dirs = [self._config.media_dir]
+        if os.path.basename(self._config.media_dir) == "media":
+            for extra in ("media", "/app/media"):
+                if extra not in candidate_dirs:
+                    candidate_dirs.append(extra)
         for mdir in candidate_dirs:
             if mdir and os.path.isdir(mdir):
                 for ext in ("*.mp4", "*.avi", "*.mkv", "*.mov", "*.m4v"):
@@ -102,9 +106,9 @@ class VideoSourceManager:
             logger.warning("Default source 'usb' could not be started; falling back to video file source...")
             target_type = "file"
 
-        # Auto-discover video file if default path does not exist
+        # Auto-discover video file if default path configured but does not exist
         fpath = self._config.video_file_path
-        if not fpath or not os.path.exists(fpath):
+        if fpath is not None and not os.path.exists(fpath):
             discovered = self.enumerate_sources().get("media_files", [])
             if discovered:
                 fpath = os.path.join(self._config.media_dir, discovered[0])
@@ -155,7 +159,7 @@ class VideoSourceManager:
 
                 elif source_type == "file":
                     fpath = kwargs.get("file_path", self._config.video_file_path)
-                    if not fpath or not os.path.exists(fpath):
+                    if not fpath:
                         discovered = self.enumerate_sources().get("media_files", [])
                         if discovered:
                             fpath = os.path.join(self._config.media_dir, discovered[0])
@@ -219,8 +223,15 @@ class VideoSourceManager:
                 if new_source and new_source.start():
                     self._active_source = new_source
                     self._active_type = source_type
-                    self._source_id = new_id
-                    self._last_error = None
+                    if source_type == "file":
+                        resolved = getattr(new_source, "_resolved_path", None)
+                        if resolved and not getattr(new_source, "_synthetic_mode", False):
+                            self._source_id = f"file:{os.path.basename(resolved)}"
+                        else:
+                            self._source_id = "file:synthetic"
+                    else:
+                        self._source_id = new_id
+                    self._last_error = getattr(new_source, "_error_status", None)
                     logger.info("Successfully switched video source to '%s'", self._source_id)
                     publish_source_status(self.get_status(), self.enumerate_sources())
                     return True
@@ -248,7 +259,11 @@ class VideoSourceManager:
                         if fallback.start():
                             self._active_source = fallback
                             self._active_type = "file"
-                            self._source_id = f"file:{os.path.basename(fallback_path or 'synthetic_fallback')}"
+                            resolved = getattr(fallback, "_resolved_path", None)
+                            if resolved and not getattr(fallback, "_synthetic_mode", False):
+                                self._source_id = f"file:{os.path.basename(resolved)}"
+                            else:
+                                self._source_id = "file:synthetic"
                             publish_source_status(self.get_status(), self.enumerate_sources())
                     return False
 

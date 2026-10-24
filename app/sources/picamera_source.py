@@ -77,13 +77,33 @@ class PiCameraSource(BaseVideoSource):
             return True
 
         except IndexError:
-            self._error_status = f"No Raspberry Pi CSI camera detected at index {self._camera_num}. Verify physical ribbon cable connection and device access (/dev/media*, /dev/dma_heap/*)."
+            self._error_status = f"No Raspberry Pi CSI camera detected at port {self._camera_num}. Verify physical ribbon cable connection to CAM/DISP port and check that camera is enabled."
+            logger.error(self._error_status)
+            self._is_capturing = False
+            return False
+
+        except RuntimeError as re:
+            err_str = str(re)
+            if "no camera" in err_str.lower() or "not found" in err_str.lower() or "device" in err_str.lower():
+                self._error_status = f"No Raspberry Pi CSI camera detected at port {self._camera_num}. Verify ribbon cable connection (contacts facing board)."
+            else:
+                self._error_status = f"Picamera2 runtime error: {re}. If physical CSI camera is absent, switch to 'Video File' or 'USB Camera'."
+            logger.error(self._error_status)
+            self._is_capturing = False
+            return False
+
+        except PermissionError as pe:
+            self._error_status = f"Permission denied accessing camera nodes (/dev/media*, /dev/dma_heap): {pe}. Ensure container has video group and device access."
             logger.error(self._error_status)
             self._is_capturing = False
             return False
 
         except Exception as e:
-            self._error_status = f"Failed to start Picamera2: {e}"
+            err_str = str(e)
+            if "no camera" in err_str.lower() or "not found" in err_str.lower() or "list index" in err_str.lower():
+                self._error_status = f"No Raspberry Pi CSI camera detected at port {self._camera_num}. Verify physical ribbon cable connection to CAM/DISP port."
+            else:
+                self._error_status = f"Failed to start Picamera2: {e}. If no physical camera is attached, use Video File or USB Camera."
             logger.error(self._error_status, exc_info=True)
             self._is_capturing = False
             return False

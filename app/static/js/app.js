@@ -1400,6 +1400,8 @@ function selectSourceTab(type, triggerSwitch = false) {
       switchToFileSource();
     } else if (type === 'usb') {
       switchToUsbSource();
+    } else if (type === 'picamera') {
+      switchToPiCamSource();
     }
   }
 }
@@ -1443,10 +1445,11 @@ async function loadDiscoveredSources() {
       selectSourceTab(data.current_source_type);
     }
 
-    // Reflect currently active video file in dropdown
+    // Reflect currently active video file in dropdown safely
     if (data.current_source_id && data.current_source_id.startsWith('file:')) {
       const activeFile = data.current_source_id.replace(/^file:/, '');
-      if (activeFile && fileSel.querySelector(`option[value="${activeFile}"]`)) {
+      const optMatch = Array.from(fileSel.options).find((o) => o.value === activeFile);
+      if (optMatch) {
         fileSel.value = activeFile;
       }
     }
@@ -1456,20 +1459,37 @@ async function loadDiscoveredSources() {
 }
 
 async function switchToFileSource() {
-  const fileVal = document.getElementById('select-video-file').value;
+  const fileSel = document.getElementById('select-video-file');
+  let fileVal = fileSel ? fileSel.value : '';
+
+  // If no specific file selected yet and media files exist, auto-select first video
+  if (!fileVal && fileSel && fileSel.options.length > 1) {
+    for (let i = 0; i < fileSel.options.length; i++) {
+      if (fileSel.options[i].value) {
+        fileVal = fileSel.options[i].value;
+        fileSel.value = fileVal;
+        break;
+      }
+    }
+  }
+
+  const targetPath = fileVal
+    ? (fileVal.startsWith('media/') || fileVal.startsWith('/app/media/') ? fileVal : `media/${fileVal}`)
+    : null;
+
   try {
     const res = await fetch('/api/v1/video/source', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         source_type: 'file',
-        file_path: fileVal ? `media/${fileVal}` : null,
+        file_path: targetPath,
         loop: true
       })
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Failed to switch to video file' }));
-      alert(`Video file error: ${err.detail}`);
+      alert(`Video file notice: ${err.detail}`);
     }
   } catch (e) {
     console.error('Failed to switch to file source', e);
@@ -1512,16 +1532,25 @@ async function handleVideoUpload(input) {
     const data = await res.json();
     console.log('Video uploaded successfully:', data);
 
-    // Refresh dropdown options and select newly uploaded file
+    // Refresh dropdown options
     await loadDiscoveredSources();
 
     const fileSel = document.getElementById('select-video-file');
     if (fileSel && data.filename) {
+      // Find or create option
+      let optFound = Array.from(fileSel.options).find((o) => o.value === data.filename);
+      if (!optFound) {
+        const newOpt = document.createElement('option');
+        newOpt.value = data.filename;
+        newOpt.textContent = data.filename;
+        fileSel.appendChild(newOpt);
+      }
       fileSel.value = data.filename;
     }
 
-    // Ensure tab is set to file
-    selectSourceTab('file');
+    // Switch tab to file and command immediate preview playback
+    selectSourceTab('file', false);
+    await switchToFileSource();
   } catch (err) {
     console.error('Error during video upload:', err);
     alert(`Error uploading video: ${err.message}`);
@@ -1574,12 +1603,12 @@ async function switchToPiCamSource() {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Failed to activate CSI camera' }));
-      alert(`Pi Camera Notice: ${err.detail}`);
+      alert(`Pi Camera Notice:\n\n${err.detail}\n\nTip: If you do not have a physical CSI camera ribbon cable attached to the Pi 5 CAM port, please select "Video File" or "USB Camera".`);
     } else {
       const data = await res.json();
       if (data.source_info && data.source_info.active_type !== 'picamera') {
         const msg = data.source_info.error_status || 'CSI Camera could not be activated.';
-        alert(`Pi Camera Notice: ${msg}`);
+        alert(`Pi Camera Notice:\n\n${msg}\n\nTip: Verify that the 22-pin ribbon cable is seated firmly in CAM/DISP0 port.`);
       }
     }
   } catch (e) {
