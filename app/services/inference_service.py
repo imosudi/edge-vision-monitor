@@ -118,14 +118,21 @@ class InferenceService:
 
     def start(self) -> bool:
         """Start the background inference loop."""
-        if self._thread and self._thread.is_alive():
-            return True
-
         if not self._engine.is_ready():
             logger.info("Initialising inference engine before start...")
             res = self._engine.initialize()
             if not res.is_valid:
                 logger.warning("Inference engine not ready: %s (%s)", res.error_message, res.status)
+
+        if self._thread and self._thread.is_alive():
+            self._is_running = True
+            publish_engine_status(self._engine.get_status())
+            try:
+                from app.core.ipc import publish_inference_status
+                publish_inference_status(self.get_stats())
+            except Exception:
+                pass
+            return True
 
         self._stop_event.clear()
         self._is_running = True
@@ -135,11 +142,8 @@ class InferenceService:
         self._thread.start()
         publish_engine_status(self._engine.get_status())
         try:
-            publish_inference_frame(
-                jpeg_bytes=self.get_latest_jpeg(),
-                detections=self.get_latest_detections(),
-                stats=self.get_stats(),
-            )
+            from app.core.ipc import publish_inference_status
+            publish_inference_status(self.get_stats())
         except Exception:
             pass
         if self._event_service:
@@ -155,11 +159,8 @@ class InferenceService:
             self._thread.join(timeout=timeout)
         self._thread = None
         try:
-            publish_inference_frame(
-                jpeg_bytes=self.get_latest_jpeg(),
-                detections=self.get_latest_detections(),
-                stats=self.get_stats(),
-            )
+            from app.core.ipc import publish_inference_status
+            publish_inference_status(self.get_stats())
         except Exception:
             pass
         if self._event_service:

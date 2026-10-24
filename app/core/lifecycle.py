@@ -189,17 +189,22 @@ class ApplicationLifecycleManager:
         if self.inference_engine:
             st = self.inference_engine.get_status()
             current_backend = (st.get("backend") or "").lower()
-            if current_backend == backend_lower and (not model_path or model_path == getattr(self.inference_engine, "onnx_path", None)):
-                logger.info("Inference backend '%s' is already active, skipping re-initialisation", backend)
+            engine_ready = self.inference_engine.is_ready()
+            if engine_ready and current_backend == backend_lower and (not model_path or model_path == getattr(self.inference_engine, "onnx_path", None) or model_path == getattr(self.config.model, "hef_path", None)):
+                logger.info("Inference backend '%s' is already active and ready, skipping re-initialisation", backend)
                 self.config.model.active_backend = backend_lower
                 return True
 
         if backend_lower in ("cpu", "onnx"):
+            if model_path:
+                self.config.model.onnx_path = model_path
             from app.inference.engine import ONNXInferenceEngine
             new_engine = ONNXInferenceEngine(self.config.model, onnx_path=model_path)
         elif backend_lower == "hailo":
+            if model_path:
+                self.config.model.hef_path = model_path
             from app.inference.engine import HailoInferenceEngine
-            new_engine = HailoInferenceEngine(self.config.model)
+            new_engine = HailoInferenceEngine(self.config.model, hef_path=model_path)
         elif backend_lower == "mock":
             from app.inference.engine import MockInferenceEngine
             new_engine = MockInferenceEngine(self.config.model)
@@ -403,6 +408,9 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                                     manager.repository.reset_history()
                                 if manager.inference_service:
                                     manager.inference_service.reset_stats()
+                            if manager.inference_engine and not manager.inference_engine.is_ready():
+                                logger.info("Inference engine is not ready on start command, re-initializing...")
+                                manager.inference_engine.initialize()
                             if manager.inference_service:
                                 manager.inference_service.start()
                         elif action == "stop":
@@ -427,6 +435,9 @@ def run_service_worker(service_mode: str, config: Optional[AppConfig] = None) ->
                         if manager.inference_engine:
                             publish_engine_status(manager.inference_engine.get_status())
                         publish_backends_catalog(manager.get_available_backends())
+                        if manager.inference_service:
+                            from app.core.ipc import publish_inference_status
+                            publish_inference_status(manager.inference_service.get_stats())
                 except Exception as ipc_err:
                     logger.debug("Error in inference worker loop: %s", ipc_err)
                 time.sleep(0.02)

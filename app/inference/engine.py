@@ -65,8 +65,15 @@ class BaseInferenceEngine(ABC):
 class HailoInferenceEngine(BaseInferenceEngine):
     """Production Hailo-8L accelerator inference engine using HailoRT."""
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelConfig, hef_path: Optional[str] = None):
         self._config = config
+        from app.inference.model_validation import resolve_hef_path
+        if hef_path:
+            self._config.hef_path = hef_path
+        else:
+            resolved = resolve_hef_path(self._config.hef_path)
+            if resolved and os.path.isfile(resolved):
+                self._config.hef_path = resolved
         self._validation: Optional[ModelValidationResult] = None
         self._vdevice: Any = None
         self._infer_model: Any = None
@@ -76,6 +83,11 @@ class HailoInferenceEngine(BaseInferenceEngine):
         self._is_ready: bool = False
 
     def initialize(self) -> ModelValidationResult:
+        from app.inference.model_validation import resolve_hef_path
+        resolved = resolve_hef_path(self._config.hef_path)
+        if resolved and os.path.isfile(resolved):
+            self._config.hef_path = resolved
+
         self._validation = validate_model_artifacts(
             hef_path=self._config.hef_path,
             labels_path=self._config.labels_path,

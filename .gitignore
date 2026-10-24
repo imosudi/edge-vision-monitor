@@ -233,6 +233,9 @@ models/*.pt
 models/**/*.pt
 !models/**/.gitkeep
 !models/model.hef
+!models/yolo11n.hef
+!models/model.onnx
+!models/yolo11n.onnx
 !models/hailo/**
 !models/onnx/**
 !models/pytorch/**
