@@ -232,6 +232,10 @@ models/**/*.onnx
 models/*.pt
 models/**/*.pt
 !models/**/.gitkeep
+!models/model.hef
+!models/hailo/**
+!models/onnx/**
+!models/pytorch/**
 media/*.mp4
 media/*.avi
 media/*.mkv
