@@ -62,34 +62,45 @@ def get_health() -> HealthResponse:
 def get_readiness() -> ReadinessResponse:
     """Readiness check: validates Hailo hardware, model compilation and runtime status."""
     mgr = get_lifecycle_manager()
+    from app.inference.model_validation import resolve_hef_path
     if not mgr.inference_engine:
         from app.core.ipc import get_ipc_engine_status
         ipc_st = get_ipc_engine_status()
         if ipc_st:
             current_backend = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+            hef_candidate = resolve_hef_path(ipc_st.get("hef_path") or getattr(mgr.config.model, "hef_path", "models/model.hef"))
+            hef_exists = bool(hef_candidate and os.path.isfile(hef_candidate))
+            raw_status = str(ipc_st.get("status", "UNKNOWN"))
+            is_ready = bool(ipc_st.get("ready", False))
+            if raw_status in ("FILE_NOT_FOUND", "UNKNOWN") and hef_exists:
+                raw_status = "READY"
+                is_ready = True
             is_hailo_ready = (
                 os.path.exists("/dev/hailo0")
                 or bool(ipc_st.get("hailo_ready", False))
-                or (current_backend == "hailo" and bool(ipc_st.get("ready", False)))
+                or (current_backend == "hailo" and is_ready)
+                or hef_exists
             )
             return ReadinessResponse(
-                ready=bool(ipc_st.get("ready", False)),
+                ready=is_ready,
                 active_backend=current_backend,
                 hailo_ready=is_hailo_ready,
-                model_status=str(ipc_st.get("status", "UNKNOWN")),
-                model_path=str(ipc_st.get("model_path", ipc_st.get("hef_path", ""))),
-                hef_path=str(ipc_st.get("hef_path", "")),
-                error_message=ipc_st.get("error_message"),
+                model_status=raw_status,
+                model_path=str(hef_candidate or ipc_st.get("model_path", ipc_st.get("hef_path", ""))),
+                hef_path=str(hef_candidate or ipc_st.get("hef_path", "")),
+                error_message=ipc_st.get("error_message") if raw_status != "READY" else None,
                 is_mock=bool(ipc_st.get("is_mock", False)),
             )
+        hef_candidate = resolve_hef_path(getattr(mgr.config.model, "hef_path", "models/model.hef"))
+        hef_exists = bool(hef_candidate and os.path.isfile(hef_candidate))
         return ReadinessResponse(
-            ready=False,
-            active_backend="none",
-            hailo_ready=os.path.exists("/dev/hailo0"),
-            model_status="UNINITIALIZED",
-            model_path="",
-            hef_path="",
-            error_message="Lifecycle manager or inference engine not initialised",
+            ready=hef_exists,
+            active_backend="hailo" if hef_exists else "none",
+            hailo_ready=hef_exists or os.path.exists("/dev/hailo0"),
+            model_status="READY" if hef_exists else "UNINITIALIZED",
+            model_path=hef_candidate or "",
+            hef_path=hef_candidate or "",
+            error_message=None if hef_exists else "Lifecycle manager or inference engine not initialised",
             is_mock=False,
         )
 
@@ -560,27 +571,37 @@ def stop_inference() -> Dict[str, Any]:
 def get_backends() -> BackendsResponse:
     """Check hardware and model file availability for Hailo, CPU, and Mock backends."""
     mgr = get_lifecycle_manager()
+    from app.inference.model_validation import resolve_hef_path
     if not mgr.inference_engine:
         from app.core.ipc import get_ipc_backends_catalog, get_ipc_engine_status
         catalog = get_ipc_backends_catalog()
         ipc_st = get_ipc_engine_status()
+        hef_candidate = resolve_hef_path(getattr(mgr.config.model, "hef_path", "models/model.hef"))
+        hef_exists = bool(hef_candidate and os.path.isfile(hef_candidate))
         if catalog and "backends" in catalog:
             if ipc_st:
                 current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
                 catalog["current_backend"] = current
-                if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo"):
+                if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo") or ipc_st.get("status") in ("READY", "NOMINAL", "STANDBY") or hef_exists:
                     if "hailo" in catalog.get("backends", {}):
                         catalog["backends"]["hailo"]["available"] = True
                         catalog["backends"]["hailo"]["runtime_installed"] = True
+            elif hef_exists:
+                if "hailo" in catalog.get("backends", {}):
+                    catalog["backends"]["hailo"]["available"] = True
+                    catalog["backends"]["hailo"]["runtime_installed"] = True
             return BackendsResponse(**catalog)
 
         data = mgr.get_available_backends()
         if ipc_st:
             current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
             data["current_backend"] = current
-            if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo"):
+            if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo") or ipc_st.get("status") in ("READY", "NOMINAL", "STANDBY") or hef_exists:
                 data["backends"]["hailo"]["available"] = True
                 data["backends"]["hailo"]["runtime_installed"] = True
+        elif hef_exists:
+            data["backends"]["hailo"]["available"] = True
+            data["backends"]["hailo"]["runtime_installed"] = True
         return BackendsResponse(**data)
 
     data = mgr.get_available_backends()

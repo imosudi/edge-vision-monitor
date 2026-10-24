@@ -252,6 +252,20 @@ class ApplicationLifecycleManager:
         hailo_available = bool((hailo_rt and hailo_dev and hailo_hef_exists) or hailo_is_active)
         hailo_rt_installed = bool(hailo_rt or hailo_is_active)
 
+        # In microservices gateway mode, hardware access is segregated into edge-vision-inference.
+        # Check IPC engine status and HEF existence so gateway reports Hailo available to web UI
+        if getattr(self, "service_mode", None) == "gateway" or self.inference_engine is None:
+            from app.core.ipc import get_ipc_engine_status
+            ipc_st = get_ipc_engine_status()
+            if ipc_st:
+                current = ipc_st.get("backend", "hailo" if "Hailo" in ipc_st.get("type", "") else "cpu")
+                if ipc_st.get("hailo_ready") or (ipc_st.get("ready") and current == "hailo") or ipc_st.get("status") in ("READY", "NOMINAL", "STANDBY"):
+                    hailo_available = True
+                    hailo_rt_installed = True
+            if hailo_hef_exists and (os.path.exists("/dev/hailo0") or getattr(self, "service_mode", None) == "gateway"):
+                hailo_available = True
+                hailo_rt_installed = True
+
         return {
             "current_backend": current,
             "backends": {

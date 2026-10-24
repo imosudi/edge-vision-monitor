@@ -442,10 +442,18 @@ function handleLiveUpdate(data) {
   const modelLabel = document.getElementById('label-model');
   if (modelBadge && modelLabel) {
     const engSt = inference?.engine_status || {};
-    const isModelReady = Boolean(engSt.ready || (engSt.status === 'READY'));
+    const isModelReady = Boolean(engSt.ready || (engSt.status === 'READY') || (engSt.status === 'NOMINAL'));
     if (isModelReady) {
       modelBadge.className = 'badge active';
       modelLabel.textContent = `YOLO11: ${engSt.status || 'READY'}`;
+      const bEnd = inference.active_backend || engSt.backend || 'hailo';
+      if (bEnd === 'hailo') {
+        const bH = document.getElementById('btn-backend-hailo');
+        if (bH && bH.disabled) bH.disabled = false;
+      } else if (bEnd === 'cpu') {
+        const bC = document.getElementById('btn-backend-cpu');
+        if (bC && bC.disabled) bC.disabled = false;
+      }
     } else if (engSt.status && engSt.status !== 'UNINITIALIZED') {
       modelBadge.className = 'badge warning';
       modelLabel.textContent = `YOLO11: ${engSt.status}`;
@@ -2240,29 +2248,63 @@ async function loadAvailableBackends() {
     const data = await res.json();
     const btnHailo = document.getElementById('btn-backend-hailo');
     const btnCpu = document.getElementById('btn-backend-cpu');
+    const btnBench = document.getElementById('btn-mode-benchmark');
+    const btnSuite = document.getElementById('btn-mode-workload-suite');
     const btnAuto = document.getElementById('btn-run-auto-benchmark');
     const btnAutoWb = document.getElementById('btn-run-auto-waveform-bench');
 
-    if (btnHailo && data.backends?.hailo) {
-      btnHailo.disabled = !data.backends.hailo.available;
-      if (!data.backends.hailo.available) {
-        btnHailo.title = 'Hailo-8L NPU unavailable (hardware node, driver, or HEF model missing)';
-        if (btnAuto) btnAuto.title = 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
-        if (btnAutoWb) btnAutoWb.title = 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
+    const isHailoAvail = Boolean(data.backends?.hailo?.available);
+    const isCpuAvail = Boolean(data.backends?.cpu?.available);
+
+    // Hailo button disabled ONLY if its corresponding model/inference is unavailable
+    if (btnHailo) {
+      btnHailo.disabled = !isHailoAvail;
+      btnHailo.title = isHailoAvail
+        ? 'Hailo-8L NPU Continuous Inference'
+        : 'Hailo-8L NPU unavailable (hardware node, driver, or HEF model missing)';
+    }
+
+    // CPU button disabled ONLY if its corresponding model/inference is unavailable
+    if (btnCpu) {
+      btnCpu.disabled = !isCpuAvail;
+      btnCpu.title = isCpuAvail
+        ? 'Host CPU (ONNX Runtime) Continuous Inference'
+        : 'CPU ONNX model missing';
+    }
+
+    // Dual Benchmark button disabled ONLY if required model backends cannot run
+    if (btnBench) {
+      btnBench.disabled = !(isHailoAvail && isCpuAvail);
+      if (!isHailoAvail && !isCpuAvail) {
+        btnBench.title = 'Dual Benchmark unavailable (no inference models found)';
+      } else if (!isHailoAvail) {
+        btnBench.title = 'Dual Benchmark requires Hailo-8L NPU accelerator';
+      } else if (!isCpuAvail) {
+        btnBench.title = 'Dual Benchmark requires Host CPU ONNX model';
       } else {
-        btnHailo.title = 'Hailo-8L NPU Accelerator';
-        if (btnAuto) btnAuto.title = 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider';
-        if (btnAutoWb) btnAutoWb.title = 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider';
+        btnBench.title = 'Automated Dual Benchmark (Hailo-8L vs Host CPU)';
       }
     }
 
-    if (btnCpu && data.backends?.cpu) {
-      btnCpu.disabled = !data.backends.cpu.available;
-      if (!data.backends.cpu.available) {
-        btnCpu.title = 'CPU ONNX model missing';
-      } else {
-        btnCpu.title = 'CPU Inference (ONNX Runtime)';
-      }
+    // Workload Suite button disabled ONLY if Hailo-8L is unavailable
+    if (btnSuite) {
+      btnSuite.disabled = !isHailoAvail;
+      btnSuite.title = isHailoAvail
+        ? 'Hailo-8L Throughput & Thermal Stress Workload Suite (Profiles A, B, C, D)'
+        : 'Workload Suite requires Hailo-8L NPU accelerator';
+    }
+
+    if (btnAuto) {
+      btnAuto.disabled = !isHailoAvail;
+      btnAuto.title = isHailoAvail
+        ? 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider'
+        : 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
+    }
+    if (btnAutoWb) {
+      btnAutoWb.disabled = !isHailoAvail;
+      btnAutoWb.title = isHailoAvail
+        ? 'Run Automated Dual Benchmark (Hailo-8L vs Host CPU) based on Detection Time slider'
+        : 'Automated Dual Benchmark requires Hailo-8L NPU (currently unavailable on container runtime)';
     }
 
     if (!isSwitchingBackend) {
@@ -2273,7 +2315,7 @@ async function loadAvailableBackends() {
     const hailoBadge = document.getElementById('badge-hailo');
     const hailoLabel = document.getElementById('label-hailo');
     if (hailoBadge && hailoLabel) {
-      if (data.backends?.hailo?.available) {
+      if (isHailoAvail) {
         hailoBadge.className = 'badge active';
         hailoLabel.textContent = (data.current_backend === 'hailo') ? 'Hailo-8L: Online' : 'Hailo-8L: Ready';
       } else {
